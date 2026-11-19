@@ -21,10 +21,10 @@ _ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 
 def main(argv: Sequence[str] | None = None) -> int:
     # Print the written harnesses or seeds for build.sh to package.
-    parser: Final = argparse.ArgumentParser(description=__doc__)
+    parser: Final[argparse.ArgumentParser] = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["harnesses", "seeds"])
     parser.add_argument("--output", type=Path, required=True)
-    arguments: Final = parser.parse_args(argv)
+    arguments: Final[argparse.Namespace] = parser.parse_args(argv)
     for path in (
         write_harnesses(arguments.output) if arguments.command == "harnesses" else _write_seeds(arguments.output)
     ):

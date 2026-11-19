@@ -14,9 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ._native import (
-    register_js_minify as _register_js_minify,
-)
+from ._native import register_js_minify
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +41,7 @@ class JSMinify:
 
 # Hand the type to the serializer so Minify(minify_js=...) reaches it with a module-state
 # pointer load (speed over a per-call import), not a global; mirrors the other type registers.
-_register_js_minify(JSMinify)
+register_js_minify(JSMinify)
 
 
 __all__ = [

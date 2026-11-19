@@ -131,10 +131,16 @@ emit(
     ),
 })
 
-# text reports twice: raw length and length after collapsing whitespace runs. A party that merely joins nodes without
-# separators differs on the first and agrees on the second, which tells a formatting difference apart from content the
-# parser never produced.
-_PREAMBLE: Final[str] = """\
+
+def _counts(name: str, requirements: tuple[str, ...], body: str, page: Path, workdir: Path) -> dict[str, int]:
+    # Run one party's probe over one page in that party's own venv; an unbuildable party reports nothing.
+    slug = "".join(char if char.isalnum() else "-" for char in name)
+    python = baseline_python(workdir, pgo=False) if name == "turbohtml" else venv_python(workdir, slug, requirements)
+    script = workdir / f"probe-{slug}.py"
+    # text reports twice: raw length and length after collapsing whitespace runs. A party that merely joins nodes
+    # without separators differs on the first and agrees on the second, which tells a formatting difference apart from
+    # content the parser never produced.
+    preamble = """\
 import json, sys
 TEXT = open(sys.argv[1], encoding='utf-8').read()
 def emit(*, elements, anchors, css, text):
@@ -143,18 +149,7 @@ def emit(*, elements, anchors, css, text):
         "text raw": len(text), "text collapsed": len(" ".join(text.split())),
     }))
 """
-
-# a party at zero, or off the median by more than this, is answering a different question rather than differing on
-# whether a comment counts as a node
-_TOLERANCE: Final[float] = 4.0
-
-
-def _counts(name: str, requirements: tuple[str, ...], body: str, page: Path, workdir: Path) -> dict[str, int]:
-    # Run one party's probe over one page in that party's own venv; an unbuildable party reports nothing.
-    slug = "".join(char if char.isalnum() else "-" for char in name)
-    python = baseline_python(workdir, pgo=False) if name == "turbohtml" else venv_python(workdir, slug, requirements)
-    script = workdir / f"probe-{slug}.py"
-    script.write_text(_PREAMBLE + body, "utf-8")
+    script.write_text(preamble + body, "utf-8")
     done = subprocess.run([str(python), str(script), str(page)], capture_output=True, text=True, check=False)
     if done.returncode != 0:
         print(f"  {name}: probe failed, {done.stderr.strip().splitlines()[-1:]}", file=sys.stderr)
@@ -177,6 +172,9 @@ def _print_results(label: str, results: dict[str, dict[str, int]]) -> None:
 
 def _outliers(label: str, results: dict[str, dict[str, int]]) -> list[str]:
     found: list[str] = []
+    # a party at zero, or off the median by more than this, is answering a different question rather than differing on
+    # whether a comment counts as a node
+    tolerance: float = 4.0
     for probe in _probe_names(results):
         # raw text length is a formatting difference: a party that joins runs without separators, or collapses
         # whitespace as pyquery does, reports a different length for identical content. The collapsed length is
@@ -191,7 +189,7 @@ def _outliers(label: str, results: dict[str, dict[str, int]]) -> list[str]:
             value = row.get(probe)
             if value is None:
                 continue
-            if value == 0 or value < middle / _TOLERANCE or value > middle * _TOLERANCE:
+            if value == 0 or value < middle / tolerance or value > middle * tolerance:
                 found.append(f"{label} / {probe}: {name} answered {value} against a median of {middle:.0f}")
     return found
 

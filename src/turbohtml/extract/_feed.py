@@ -12,9 +12,7 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from ._native import (
-    register_feed as _register_feed,
-)
+from ._native import register_feed
 
 
 class Entry(NamedTuple):
@@ -66,7 +64,7 @@ class Feed(NamedTuple):
     entries: tuple[Entry, ...]
 
 
-_register_feed(Feed, Entry)
+register_feed(Feed, Entry)
 
 
 __all__ = [

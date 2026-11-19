@@ -142,10 +142,10 @@ def test_absolute_path_in_a_parsed_fragment_starts_at_the_fragment() -> None:
 
 
 def test_absolute_path_above_a_parsed_fragment_starts_at_the_document_over_it() -> None:
-    fragment: Final = turbohtml.parse_fragment("<p><b>x</b></p>")
+    fragment: Final[Element] = turbohtml.parse_fragment("<p><b>x</b></p>")
     assert fragment.xpath("count(//b/ancestor::node())") == 3  # the p, the fragment, the document it hangs under
     assert fragment.xpath("count(//b/ancestor::node()[/p])") == 2  # from that document /p finds nothing
-    document: Final = fragment.xpath_one("..")
+    document: Final[turbohtml.Node | str | float | None] = fragment.xpath_one("..")
     assert isinstance(document, Document)
     assert tags(document.xpath("//b[/p]")) == ["b"]
 
@@ -175,8 +175,10 @@ def test_absolute_path_in_a_predicate_starts_at_its_context_root(expression: str
 
 
 def _two_roots() -> tuple[Document, Element]:
-    document: Final = parse_xml("<r main='2'><a id='1'><a id='2'/></a><top main='1'><a id='1'/><k/></top></r>")
-    detached: Final = one(document, "//top")
+    document: Final[Document] = parse_xml(
+        "<r main='2'><a id='1'><a id='2'/></a><top main='1'><a id='1'/><k/></top></r>"
+    )
+    detached: Final[Element] = one(document, "//top")
     detached.extract()
     return document, detached
 
@@ -208,7 +210,7 @@ def test_absolute_path_follows_a_context_node_moved_mid_evaluation() -> None:
 )
 def test_absolute_path_in_a_predicate_over_a_deep_tree_stays_linear(expression: str, work_steps: WorkSteps) -> None:
     def build(size: int) -> Callable[[], object]:
-        document: Final = parse_xml("<e>" * size + "</e>" * size)
+        document: Final[Document] = parse_xml("<e>" * size + "</e>" * size)
         return lambda: document.xpath(expression, extensions={(None, "unused"): lambda _context: True})
 
     work_steps.assert_linear(build, (1000, 4000))
@@ -232,15 +234,15 @@ def test_absolute_path_after_a_variable_or_extension_over_a_deep_tree_stays_line
     expression: str, extensions: XPathExtensions | None, work_steps: WorkSteps
 ) -> None:
     def build(size: int) -> Callable[[], object]:
-        document: Final = parse_xml("<e>" * size + "</e>" * size)
-        root: Final = one(document, "/e")
+        document: Final[Document] = parse_xml("<e>" * size + "</e>" * size)
+        root: Final[Element] = one(document, "/e")
         return lambda: document.xpath(expression, other=[root], extensions=extensions)
 
     work_steps.assert_linear(build, (1000, 4000))
 
 
 def test_absolute_path_from_a_deep_context_node_reaches_the_root() -> None:
-    document: Final = parse_xml(f"<r>{_deep_chain(40)}</r>")
+    document: Final[Document] = parse_xml(f"<r>{_deep_chain(40)}</r>")
     assert one(document, "//e[@id='40']").xpath("name(/*)") == "r"
 
 
@@ -249,15 +251,15 @@ def _deep_chain(depth: int) -> str:
 
 
 def test_absolute_path_on_deep_nodes_from_two_roots_keeps_each_root() -> None:
-    document: Final = parse_xml(f"<r>{_deep_chain(40)}<t>{_deep_chain(40)}</t></r>")
-    detached: Final = one(document, "//t")
+    document: Final[Document] = parse_xml(f"<r>{_deep_chain(40)}<t>{_deep_chain(40)}</t></r>")
+    detached: Final[Element] = one(document, "//t")
     detached.extract()
     assert document.xpath("count((//e | $other//e)[/r])", other=[detached]) == 40
 
 
 def test_absolute_path_after_a_callback_detaches_a_deep_ancestor_follows_the_new_root() -> None:
-    document: Final = parse_xml(f"<r>{_deep_chain(80)}</r>")
-    ancestor: Final = one(document, "//e[@id='2']")
+    document: Final[Document] = parse_xml(f"<r>{_deep_chain(80)}</r>")
+    ancestor: Final[Element] = one(document, "//e[@id='2']")
 
     def detach(context: SimpleNamespace) -> bool:
         if context.context_node.attrs["id"] == "70":
@@ -269,10 +271,10 @@ def test_absolute_path_after_a_callback_detaches_a_deep_ancestor_follows_the_new
 
 
 def test_absolute_path_after_a_callback_attaches_a_deep_root_follows_the_new_root() -> None:
-    document: Final = parse_xml(f"<r><t>{_deep_chain(40)}</t></r>")
-    detached: Final = one(document, "//t")
+    document: Final[Document] = parse_xml(f"<r><t>{_deep_chain(40)}</t></r>")
+    detached: Final[Element] = one(document, "//t")
     detached.extract()
-    parent: Final = one(document, "/r")
+    parent: Final[Element] = one(document, "/r")
 
     def attach(context: SimpleNamespace) -> bool:
         if context.context_node.attrs["id"] == "36":
@@ -294,16 +296,16 @@ def test_absolute_path_after_a_callback_attaches_a_deep_root_follows_the_new_roo
 )
 def test_nodes_of_separate_trees_follow_the_order_their_trees_first_appear_in(order: tuple[int, ...]) -> None:
     document, trees = _detached_trees()
-    ids: Final = (("a1", "a2"), ("b1", "b2"), ("c1", "c2"))
+    ids: Final[tuple[tuple[str, str], tuple[str, str], tuple[str, str]]] = (("a1", "a2"), ("b1", "b2"), ("c1", "c2"))
     result = document.xpath("$other//e/@id", other=[trees[index] for index in order])
     assert result == [node_id for index in order for node_id in ids[index]]
 
 
 def _detached_trees() -> tuple[Document, list[Element]]:
-    document: Final = parse_xml(
+    document: Final[Document] = parse_xml(
         "<r><t><e id='a1'/><e id='a2'/></t><t><e id='b1'/><e id='b2'/></t><t><e id='c1'/><e id='c2'/></t></r>"
     )
-    trees: Final = [one(document, f"/r/t[{position}]") for position in (1, 2, 3)]
+    trees: Final[list[Element]] = [one(document, f"/r/t[{position}]") for position in (1, 2, 3)]
     for tree in trees:
         tree.extract()
     return document, trees
@@ -520,16 +522,20 @@ _SHARED_HTML: Final[str] = (
 @pytest.mark.parametrize("contexts", ["//b", "//*", "(//p | //i)", "unordered(//*)", "unordered(//b)"])
 def test_step_from_several_contexts_is_the_union_of_each(contexts: str, axis: str, predicate: str) -> None:
     # several contexts reach the same nodes along these axes; each is kept once, whatever order the contexts come in
-    document: Final = parse(_SHARED_HTML)
-    step: Final = f"{axis}::*{predicate}"
-    order: Final = {node: position for position, node in enumerate(node_list(document.xpath("//*")))}
-    each: Final = {
+    document: Final[Document] = parse(_SHARED_HTML)
+    step: Final[str] = f"{axis}::*{predicate}"
+    order: Final[dict[turbohtml.Node | str | float, int]] = {
+        node: position for position, node in enumerate(node_list(document.xpath("//*")))
+    }
+    each: Final[set[turbohtml.Node | str | float]] = {
         node
         for context in node_list(document.xpath(contexts, extensions={(None, "unordered"): _unordered}))
         if isinstance(context, Element)
         for node in node_list(context.xpath(step))
     }
-    found: Final = document.xpath(f"{contexts}/{step}", extensions={(None, "unordered"): _unordered})
+    found: Final[list[turbohtml.Node | str] | float | str] = document.xpath(
+        f"{contexts}/{step}", extensions={(None, "unordered"): _unordered}
+    )
     assert found == sorted(each, key=order.__getitem__)
 
 
@@ -581,7 +587,7 @@ def _unordered(_context: SimpleNamespace, nodes: list[Element]) -> list[Element]
     ],
 )
 def test_step_from_several_attribute_contexts(expr: str, expected: list[str]) -> None:
-    result: Final = parse(_SHARED_HTML).xpath(expr)
+    result: Final[list[turbohtml.Node | str] | float | str] = parse(_SHARED_HTML).xpath(expr)
     assert [_label(node) for node in node_list(result)] == expected
 
 
@@ -613,10 +619,10 @@ def test_step_from_many_contexts_holds_each_node_once(depth: int, expression: st
     # each context appended its whole axis and the sort dropped the repeats afterwards: 1000 siblings held 8 MB of
     # (node, attribute) pairs for following::b, and 200 levels 4 MB for ancestor::div; PyPy ships no tracemalloc
     tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
-    document: Final = parse("<div>" * depth + '<b x="1"></b>' * 1000 + "</div>" * depth)
+    document: Final[Document] = parse("<div>" * depth + '<b x="1"></b>' * 1000 + "</div>" * depth)
     tracing.start()
     try:
-        found: Final = node_list(document.xpath(expression))
+        found: Final[Sequence[turbohtml.Node | str | float]] = node_list(document.xpath(expression))
         peak: Final[int] = tracing.get_traced_memory()[1]
     finally:
         tracing.stop()
@@ -629,10 +635,10 @@ def test_step_from_unordered_contexts_holds_each_node_once(axis: str) -> None:
     # an extension function hands the contexts over in reverse, so no walk passes the next one and each context gets a
     # walk of its own; the nodes a walk repeats are dropped as it ends instead of held until the sort (8 MB here)
     tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
-    document: Final = parse(f"<div>{'<b></b>' * 1000}</div>")
+    document: Final[Document] = parse(f"<div>{'<b></b>' * 1000}</div>")
     tracing.start()
     try:
-        found: Final = node_list(
+        found: Final[Sequence[turbohtml.Node | str | float]] = node_list(
             document.xpath(f"unordered(//b)/{axis}::b", extensions={(None, "unordered"): _unordered})
         )
         peak: Final[int] = tracing.get_traced_memory()[1]
@@ -643,7 +649,7 @@ def test_step_from_unordered_contexts_holds_each_node_once(axis: str) -> None:
 
 
 def test_error_in_a_predicate_of_a_shared_document_step_propagates() -> None:
-    document: Final = parse("<div><b></b><b></b><b></b></div>")
+    document: Final[Document] = parse("<div><b></b><b></b><b></b></div>")
     with pytest.raises(ValueError, match="unbound variable"):
         document.xpath("//b/following::b[@x = $missing]")
 
@@ -653,16 +659,18 @@ def test_error_in_a_predicate_of_a_shared_document_step_propagates() -> None:
     [pytest.param(1, [1, 2], id="first"), pytest.param(2, [2], id="second")],
 )
 def test_variable_predicate_selects_by_position_for_each_context(number: int, expected: list[int]) -> None:
-    document: Final = parse("<ul><li></li><li></li><li></li></ul>")
-    items: Final = node_list(document.xpath("//li"))
+    document: Final[Document] = parse("<ul><li></li><li></li><li></li></ul>")
+    items: Final[Sequence[turbohtml.Node | str | float]] = node_list(document.xpath("//li"))
     assert document.xpath("//li/following-sibling::li[$n]", n=number) == [items[index] for index in expected]
 
 
 @pytest.mark.parametrize("predicate", ["$n", "two()", "number($n)"])
 def test_number_predicate_selects_by_position_within_each_parent(predicate: str) -> None:
-    document: Final = parse("<ul><li></li><li></li></ul><ul><li></li><li></li></ul>")
-    items: Final = node_list(document.xpath("//li"))
-    found: Final = document.xpath(f"//li[{predicate}]", n=2, extensions={(None, "two"): lambda _context: 2})
+    document: Final[Document] = parse("<ul><li></li><li></li></ul><ul><li></li><li></li></ul>")
+    items: Final[Sequence[turbohtml.Node | str | float]] = node_list(document.xpath("//li"))
+    found: Final[list[turbohtml.Node | str] | float | str] = document.xpath(
+        f"//li[{predicate}]", n=2, extensions={(None, "two"): lambda _context: 2}
+    )
     assert found == [items[1], items[3]]
 
 
@@ -783,17 +791,19 @@ def test_positional_step_from_several_contexts_is_the_union_of_each(
     contexts: str, test: str, axis: str, predicates: str
 ) -> None:
     # contexts sharing a stretch of the axis count positions along their own view of it, as each would alone
-    document: Final = parse(_NESTED_HTML)
-    order: Final = {node: position for position, node in enumerate(node_list(document.xpath("//node()")))}
-    picked: Final = [*element_list(document.xpath("//b"))[1:4], *element_list(document.xpath("//i"))[:2]]
+    document: Final[Document] = parse(_NESTED_HTML)
+    order: Final[dict[turbohtml.Node | str | float, int]] = {
+        node: position for position, node in enumerate(node_list(document.xpath("//node()")))
+    }
+    picked: Final[list[Element]] = [*element_list(document.xpath("//b"))[1:4], *element_list(document.xpath("//i"))[:2]]
 
     def run(expression: str) -> XPathResult:
         return document.xpath(expression, n=2, half=1.5, s="x", flag=True, none=[], v=picked)
 
-    step: Final = f"{axis}::{test}{predicates}"
-    count: Final = run(f"count({contexts})")
+    step: Final[str] = f"{axis}::{test}{predicates}"
+    count: Final[Sequence[turbohtml.Node | str | float] | float] = run(f"count({contexts})")
     assert isinstance(count, float)
-    each: Final = {
+    each: Final[set[turbohtml.Node | str | float]] = {
         node for index in range(1, int(count) + 1) for node in node_list(run(f"({contexts})[{index}]/{step}"))
     }
     assert run(f"{contexts}/{step}") == sorted(each, key=order.__getitem__)
@@ -809,8 +819,10 @@ def element_list(result: XPathResult) -> list[Element]:
 )
 def test_positional_step_from_unordered_contexts(step: str) -> None:
     # an extension function hands the contexts over in reverse with a repeat; the step sorts them before it walks
-    document: Final = parse(_NESTED_HTML)
-    result: Final = document.xpath(f"unordered(//b)/{step}", extensions={(None, "unordered"): _unordered})
+    document: Final[Document] = parse(_NESTED_HTML)
+    result: Final[list[turbohtml.Node | str] | float | str] = document.xpath(
+        f"unordered(//b)/{step}", extensions={(None, "unordered"): _unordered}
+    )
     assert result == document.xpath(f"//b/{step}")
 
 
@@ -827,14 +839,16 @@ def test_positional_step_from_unordered_contexts(step: str) -> None:
 )
 def test_positional_step_from_a_detached_subtree_and_its_document(step: str) -> None:
     # the contexts span two trees, which share no walk; the order between the trees is unspecified
-    document: Final = parse_xml("<r><d><d><e/></d></d><d><e/></d><x><d><d><e/></d></d><d><e/></d></x></r>")
-    detached: Final = node_list(document.xpath("//x"))[0]
+    document: Final[Document] = parse_xml("<r><d><d><e/></d></d><d><e/></d><x><d><d><e/></d></d><d><e/></d></x></r>")
+    detached: Final[turbohtml.Node | str | float] = node_list(document.xpath("//x"))[0]
     assert isinstance(detached, Element)
     detached.extract()
-    inside: Final = element_list(detached.xpath(".//e | .//d"))
-    outside: Final = element_list(document.xpath("//e | //d"))
-    mixed: Final = [node for pair in zip(outside, inside, strict=True) for node in pair]
-    each: Final = {node for context in mixed for node in node_list(context.xpath(step))}
+    inside: Final[list[Element]] = element_list(detached.xpath(".//e | .//d"))
+    outside: Final[list[Element]] = element_list(document.xpath("//e | //d"))
+    mixed: Final[list[Element]] = [node for pair in zip(outside, inside, strict=True) for node in pair]
+    each: Final[set[turbohtml.Node | str | float]] = {
+        node for context in mixed for node in node_list(context.xpath(step))
+    }
     assert set(node_list(document.xpath(f"$v/{step}", v=mixed))) == each
 
 
@@ -920,9 +934,9 @@ _SIBLING_COUNT: Final[int] = 12
 def test_five_disjoint_runs_from_many_contexts_keep_the_odd_offsets() -> None:
     # five ordering runs in one predicate fill the run list past its first capacity; each context keeps the siblings
     # at the odd offsets 1 to 9 from it, and the walks share those members
-    count: Final = 12
-    runs: Final = " or ".join(f"(position() > {low} and position() < {low + 2})" for low in (0, 2, 4, 6, 8))
-    kept: Final = sorted({
+    count: Final[int] = 12
+    runs: Final[str] = " or ".join(f"(position() > {low} and position() < {low + 2})" for low in (0, 2, 4, 6, 8))
+    kept: Final[list[int]] = sorted({
         context + offset for context in range(count) for offset in (1, 3, 5, 7, 9) if context + offset < count
     })
     result = node_list(_siblings(count).xpath(f"//c/following-sibling::c[{runs}]"))
@@ -944,9 +958,9 @@ def _k_attributes(result: XPathResult) -> list[str]:
 )
 def test_node_set_operand_in_a_positional_test_matches_its_value(predicate: str, value_predicate: str) -> None:
     # a node-set compares by the string values of its members, which the per-context evaluation reads as the number 4
-    children: Final = "".join(f'<c k="{index}"/>' for index in range(_SIBLING_COUNT))
-    doc: Final = parse_xml(f"<r><v>4</v>{children}</r>")
-    bound: Final = one(doc, "//v")
+    children: Final[str] = "".join(f'<c k="{index}"/>' for index in range(_SIBLING_COUNT))
+    doc: Final[Document] = parse_xml(f"<r><v>4</v>{children}</r>")
+    bound: Final[Element] = one(doc, "//v")
     result = doc.xpath(f"//c/following-sibling::c[{predicate}]", v=bound)
     expected = doc.xpath(f"//c/following-sibling::c[{value_predicate}]")
     assert _k_attributes(result) == _k_attributes(expected)
@@ -984,7 +998,7 @@ def test_ordering_predicate_over_overlapping_siblings_keeps_its_offsets(
     predicate: str, keep: Callable[[int], bool]
 ) -> None:
     # a predicate of ordering comparisons and arithmetic, with unions of runs, from every context of a shared walk
-    kept: Final = {
+    kept: Final[set[int]] = {
         index + offset for index in range(_SIBLING_COUNT) for offset in range(1, _SIBLING_COUNT - index) if keep(offset)
     }
     result = _siblings(_SIBLING_COUNT).xpath(f"//c/following-sibling::c[{predicate}]")
@@ -993,7 +1007,7 @@ def test_ordering_predicate_over_overlapping_siblings_keeps_its_offsets(
 
 def test_chained_predicates_over_overlapping_siblings_keep_their_offsets() -> None:
     # the second predicate counts the positions the first one kept, in each context's stretch: all but the first
-    expected: Final = sorted({
+    expected: Final[list[int]] = sorted({
         index + offset
         for index in range(_SIBLING_COUNT)
         for offset in sorted(k for k in range(1, _SIBLING_COUNT - index) if k < 2 or k > 4)[1:]
@@ -1792,9 +1806,9 @@ def test_xpath_path_reselects_only_this_element(element: Element) -> None:
     ],
 )
 def test_xpath_path_does_not_write_xpath_syntax_from_a_tag_name(name: str) -> None:
-    document: Final = parse(f'<p id="a">one</p><{name}>two</{name}>')
-    element: Final = document.select("body > :last-child")[0]
-    path: Final = element.xpath_path()
+    document: Final[Document] = parse(f'<p id="a">one</p><{name}>two</{name}>')
+    element: Final[Element] = document.select("body > :last-child")[0]
+    path: Final[str] = element.xpath_path()
     assert (element.tag, path, document.xpath(path)) == (name, "/html/body/*[2]", [element])
 
 
@@ -1811,9 +1825,9 @@ def test_xpath_path_does_not_write_xpath_syntax_from_a_tag_name(name: str) -> No
     ],
 )
 def test_xpath_path_keeps_a_tag_name_that_is_a_name_test(name: str) -> None:
-    document: Final = parse(f"<p>one</p><{name}>two</{name}>")
-    element: Final = document.select("body > :last-child")[0]
-    path: Final = element.xpath_path()
+    document: Final[Document] = parse(f"<p>one</p><{name}>two</{name}>")
+    element: Final[Element] = document.select("body > :last-child")[0]
+    path: Final[str] = element.xpath_path()
     assert (path, document.xpath(path)) == (f"/html/body/{name}", [element])
 
 
@@ -1831,23 +1845,23 @@ def test_xpath_path_of_constructed_tag_name_outside_xpath_names(name: str) -> No
 
 
 def test_xpath_path_of_qualified_xml_names_round_trips() -> None:
-    document: Final = parse_xml('<p:r xmlns:p="urn:p"><p:b/>text<b/><p:b><c/><p:c/></p:b></p:r>')
-    elements: Final = cast("list[Element]", document.xpath("//*"))
-    paths: Final = [element.xpath_path() for element in elements]
+    document: Final[Document] = parse_xml('<p:r xmlns:p="urn:p"><p:b/>text<b/><p:b><c/><p:c/></p:b></p:r>')
+    elements: Final[list[Element]] = cast("list[Element]", document.xpath("//*"))
+    paths: Final[list[str]] = [element.xpath_path() for element in elements]
     assert paths == ["/*[1]", "/*[1]/*[1]", "/*[1]/b", "/*[1]/*[3]", "/*[1]/*[3]/c", "/*[1]/*[3]/*[2]"]
     assert [document.xpath(path) for path in paths] == [[element] for element in elements]
 
 
 def test_xpath_path_positions_count_every_element_sibling_in_any_order() -> None:
-    document: Final = parse("<x|a></x|a>text<b></b><!--c--><x|b></x|b><i></i><x|c></x|c>")
+    document: Final[Document] = parse("<x|a></x|a>text<b></b><!--c--><x|b></x|b><i></i><x|c></x|c>")
     first, plain, second, _, third = document.select("body > *")
     # the last first, so its count walks to the start; then the others stop at a sibling already placed
-    paths: Final = [element.xpath_path() for element in (third, first, second, third, plain)]
+    paths: Final[list[str]] = [element.xpath_path() for element in (third, first, second, third, plain)]
     assert paths == ["/html/body/*[5]", "/html/body/*[1]", "/html/body/*[3]", "/html/body/*[5]", "/html/body/b"]
 
 
 def test_xpath_path_positions_follow_a_mutation() -> None:
-    document: Final = parse("<x|a></x|a><x|b></x|b>")
+    document: Final[Document] = parse("<x|a></x|a><x|b></x|b>")
     first, second = document.select("body > *")
     assert (first.xpath_path(), second.xpath_path()) == ("/html/body/*[1]", "/html/body/*[2]")
     first.decompose()
@@ -1970,7 +1984,7 @@ def test_a_path_tested_for_emptiness_grows_linearly(expression: str, work_steps:
     # Compares the steps for expression with the steps for //p[self::p] on one list of 16,000 p elements. Both visit
     # each p once, so the ratio is near 1 when the walk stops at the first node and grows with the list length
     # otherwise.
-    document: Final = parse(f"<section>{'<p>y' * 16_000}</section>")
+    document: Final[Document] = parse(f"<section>{'<p>y' * 16_000}</section>")
     work_steps.assert_within(partial(document.xpath, expression), partial(document.xpath, "//p[self::p]"), factor=20)
 
 
@@ -2352,13 +2366,13 @@ def test_walk_predicate_grows_linearly(
 )
 @pytest.mark.parametrize("seed", [1, 2, 3])
 def test_walk_predicate_agrees_with_the_plain_walk(expression: str, plain: str, seed: int) -> None:
-    document: Final = _random_document(seed, 400)
+    document: Final[turbohtml.Node] = _random_document(seed, 400)
     for context in _elements(document.xpath("//*")):
-        expected: Final = [node.attr("i") for node in _elements(context.xpath(plain))]
+        expected: Final[list[str | None]] = [node.attr("i") for node in _elements(context.xpath(plain))]
         assert [node.attr("i") for node in _elements(context.xpath(expression))] == expected
         assert context.xpath(f"count({expression})") == len(expected)
         assert context.xpath(f"boolean({expression})") is bool(expected)
-    outer: Final = [node.attr("i") for node in _elements(document.xpath("//*")) if node.xpath(plain)]
+    outer: Final[list[str | None]] = [node.attr("i") for node in _elements(document.xpath("//*")) if node.xpath(plain)]
     assert [node.attr("i") for node in _elements(document.xpath(f"//*[{expression}]"))] == outer
 
 
@@ -2481,7 +2495,7 @@ def _elements(result: XPathResult) -> list[Element]:
     ],
 )
 def test_walk_predicate_on_an_attribute_agrees_with_the_plain_walk(expression: str, plain: str) -> None:
-    document: Final = _random_document(5, 300)
+    document: Final[turbohtml.Node] = _random_document(5, 300)
     assert [str(node) for node in _elements(document.xpath(expression))] == [
         str(node) for node in _elements(document.xpath(plain))
     ]
@@ -2510,7 +2524,7 @@ def test_walk_predicate_on_an_attribute_agrees_with_the_plain_walk(expression: s
 def test_positional_selection_raises_what_the_plain_walk_raises(
     expression: str, error: type[Exception], message: str
 ) -> None:
-    document: Final = _random_document(6, 60)
+    document: Final[turbohtml.Node] = _random_document(6, 60)
     with pytest.raises(error, match=message):
         document.xpath(expression)
 
@@ -2533,7 +2547,7 @@ def test_positional_selection_raises_what_the_plain_walk_raises(
     ],
 )
 def test_last_selection_on_an_attribute_agrees_with_the_plain_walk(markup: str, expression: str, plain: str) -> None:
-    document: Final = parse_xml(markup)
+    document: Final[Document] = parse_xml(markup)
     assert [str(node) for node in _elements(document.xpath(expression))] == [
         str(node) for node in _elements(document.xpath(plain))
     ]
@@ -2557,7 +2571,7 @@ def test_last_selection_on_an_attribute_agrees_with_the_plain_walk(markup: str, 
     ],
 )
 def test_walk_predicate_falls_back_to_the_plain_walk(expression: str, plain: str) -> None:
-    document: Final = _random_document(4, 300)
+    document: Final[turbohtml.Node] = _random_document(4, 300)
     extensions: Final[XPathExtensions] = {(None, "sign"): lambda _ctx: False}
     assert [str(node) for node in _elements(document.xpath(expression, extensions=extensions))] == [
         str(node) for node in _elements(document.xpath(plain, extensions=extensions))
@@ -2565,7 +2579,7 @@ def test_walk_predicate_falls_back_to_the_plain_walk(expression: str, plain: str
 
 
 def test_positional_selection_with_an_extension_that_no_predicate_calls_agrees_with_the_plain_walk() -> None:
-    document: Final = _random_document(4, 300)
+    document: Final[turbohtml.Node] = _random_document(4, 300)
     extensions: Final[XPathExtensions] = {(None, "sign"): lambda _ctx: False}
     assert [str(node) for node in _elements(document.xpath("//a[ancestor::b[2]]", extensions=extensions))] == [
         str(node)
@@ -2574,25 +2588,25 @@ def test_positional_selection_with_an_extension_that_no_predicate_calls_agrees_w
 
 
 def _siblings(count: int) -> Document:
-    children: Final = "".join(f'<c k="{index}"/>' for index in range(count))
+    children: Final[str] = "".join(f'<c k="{index}"/>' for index in range(count))
     return parse_xml(f"<r>{children}</r>")
 
 
 def _chain(depth: int) -> Document:
-    opened: Final = "".join(f'<d k="{index}"><e/>' for index in range(1, depth + 1))
+    opened: Final[str] = "".join(f'<d k="{index}"><e/>' for index in range(1, depth + 1))
     return parse_xml(f"<r>{opened}{'</d>' * depth}</r>")
 
 
 def _groups(count: int) -> Document:
-    children: Final = "<c/>" * count
+    children: Final[str] = "<c/>" * count
     return parse_xml(f"<r>{f'<g><h>{children}</h>{children}</g>' * count}</r>")
 
 
 def _clustered(count: int) -> Document:
     # The creation-sequence table places a node at its sequence times 0x61C88647 scaled to the table, so members whose
     # products fall in the lowest eighth of the range crowd one eighth of it and every probe walks that crowd.
-    members: Final = {index for index in range(count * 8) if index * 0x61C88647 % 2**32 < 2**29}
-    children: Final = "".join("<b/>" if index in members else "<x/>" for index in range(count * 8))
+    members: Final[set[int]] = {index for index in range(count * 8) if index * 0x61C88647 % 2**32 < 2**29}
+    children: Final[str] = "".join("<b/>" if index in members else "<x/>" for index in range(count * 8))
     return parse_xml(f"<r>{children}<c/><c/></r>")
 
 
@@ -2630,14 +2644,14 @@ def _element_ancestors(node: Element) -> list[Element]:
     ],
 )
 def test_variable_node_set_in_document_order(build: Callable[[], Document], picks: list[int]) -> None:
-    document: Final = build()
-    elements: Final = element_list(document.xpath("//*"))
-    nodes: Final = [elements[index] for index in picks]
+    document: Final[Document] = build()
+    elements: Final[list[Element]] = element_list(document.xpath("//*"))
+    nodes: Final[list[Element]] = [elements[index] for index in picks]
     assert XPath("$v")(document, v=nodes) == _in_document_order(document, nodes)
 
 
 def _in_document_order(document: turbohtml.Node, nodes: Iterable[turbohtml.Node]) -> list[turbohtml.Node]:
-    position: Final = {node: index for index, node in enumerate(document.descendants)}
+    position: Final[dict[turbohtml.Node, int]] = {node: index for index, node in enumerate(document.descendants)}
     return sorted(set(nodes), key=position.__getitem__)
 
 
@@ -2659,16 +2673,18 @@ def _in_document_order(document: turbohtml.Node, nodes: Iterable[turbohtml.Node]
 def test_shuffled_node_sets_union_in_document_order(
     build: Callable[[], Document], expression: str, selects: Callable[[Element], list[Element]]
 ) -> None:
-    document: Final = build()
-    elements: Final = element_list(document.xpath("//*"))
-    first: Final = _shuffled(elements[1:], 300, 1)
-    second: Final = _shuffled(elements[1:], 200, 2)
-    expected: Final = _in_document_order(document, [*(found for node in first for found in selects(node)), *second])
+    document: Final[Document] = build()
+    elements: Final[list[Element]] = element_list(document.xpath("//*"))
+    first: Final[list[Element]] = _shuffled(elements[1:], 300, 1)
+    second: Final[list[Element]] = _shuffled(elements[1:], 200, 2)
+    expected: Final[list[turbohtml.Node]] = _in_document_order(
+        document, [*(found for node in first for found in selects(node)), *second]
+    )
     assert XPath(expression)(document, v=first + first[:20], w=second) == expected
 
 
 def _shuffled(nodes: Sequence[Element], count: int, offset: int) -> list[Element]:
-    picked: Final = list(nodes[offset :: max(1, len(nodes) // count)])
+    picked: Final[list[Element]] = list(nodes[offset :: max(1, len(nodes) // count)])
     return [picked[index * 7919 % len(picked)] for index in range(len(picked))]
 
 
@@ -2683,29 +2699,37 @@ def _shuffled(nodes: Sequence[Element], count: int, offset: int) -> list[Element
 def test_union_merge_past_the_walk_budget(
     build: Callable[[], Document], first: list[int], second: list[int], expected: list[int]
 ) -> None:
-    document: Final = build()
-    elements: Final = element_list(document.xpath("//*"))
-    result: Final = XPath("$v | $w")(document, v=[elements[i] for i in first], w=[elements[i] for i in second])
+    document: Final[Document] = build()
+    elements: Final[list[Element]] = element_list(document.xpath("//*"))
+    result: Final[list[turbohtml.Node | str] | float | str] = XPath("$v | $w")(
+        document, v=[elements[i] for i in first], w=[elements[i] for i in second]
+    )
     assert result == [elements[index] for index in expected]
 
 
 @pytest.mark.parametrize("expression", ["/ | (//e)[3]", "(//e)[3] | /"])
 def test_union_with_the_document_node(expression: str) -> None:
-    document: Final = _chain(5)
+    document: Final[Document] = _chain(5)
     assert document.xpath(expression) == [document, node_list(document.xpath("//e"))[2]]
 
 
 # Detached subtrees of one tree have no common ancestor, so the order between them is undefined; only membership holds.
 def test_node_set_across_detached_subtrees_keeps_every_node() -> None:
-    document: Final = _groups(30)
-    groups: Final = element_list(document.xpath("/r/g"))
+    document: Final[Document] = _groups(30)
+    groups: Final[list[Element]] = element_list(document.xpath("/r/g"))
     for group in groups[:2]:
         group.extract()
-    second_children: Final = [child for child in groups[1].children if isinstance(child, Element)]
-    leaves: Final = [*element_list(document.xpath("//c")), *element_list(XPath("//c")(groups[0])), *second_children]
-    nodes: Final = _shuffled(leaves, 400, 3)
+    second_children: Final[list[Element]] = [child for child in groups[1].children if isinstance(child, Element)]
+    leaves: Final[list[Element]] = [
+        *element_list(document.xpath("//c")),
+        *element_list(XPath("//c")(groups[0])),
+        *second_children,
+    ]
+    nodes: Final[list[Element]] = _shuffled(leaves, 400, 3)
     assert Counter(node_list(XPath("$v")(document, v=nodes))) == Counter(nodes)
-    expected: Final = {ancestor for node in nodes for ancestor in _element_ancestors(node) if ancestor.tag == "g"}
+    expected: Final[set[Element]] = {
+        ancestor for node in nodes for ancestor in _element_ancestors(node) if ancestor.tag == "g"
+    }
     assert set(node_list(XPath("$v/ancestor::g")(document, v=nodes))) == expected
 
 
@@ -2720,7 +2744,7 @@ def test_node_set_across_detached_subtrees_keeps_every_node() -> None:
     ],
 )
 def test_ancestor_step_from_nested_contexts(expression: str, expected: str) -> None:
-    document: Final = _chain(300)
+    document: Final[Document] = _chain(300)
     assert document.xpath(expression) == document.xpath(expected)
 
 
@@ -2751,17 +2775,17 @@ def test_ancestor_step_from_nested_contexts(expression: str, expected: str) -> N
 def test_reverse_axis_from_one_node_in_document_order(
     build: Callable[[], Document], expression: str, expected: Callable[[list[Element]], list[Element]]
 ) -> None:
-    document: Final = build()
+    document: Final[Document] = build()
     assert document.xpath(expression) == expected(element_list(document.xpath("//*")))
 
 
 def test_union_after_a_callback_reorders_the_tree() -> None:
-    document: Final = _siblings(600)
-    root: Final = node_list(document.xpath("/r"))[0]
+    document: Final[turbohtml.Node] = _siblings(600)
+    root: Final[turbohtml.Node | str | float] = node_list(document.xpath("/r"))[0]
     assert isinstance(root, Element)
-    children: Final = element_list(document.xpath("/r/c"))
-    first: Final = _shuffled(children, 300, 0)
-    second: Final = _shuffled(children, 200, 1)
+    children: Final[list[Element]] = element_list(document.xpath("/r/c"))
+    first: Final[list[Element]] = _shuffled(children, 300, 0)
+    second: Final[list[Element]] = _shuffled(children, 200, 1)
     calls: Final[list[None]] = []
 
     def reverse(_context: SimpleNamespace) -> bool:
@@ -2772,8 +2796,8 @@ def test_union_after_a_callback_reorders_the_tree() -> None:
         calls.append(None)
         return True
 
-    before: Final = _in_document_order(document, second)
-    result: Final = document.xpath(
+    before: Final[list[turbohtml.Node]] = _in_document_order(document, second)
+    result: Final[list[turbohtml.Node | str] | float | str] = document.xpath(
         "$v[reverse() and false()] | $w", extensions={(None, "reverse"): reverse}, v=first, w=second
     )
     assert result == before[::-1]
@@ -2821,7 +2845,7 @@ def test_predicate_from_many_contexts_grows_linearly(
 
 def _comb(depth: int) -> Document:
     # each level opens with a leaf, so every context's preceding axis meets one leaf per level above it
-    opened: Final = "".join(f'<d k="{index % 3}"><f/>' for index in range(1, depth + 1))
+    opened: Final[str] = "".join(f'<d k="{index % 3}"><f/>' for index in range(1, depth + 1))
     return parse_xml(f"<r>{opened}{'</d>' * depth}</r>")
 
 
@@ -2851,7 +2875,7 @@ def test_positional_predicate_from_many_contexts_grows_linearly(
 
 
 def test_clustered_members_come_back_in_document_order() -> None:
-    document: Final = _clustered(200)
+    document: Final[Document] = _clustered(200)
     assert document.xpath("//c/preceding-sibling::b") == document.xpath("//b")
 
 
@@ -2886,19 +2910,23 @@ def test_clustered_members_come_back_in_document_order() -> None:
     ],
 )
 def test_a_path_tested_for_emptiness_agrees_with_its_count(context: str, path: str) -> None:
-    document: Final = parse_xml(
+    document: Final[Document] = parse_xml(
         '<r><b x="1"><i/>t<b><i x="2"/><b/></b></b><i><b/><!--c--></i><a><b x="3"/><i/><b><i/></b></a><i x="4"/></r>'
     )
-    nodes: Final = document.select("i")
-    checks: Final = (
+    nodes: Final[list[Element]] = document.select("i")
+    checks: Final[tuple[tuple[str, str], ...]] = (
         (path, f"count({path}) > 0"),
         (f"not({path})", f"count({path}) = 0"),
         (f"boolean({path})", f"count({path}) > 0"),
         (f"{path} and @x", f"count({path}) > 0 and @x"),
         (f"@x or {path}", f"@x or count({path}) > 0"),
     )
-    tested: Final = [document.xpath(f"{context}[{test}]", nodes=nodes) for test, _ in checks]
-    counted: Final = [document.xpath(f"{context}[{count}]", nodes=nodes) for _, count in checks]
+    tested: Final[list[list[turbohtml.Node | str] | float | str]] = [
+        document.xpath(f"{context}[{test}]", nodes=nodes) for test, _ in checks
+    ]
+    counted: Final[list[list[turbohtml.Node | str] | float | str]] = [
+        document.xpath(f"{context}[{count}]", nodes=nodes) for _, count in checks
+    ]
     assert tested == counted
     assert document.xpath(f"boolean({path})", nodes=nodes) is document.xpath(f"count({path}) > 0", nodes=nodes)
 
@@ -3053,7 +3081,7 @@ def test_nesting_on_the_smallest_thread_stack_raises_cleanly(opening: str, inner
 def test_numeric_node_set_comparison(
     left: tuple[str, ...], right: tuple[str, ...], operation: str, compare: Callable[[float, float], bool]
 ) -> None:
-    document: Final = parse_xml(
+    document: Final[Document] = parse_xml(
         f"<root>{''.join(f'<left>{value}</left>' for value in left)}"
         f"{''.join(f'<right>{value}</right>' for value in right)}</root>"
     )
@@ -3067,7 +3095,7 @@ def test_numeric_node_set_comparison(
     "operation", [pytest.param("intersection", id="intersection"), pytest.param("difference", id="difference")]
 )
 def test_set_filter_preserves_nodes(size: int, operation: str) -> None:
-    document: Final = parse_xml(
+    document: Final[Document] = parse_xml(
         f"""<root>{"".join(f'<item id="{index}">same</item>' for index in range(size))}</root>"""
     )
     assert document.xpath(f"set:{operation}(//item, //item[position() mod 2 = 0])/@id") == [
@@ -3079,7 +3107,7 @@ def test_set_filter_preserves_nodes(size: int, operation: str) -> None:
     "operation", [pytest.param("intersection", id="intersection"), pytest.param("difference", id="difference")]
 )
 def test_set_filter_distinguishes_attributes(operation: str) -> None:
-    document: Final = parse_xml(f"""<root>{'<item a="same" b="same"/>' * 64}</root>""")
+    document: Final[Document] = parse_xml(f"""<root>{'<item a="same" b="same"/>' * 64}</root>""")
     assert document.xpath(f"set:{operation}(//item/@*, //item/@a)") == ["same"] * 64
 
 
@@ -3089,12 +3117,14 @@ def test_set_filter_distinguishes_attributes(operation: str) -> None:
     [pytest.param("//right/item", False, id="disjoint"), pytest.param("//item", True, id="first-overlap")],
 )
 def test_sets_share_a_node(size: int, right: str, *, overlap: bool) -> None:
-    document: Final = parse_xml(f"<root><left>{'<item/>' * size}</left><right>{'<item/>' * size}</right></root>")
+    document: Final[Document] = parse_xml(
+        f"<root><left>{'<item/>' * size}</left><right>{'<item/>' * size}</right></root>"
+    )
     assert document.xpath(f"set:has-same-node(//left/item, {right})") is (overlap and size > 0)
 
 
 def test_sets_share_a_later_node() -> None:
-    document: Final = parse_xml(f"<root>{'<item/>' * 64}</root>")
+    document: Final[Document] = parse_xml(f"<root>{'<item/>' * 64}</root>")
     assert document.xpath("set:has-same-node(//item, //item[position() > 32])") is True
 
 
@@ -3135,7 +3165,7 @@ def test_union_orders_extension_results(expression: str, selector: str) -> None:
 def test_node_set_value_comparison(
     left: tuple[str, ...], right: tuple[str, ...], expected: tuple[bool, bool], operation: str, index: int
 ) -> None:
-    document: Final = parse_xml(
+    document: Final[Document] = parse_xml(
         f"<root>{''.join(f'<left>{value}</left>' for value in left)}"
         f"{''.join(f'<right>{value}</right>' for value in right)}</root>"
     )
@@ -3143,12 +3173,12 @@ def test_node_set_value_comparison(
 
 
 def test_comparison_uses_attribute_values() -> None:
-    document: Final = parse_xml(f"""<root>{'<item left="same" right="same"/>' * 32}</root>""")
+    document: Final[Document] = parse_xml(f"""<root>{'<item left="same" right="same"/>' * 32}</root>""")
     assert document.xpath("//item/@left = //item/@right") is True
 
 
 def test_comparison_uses_descendant_text() -> None:
-    document: Final = parse_xml(f"<root>{'<left>a<b>b</b>c</left><right>abc</right>' * 32}</root>")
+    document: Final[Document] = parse_xml(f"<root>{'<left>a<b>b</b>c</left><right>abc</right>' * 32}</root>")
     assert document.xpath("//left = //right") is True
 
 
@@ -3156,7 +3186,7 @@ def test_comparison_uses_descendant_text() -> None:
     "selection", [pytest.param("//item", id="elements"), pytest.param("//item/@value", id="attributes")]
 )
 def test_comparison_same_nodes(selection: str) -> None:
-    document: Final = parse_xml(f"""<root>{'<item value="same">same</item>' * 32}</root>""")
+    document: Final[Document] = parse_xml(f"""<root>{'<item value="same">same</item>' * 32}</root>""")
     assert document.xpath(f"{selection} = {selection}") is True
 
 
@@ -3390,8 +3420,8 @@ def test_node_set_variable_rejects_bad_node_sets(
 def test_node_set_variable_iterable_moving_the_context_node_to_another_tree(
     evaluate: Callable[[Element, Iterator[Element]], object],
 ) -> None:
-    fragment: Final = parse_fragment("<p><a>one</a></p>")
-    host: Final = Element("div")
+    fragment: Final[Element] = parse_fragment("<p><a>one</a></p>")
+    host: Final[Element] = Element("div")
 
     def anchors() -> Iterator[Element]:
         yield from fragment.select("a")
@@ -3515,17 +3545,17 @@ _LXML_SCALAR_EXPRS: Final[list[str]] = [expr for expr in _LXML_EXPRS if expr.sta
 @pytest.mark.parametrize("doc_name", list(_LXML_DOCS), ids=list(_LXML_DOCS))
 @pytest.mark.oracle
 def test_matches_lxml(doc_name: str, expr: str) -> None:
-    lxml_html: Final = pytest.importorskip("lxml.html")
-    html: Final = _LXML_DOCS[doc_name]
-    ours: Final = _root_element(html).xpath(expr)
+    lxml_html: Final[ModuleType] = pytest.importorskip("lxml.html")
+    html: Final[str] = _LXML_DOCS[doc_name]
+    ours: Final[list[turbohtml.Node | str] | float | str] = _root_element(html).xpath(expr)
     assert isinstance(ours, list)
-    theirs: Final = lxml_html.document_fromstring(html).xpath(expr)
+    theirs = lxml_html.document_fromstring(html).xpath(expr)
     assert _normalize_lxml(ours) == _normalize_lxml(theirs)
 
 
 def _root_element(html: str) -> Element:
     # lxml evaluates XPath from the root element, not the document node, so the turbohtml side does too.
-    root: Final = parse(html).root
+    root: Final[Element | None] = parse(html).root
     assert root is not None
     return root
 
@@ -3537,7 +3567,7 @@ def _normalize_lxml(result: Iterable[turbohtml.Node | str]) -> list[str]:
         if isinstance(item, str):
             out.append(item)
         else:
-            tag: Final = getattr(item, "tag", None)
+            tag = getattr(item, "tag", None)
             out.append(tag if isinstance(tag, str) else f"<{type(item).__name__}>")
     return out
 
@@ -3546,8 +3576,8 @@ def _normalize_lxml(result: Iterable[turbohtml.Node | str]) -> list[str]:
 @pytest.mark.parametrize("doc_name", list(_LXML_DOCS), ids=list(_LXML_DOCS))
 @pytest.mark.oracle
 def test_matches_lxml_scalar(doc_name: str, expr: str) -> None:
-    lxml_html: Final = pytest.importorskip("lxml.html")
-    html: Final = _LXML_DOCS[doc_name]
+    lxml_html: Final[ModuleType] = pytest.importorskip("lxml.html")
+    html: Final[str] = _LXML_DOCS[doc_name]
     assert _root_element(html).xpath(expr) == lxml_html.document_fromstring(html).xpath(expr)
 
 
@@ -3567,11 +3597,11 @@ def test_matches_lxml_scalar(doc_name: str, expr: str) -> None:
     ],
 )
 def test_node_test_never_yields_doctype(expr: str) -> None:
-    html: Final = "<!doctype html><html><body><p>x</p></body></html>"
-    doc: Final = parse(html)
-    doctype: Final = next(child for child in doc.children if isinstance(child, Doctype))
+    html: Final[str] = "<!doctype html><html><body><p>x</p></body></html>"
+    doc: Final[Document] = parse(html)
+    doctype: Final[Doctype] = next(child for child in doc.children if isinstance(child, Doctype))
     for context in (doc, _root_element(html), doctype):
-        selected: Final = context.xpath(expr)
+        selected: Final[list[turbohtml.Node | str] | float | str] = context.xpath(expr)
         assert isinstance(selected, list)
         assert [node for node in selected if isinstance(node, Doctype)] == []
 
@@ -3618,7 +3648,7 @@ def _union_method(
 @pytest.mark.parametrize("smart", [pytest.param(False, id="plain"), pytest.param(True, id="smart")])
 @pytest.mark.parametrize("change", ["replace", "remove", "readd", "unrelated"])
 def test_xpath_callback_attribute_union(*, evaluate: _UnionEvaluate, smart: bool, change: str) -> None:
-    source: Final = Element("section", {"id": "old", "other": "value"})
+    source: Final[Element] = Element("section", {"id": "old", "other": "value"})
 
     def mutate(_context: SimpleNamespace) -> list[Element]:
         if change in {"remove", "readd"}:
@@ -3635,7 +3665,7 @@ def test_xpath_callback_attribute_union(*, evaluate: _UnionEvaluate, smart: bool
 
 @pytest.mark.parametrize("change", ["replace", "remove", "readd", "unrelated"])
 def test_xpath_callback_attribute_union_smart_owner(change: str) -> None:
-    source: Final = Element("section", {"id": "old", "other": "value"})
+    source: Final[Element] = Element("section", {"id": "old", "other": "value"})
 
     def mutate(_context: SimpleNamespace) -> list[Element]:
         if change in {"remove", "readd"}:
@@ -3665,7 +3695,7 @@ def test_xpath_callback_attribute_union_smart_owner(change: str) -> None:
     ],
 )
 def test_xpath_callback_attribute_consumers(expression: str, *, expected: str | bool | list[str]) -> None:
-    source: Final = Element("section", {"id": "old"})
+    source: Final[Element] = Element("section", {"id": "old"})
 
     def mutate(_context: SimpleNamespace) -> list[Element]:
         source.attrs["id"] = "new"
@@ -3675,7 +3705,7 @@ def test_xpath_callback_attribute_consumers(expression: str, *, expected: str | 
 
 
 def test_xpath_callback_translate_uses_prior_attribute_value() -> None:
-    source: Final = Element("section", {"id": "old"})
+    source: Final[Element] = Element("section", {"id": "old"})
 
     def mutate(_context: SimpleNamespace) -> str:
         assert source.xpath("string(@id)") == "old"
@@ -3687,14 +3717,16 @@ def test_xpath_callback_translate_uses_prior_attribute_value() -> None:
 
 @pytest.mark.parametrize("smart", [pytest.param(False, id="plain"), pytest.param(True, id="smart")])
 def test_xpath_callback_adopted_pending_owner(*, smart: bool) -> None:
-    source: Final = Element("section", {"id": "old"}, children=[Element("b")])
-    target: Final = Element("main")
+    source: Final[Element] = Element("section", {"id": "old"}, children=[Element("b")])
+    target: Final[Element] = Element("main")
 
     def adopt(_context: SimpleNamespace) -> list[Element]:
         target.append(source)
         return []
 
-    result: Final = source.xpath(". | @id | adopt()", extensions={(None, "adopt"): adopt}, smart_strings=smart)
+    result: Final[list[turbohtml.Node | str] | float | str] = source.xpath(
+        ". | @id | adopt()", extensions={(None, "adopt"): adopt}, smart_strings=smart
+    )
     assert isinstance(result, list)
     assert result[0] == source
     assert isinstance(result[0], Element)
@@ -3704,14 +3736,16 @@ def test_xpath_callback_adopted_pending_owner(*, smart: bool) -> None:
 
 
 def test_xpath_callback_adopted_pending_owner_smart_string_owner() -> None:
-    source: Final = Element("section", {"id": "old"}, children=[Element("b")])
-    target: Final = Element("main")
+    source: Final[Element] = Element("section", {"id": "old"}, children=[Element("b")])
+    target: Final[Element] = Element("main")
 
     def adopt(_context: SimpleNamespace) -> list[Element]:
         target.append(source)
         return []
 
-    result: Final = source.xpath(". | @id | adopt()", extensions={(None, "adopt"): adopt}, smart_strings=True)
+    result: Final[list[turbohtml.Node | str] | float | str] = source.xpath(
+        ". | @id | adopt()", extensions={(None, "adopt"): adopt}, smart_strings=True
+    )
     assert isinstance(result, list)
     assert isinstance(result[1], XPathString)
     assert result[1].getparent() == source
@@ -3720,20 +3754,22 @@ def test_xpath_callback_adopted_pending_owner_smart_string_owner() -> None:
 @pytest.mark.parametrize("size", [3, 24])
 @pytest.mark.parametrize("operation", ["set:intersection", "set:difference"])
 def test_xpath_callback_attribute_membership(size: int, operation: str) -> None:
-    source: Final = Element("section", {f"attr{index}": str(index) for index in range(size)})
+    source: Final[Element] = Element("section", {f"attr{index}": str(index) for index in range(size)})
 
     def mutate(_context: SimpleNamespace) -> list[Element]:
         for index in range(size):
             source.attrs[f"attr{index}"] = "changed"
         return []
 
-    result: Final = source.xpath(f"{operation}(@* | mutate(), @*)", extensions={(None, "mutate"): mutate})
+    result: Final[list[turbohtml.Node | str] | float | str] = source.xpath(
+        f"{operation}(@* | mutate(), @*)", extensions={(None, "mutate"): mutate}
+    )
     assert result == [str(index) for index in range(size)] * (operation == "set:intersection")
 
 
 def test_xpath_callback_preserves_adopted_context() -> None:
-    source: Final = Element("section")
-    target: Final = Element("main")
+    source: Final[Element] = Element("section")
+    target: Final[Element] = Element("main")
 
     def adopt(_context: SimpleNamespace) -> list[Element]:
         target.append(source)
@@ -3750,7 +3786,7 @@ def test_xpath_callback_preserves_adopted_context() -> None:
 
 
 def test_xpath_callback_attribute_ordinal_collision() -> None:
-    source: Final = Element("section", {"old": "first"})
+    source: Final[Element] = Element("section", {"old": "first"})
 
     def mutate(_context: SimpleNamespace) -> list[Element]:
         del source.attrs["old"]
@@ -3761,7 +3797,7 @@ def test_xpath_callback_attribute_ordinal_collision() -> None:
 
 
 def test_xpath_callback_shrinks_parsed_attributes() -> None:
-    source: Final = parse('<section a="one" b="two" c="three" d="four"></section>').select("section")[0]
+    source: Final[Element] = parse('<section a="one" b="two" c="three" d="four"></section>').select("section")[0]
 
     def mutate(_context: SimpleNamespace) -> list[Element]:
         for name in ("a", "b", "c", "d"):
@@ -3773,17 +3809,19 @@ def test_xpath_callback_shrinks_parsed_attributes() -> None:
 
 
 def test_xpath_callback_result_finalizer_adopts_node() -> None:
-    source: Final = Element("section", children=[Element("b")])
-    child: Final = source.children[0]
+    source: Final[Element] = Element("section", children=[Element("b")])
+    child: Final[turbohtml.Node] = source.children[0]
     assert isinstance(child, Element)
-    target: Final = Element("main")
+    target: Final[Element] = Element("main")
 
     def produce(_context: SimpleNamespace) -> Iterator[Element]:
         result = (node for node in (child,))
         finalize(result, target.append, child)
         return result
 
-    result: Final = source.xpath("produce()", extensions={(None, "produce"): produce})
+    result: Final[list[turbohtml.Node | str] | float | str] = source.xpath(
+        "produce()", extensions={(None, "produce"): produce}
+    )
     assert isinstance(result, list)
     assert result[0] == child
     assert isinstance(result[0], Element)
@@ -3800,8 +3838,8 @@ def test_xpath_callback_result_finalizer_adopts_node() -> None:
     ],
 )
 def test_xpath_callback_preserves_text_parent(expression: str) -> None:
-    source: Final = Element("section", children=[Text("body")])
-    target: Final = Element("main")
+    source: Final[Element] = Element("section", children=[Text("body")])
+    target: Final[Element] = Element("main")
 
     def adopt(_context: SimpleNamespace) -> list[Element]:
         target.append(source)
@@ -3810,7 +3848,7 @@ def test_xpath_callback_preserves_text_parent(expression: str) -> None:
     def empty(_context: SimpleNamespace) -> list[Element]:
         return []
 
-    result: Final = source.xpath(
+    result: Final[list[turbohtml.Node | str] | float | str] = source.xpath(
         expression, extensions={(None, "adopt"): adopt, (None, "empty"): empty}, smart_strings=True
     )
     assert isinstance(result, list)
@@ -3828,7 +3866,7 @@ def test_xpath_callback_preserves_text_parent(expression: str) -> None:
     ],
 )
 def test_xpath_callback_attribute_paths(expression: str, expected: list[str]) -> None:
-    source: Final = Element("section", {"first": "one", "second": "two", "third": "three"})
+    source: Final[Element] = Element("section", {"first": "one", "second": "two", "third": "three"})
 
     def keep(_context: SimpleNamespace) -> bool:
         return True
@@ -3837,16 +3875,18 @@ def test_xpath_callback_attribute_paths(expression: str, expected: list[str]) ->
 
 
 def test_xpath_callback_adopts_variable_node() -> None:
-    source: Final = Element("section", children=[Element("b")])
-    child: Final = source.children[0]
+    source: Final[Element] = Element("section", children=[Element("b")])
+    child: Final[turbohtml.Node] = source.children[0]
     assert isinstance(child, Element)
-    target: Final = Element("main")
+    target: Final[Element] = Element("main")
 
     def adopt(_context: SimpleNamespace) -> list[Element]:
         target.append(child)
         return []
 
-    result: Final = source.xpath("adopt() | $node", extensions={(None, "adopt"): adopt}, node=child)
+    result: Final[list[turbohtml.Node | str] | float | str] = source.xpath(
+        "adopt() | $node", extensions={(None, "adopt"): adopt}, node=child
+    )
     assert isinstance(result, list)
     assert isinstance(result[0], Element)
     result[0].attrs["live"] = "yes"
@@ -3854,7 +3894,7 @@ def test_xpath_callback_adopts_variable_node() -> None:
 
 
 def test_xpath_callback_sparse_attribute_union() -> None:
-    source: Final = Element("section", {f"data-item-{index}": str(index) for index in range(48)})
+    source: Final[Element] = Element("section", {f"data-item-{index}": str(index) for index in range(48)})
     for index in [*range(1, 16), *range(17, 32), *range(33, 48)]:
         del source.attrs[f"data-item-{index}"]
 
@@ -3868,7 +3908,7 @@ def test_xpath_callback_sparse_attribute_union() -> None:
 
 @pytest.mark.parametrize("expression", ["@second | empty() | @first", "@first | empty() | @second"])
 def test_xpath_callback_attribute_union_order(expression: str) -> None:
-    source: Final = Element("section", {"first": "one", "second": "two"})
+    source: Final[Element] = Element("section", {"first": "one", "second": "two"})
 
     def empty(_context: SimpleNamespace) -> list[Element]:
         return []
@@ -3877,7 +3917,7 @@ def test_xpath_callback_attribute_union_order(expression: str) -> None:
 
 
 def test_xpath_callback_reuses_attribute_name() -> None:
-    source: Final = Element("section", {"new": "placeholder", "old": "first"})
+    source: Final[Element] = Element("section", {"new": "placeholder", "old": "first"})
     del source.attrs["new"]
 
     def mutate(_context: SimpleNamespace) -> list[Element]:
@@ -3889,7 +3929,7 @@ def test_xpath_callback_reuses_attribute_name() -> None:
 
 
 def test_xpath_callback_mixed_attribute_namespace() -> None:
-    source: Final = Element("section", {"id": "value"})
+    source: Final[Element] = Element("section", {"id": "value"})
 
     def empty(_context: SimpleNamespace) -> list[Element]:
         return []
@@ -3909,15 +3949,17 @@ def test_xpath_callback_mixed_attribute_namespace() -> None:
     ],
 )
 def test_xpath_callback_initial_attribute_context(expression: str, expected: list[str], moved: int) -> None:
-    source: Final = Element("section", {"id": "old"})
-    target: Final = Element("main")
+    source: Final[Element] = Element("section", {"id": "old"})
+    target: Final[Element] = Element("main")
 
     def move(_context: SimpleNamespace) -> bool:
         target.append(source)
         del source.attrs["id"]
         return True
 
-    result: Final = source.xpath(expression, extensions={(None, "move"): move})
+    result: Final[list[turbohtml.Node | str] | float | str] = source.xpath(
+        expression, extensions={(None, "move"): move}
+    )
     assert (result, tuple(target.children)) == (expected, (source,)[:moved])
 
 
@@ -3929,20 +3971,20 @@ _XPATH_EVALUATORS: Final[list[pytest.ParameterSet]] = [
 
 @pytest.mark.parametrize("evaluate", _XPATH_EVALUATORS)
 def test_xpath_extension_keeps_source_arena(evaluate: _Evaluate) -> None:
-    source: Final = Element("section")
-    target: Final = Element("main")
+    source: Final[Element] = Element("section")
+    target: Final[Element] = Element("main")
 
     def adopt(_context: SimpleNamespace) -> float:
         target.append(source)
         return 41.0
 
     extensions: Final[XPathExtensions] = {(None, "adopt"): adopt}
-    result: Final = evaluate(source, "adopt() + count(.)", extensions)
+    result: Final[Sequence[turbohtml.Node | str | float] | float] = evaluate(source, "adopt() + count(.)", extensions)
     assert (result, target.children) == (42.0, (source,))
 
 
 def test_xpath_extension_keeps_cached_program() -> None:
-    source: Final = Element("section")
+    source: Final[Element] = Element("section")
 
     def evict(_context: SimpleNamespace) -> float:
         for index in range(80):
@@ -3954,7 +3996,7 @@ def test_xpath_extension_keeps_cached_program() -> None:
 
 @pytest.mark.parametrize("evaluate", _XPATH_EVALUATORS)
 def test_xpath_extension_keeps_removed_callable(evaluate: _Evaluate) -> None:
-    source: Final = Element("section")
+    source: Final[Element] = Element("section")
     extensions: Final[XPathExtensions] = {}
 
     def remove(_context: SimpleNamespace) -> bool:
@@ -3962,17 +4004,19 @@ def test_xpath_extension_keeps_removed_callable(evaluate: _Evaluate) -> None:
         return function() is not None
 
     extensions[None, "remove"] = partial(remove)
-    function: Final = ref(extensions[None, "remove"])
-    result: Final = evaluate(source, "remove()", extensions)
+    function: Final[ref[Callable[[SimpleNamespace], str | float | bool | Element | Iterable[Element]]]] = ref(
+        extensions[None, "remove"]
+    )
+    result: Final[Sequence[turbohtml.Node | str | float] | float] = evaluate(source, "remove()", extensions)
     gc.collect()
     assert (result, function()) == (True, None)
 
 
 @pytest.mark.parametrize("evaluate", _XPATH_EVALUATORS)
 def test_xpath_extension_validates_yielded_owner(evaluate: _Evaluate) -> None:
-    source: Final = Element("section", children=[Element("b")])
-    child: Final = source.children[0]
-    target: Final = Element("main")
+    source: Final[Element] = Element("section", children=[Element("b")])
+    child: Final[turbohtml.Node] = source.children[0]
+    target: Final[Element] = Element("main")
 
     def move_after_yield(_context: SimpleNamespace) -> Iterator[Element]:
         assert isinstance(child, Element)
@@ -3988,12 +4032,12 @@ def test_xpath_extension_validates_yielded_owner(evaluate: _Evaluate) -> None:
 @pytest.mark.skipif(sys.implementation.name != "cpython", reason="CPython allocation-triggered collection")
 @pytest.mark.parametrize("offset", [0, 1, 2, 4, 32])
 def test_xpath_extension_snapshots_arguments(offset: int) -> None:
-    thresholds: Final = gc.get_threshold()
+    thresholds: Final[tuple[int, int, int]] = gc.get_threshold()
     gc.disable()
     gc.collect()
-    source: Final = Element("section", children=[Element("a", {"id": "old"}), Element("b")])
+    source: Final[Element] = Element("section", children=[Element("a", {"id": "old"}), Element("b")])
     first, second = source.children
-    target: Final = Element("main")
+    target: Final[Element] = Element("main")
     changed = False
 
     def inspect(_context: SimpleNamespace, attrs: list[str], nodes: list[Element]) -> bool:
@@ -4002,8 +4046,8 @@ def test_xpath_extension_snapshots_arguments(offset: int) -> None:
     extensions: Final[dict[tuple[str | None, str], Callable[[SimpleNamespace, list[str], list[Element]], bool]]] = {
         (None, "inspect"): inspect
     }
-    selector: Final = XPath("inspect(.//a/@id, .//b)", extensions=extensions)
-    context: Final = (source,)
+    selector: Final[XPath] = XPath("inspect(.//a/@id, .//b)", extensions=extensions)
+    context: Final[tuple[Element]] = (source,)
 
     def adopt(phase: str, _info: dict[str, int]) -> None:
         nonlocal changed
@@ -4018,7 +4062,7 @@ def test_xpath_extension_snapshots_arguments(offset: int) -> None:
     try:
         gc.set_threshold(gc.get_count()[0] + offset, thresholds[1], thresholds[2])
         gc.enable()
-        result: Final = selector(*context)
+        result: Final[list[turbohtml.Node | str] | float | str] = selector(*context)
         gc.collect()
     finally:
         gc.disable()
@@ -4038,7 +4082,7 @@ def test_xpath_extension_snapshots_arguments(offset: int) -> None:
     ],
 )
 def test_xpath_extension_validates_iterator(kind: str, error: type[Exception], match: str) -> None:
-    source: Final = Element("section")
+    source: Final[Element] = Element("section")
 
     def invalid(_context: SimpleNamespace) -> Iterator[Element]:
         yield cast("Element", 42) if kind == "type" else Element("other") if kind == "owner" else source
@@ -4050,9 +4094,9 @@ def test_xpath_extension_validates_iterator(kind: str, error: type[Exception], m
 
 
 def test_xpath_frame_completed_arguments_keep_adopted_node() -> None:
-    source: Final = Element("section", children=[Element("b")])
-    child: Final = source.children[0]
-    target: Final = Element("main")
+    source: Final[Element] = Element("section", children=[Element("b")])
+    child: Final[turbohtml.Node] = source.children[0]
+    target: Final[Element] = Element("main")
 
     def empty(_context: SimpleNamespace) -> list[Element]:
         return []
@@ -4090,7 +4134,7 @@ def test_arguments_stored_before_a_python_call_are_pinned_once(
     assert parse("<li>" * 3).xpath(expression(3), extensions=extensions) == f"{'true' * 3}false"
 
     def build(size: int) -> Callable[[], object]:
-        document: Final = parse("<li>" * size)
+        document: Final[Document] = parse("<li>" * size)
         return partial(document.xpath, expression(size), extensions=extensions)
 
     work_steps.assert_linear(build, (250, 1000))
@@ -4112,7 +4156,7 @@ def test_nested_predicates_find_pinned_nodes_in_linear_time(work_steps: WorkStep
 
 
 def test_nested_predicates_pair_live_frames_in_linear_time(work_steps: WorkSteps) -> None:
-    document: Final = parse("<li>" * 200)
+    document: Final[Document] = parse("<li>" * 200)
 
     def build(depth: int) -> Callable[[], object]:
         # each item's comparison lets Python run under `depth` predicates whose frames are new for every item
@@ -4131,10 +4175,10 @@ def test_nested_predicates_pair_live_frames_in_linear_time(work_steps: WorkSteps
     ],
 )
 def test_xpath_frame_path_candidates_keep_adopted_nodes(expression: str) -> None:
-    source: Final = Element(
+    source: Final[Element] = Element(
         "section", children=[Element("div", children=[Element("b", {"id": str(index)})]) for index in range(2)]
     )
-    target: Final = Element("main")
+    target: Final[Element] = Element("main")
 
     def seen(_context: SimpleNamespace) -> bool:
         return True
@@ -4143,7 +4187,9 @@ def test_xpath_frame_path_candidates_keep_adopted_nodes(expression: str) -> None
         target.append(context.context_node)
         return True
 
-    result: Final = source.xpath(expression, extensions={(None, "seen"): seen, (None, "adopt"): adopt})
+    result: Final[list[turbohtml.Node | str] | float | str] = source.xpath(
+        expression, extensions={(None, "seen"): seen, (None, "adopt"): adopt}
+    )
     assert isinstance(result, list)
     for node in result:
         assert isinstance(node, Element)
@@ -4159,16 +4205,18 @@ def test_xpath_frame_path_candidates_keep_adopted_nodes(expression: str) -> None
     ],
 )
 def test_xpath_frame_filter_compaction_keeps_adopted_node(expression: str) -> None:
-    source: Final = Element(
+    source: Final[Element] = Element(
         "section", {"id": "root"}, children=[Element("b", {"id": str(index)}) for index in range(3)]
     )
-    target: Final = Element("main")
+    target: Final[Element] = Element("main")
 
     def adopt(context: SimpleNamespace) -> bool:
         target.append(context.context_node)
         return context.context_node.attrs["id"] == "2"
 
-    result: Final = source.xpath(expression, extensions={(None, "adopt"): adopt})
+    result: Final[list[turbohtml.Node | str] | float | str] = source.xpath(
+        expression, extensions={(None, "adopt"): adopt}
+    )
     assert isinstance(result, list)
     assert len(result) == 1
     assert isinstance(result[0], Element)
@@ -4177,14 +4225,14 @@ def test_xpath_frame_filter_compaction_keeps_adopted_node(expression: str) -> No
 
 
 def test_xpath_frame_path_retains_accepted_nodes_after_compaction() -> None:
-    source: Final = Element(
+    source: Final[Element] = Element(
         "section",
         children=[
             Element("div", children=[Element("b", {"id": str(index * 3 + child)}) for child in range(3)])
             for index in range(8)
         ],
     )
-    target: Final = Element("main")
+    target: Final[Element] = Element("main")
 
     def adopt(context: SimpleNamespace) -> bool:
         target.append(context.context_node)
@@ -4193,7 +4241,9 @@ def test_xpath_frame_path_retains_accepted_nodes_after_compaction() -> None:
     def keep(context: SimpleNamespace) -> bool:
         return int(context.context_node.attrs["id"]) % 2 == 1
 
-    result: Final = source.xpath("div/b[adopt()][keep()]", extensions={(None, "adopt"): adopt, (None, "keep"): keep})
+    result: Final[list[turbohtml.Node | str] | float | str] = source.xpath(
+        "div/b[adopt()][keep()]", extensions={(None, "adopt"): adopt, (None, "keep"): keep}
+    )
     assert isinstance(result, list)
     for node in result:
         assert isinstance(node, Element)
@@ -4219,22 +4269,24 @@ def test_xpath_frame_path_retains_accepted_nodes_after_compaction() -> None:
     ],
 )
 def test_xpath_positional_predicate(expression: str, expected: list[str]) -> None:
-    root: Final = parse('<main><i id="a"></i><i id="b"></i><i id="c"></i></main>')
+    root: Final[Document] = parse('<main><i id="a"></i><i id="b"></i><i id="c"></i></main>')
     assert root.xpath(expression) == expected
 
 
 @pytest.mark.parametrize("predicate", ["1", "last()", "0", "1.5"])
 @pytest.mark.parametrize("smart", [pytest.param(False, id="plain"), pytest.param(True, id="smart")])
 def test_xpath_positional_attribute_snapshot(predicate: str, *, smart: bool) -> None:
-    root: Final = Element("main", {"first": "a", "middle": "b", "last": "c"})
-    target: Final = Element("section")
+    root: Final[Element] = Element("main", {"first": "a", "middle": "b", "last": "c"})
+    target: Final[Element] = Element("section")
 
     def move(_context: SimpleNamespace) -> bool:
         target.append(root)
         root.attrs.clear()
         return True
 
-    result: Final = root.xpath(f"@*[{predicate}][move()]", extensions={(None, "move"): move}, smart_strings=smart)
+    result: Final[list[turbohtml.Node | str] | float | str] = root.xpath(
+        f"@*[{predicate}][move()]", extensions={(None, "move"): move}, smart_strings=smart
+    )
     assert result == {"1": ["a"], "last()": ["c"], "0": [], "1.5": []}[predicate]
 
 
@@ -4243,7 +4295,7 @@ def test_xpath_positional_attribute_snapshot(predicate: str, *, smart: bool) -> 
     [pytest.param("custom:last", ["a"], id="extension"), pytest.param("last", ["b"], id="builtin")],
 )
 def test_xpath_positional_extension_resolution(name: str, expected: list[str]) -> None:
-    root: Final = parse('<main><i id="a"></i><i id="b"></i></main>')
+    root: Final[Document] = parse('<main><i id="a"></i><i id="b"></i></main>')
 
     def last(_context: SimpleNamespace) -> int:
         return 1
@@ -4264,15 +4316,15 @@ def test_xpath_positional_last_arity() -> None:
 @pytest.mark.parametrize("smart_strings", [pytest.param(False, id="plain"), pytest.param(True, id="smart")])
 @pytest.mark.parametrize("offset", [0, 1, 2, 4])
 def test_xpath_snapshot_during_collection(offset: int, *, expression: str, smart_strings: bool, mixed: bool) -> None:
-    thresholds: Final = gc.get_threshold()
+    thresholds: Final[tuple[int, int, int]] = gc.get_threshold()
     gc.disable()
     gc.collect()
-    document: Final = parse('<section><a id="old">first</a><b>second</b></section>')
-    section: Final = document.select("section")[0]
+    document: Final[Document] = parse('<section><a id="old">first</a><b>second</b></section>')
+    section: Final[Element] = document.select("section")[0]
     first, second = section.select("*")
-    target: Final = Element("main")
-    selector: Final = XPath(expression, smart_strings=smart_strings)
-    context: Final = (document,)
+    target: Final[Element] = Element("main")
+    selector: Final[XPath] = XPath(expression, smart_strings=smart_strings)
+    context: Final[tuple[Document]] = (document,)
     changed = False
 
     def adopt(phase: str, _info: dict[str, int]) -> None:
@@ -4288,7 +4340,7 @@ def test_xpath_snapshot_during_collection(offset: int, *, expression: str, smart
     try:
         gc.set_threshold(gc.get_count()[0] + offset, thresholds[1], thresholds[2])
         gc.enable()
-        result: Final = selector(*context)
+        result: Final[list[turbohtml.Node | str] | float | str] = selector(*context)
         gc.collect()
     finally:
         gc.disable()
@@ -4303,7 +4355,9 @@ def test_xpath_snapshot_during_collection(offset: int, *, expression: str, smart
         [second],
         [],
     )
-    owners: Final = {(True, True): [(first, "id"), (first, None)]}.get((smart_strings, mixed), [])
+    owners: Final[list[tuple[Element, str] | tuple[Element, None]]] = {
+        (True, True): [(first, "id"), (first, None)]
+    }.get((smart_strings, mixed), [])
     assert [(item.getparent(), item.attrname) for item in result if isinstance(item, XPathString)] == owners
 
 
@@ -4320,5 +4374,5 @@ def _empty_snapshot_method(document: turbohtml.Node) -> XPathResult:
     [pytest.param(_empty_snapshot_method, id="method"), pytest.param(_empty_snapshot_compiled, id="compiled")],
 )
 def test_xpath_empty_smart_snapshot(evaluate: Callable[[turbohtml.Node], object]) -> None:
-    document: Final = parse("<section></section>")
+    document: Final[Document] = parse("<section></section>")
     assert evaluate(document) == []

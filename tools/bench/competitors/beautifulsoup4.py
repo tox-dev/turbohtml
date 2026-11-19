@@ -109,7 +109,7 @@ def _find_attr_presence(case: tuple[str, bool]) -> None:
 
 def _select_default(case: tuple[str, str, int]) -> None:
     if case[0] == ":default" and "<button>" in case[1]:
-        unsupported: Final = "SoupSieve requires explicit type=submit for default buttons"
+        unsupported: Final[str] = "SoupSieve requires explicit type=submit for default buttons"
         raise NotImplementedError(unsupported)
     _select_relative(case)
 
@@ -295,10 +295,10 @@ def _node_equals(case: tuple[int, str, int]) -> bool:
 @functools.cache
 def _equality_pair(count: int, variant: str) -> tuple[Tag, Tag]:
     if variant == "duplicates":
-        message: Final = "constructor does not normalize case variants to duplicate attribute names"
+        message: Final[str] = "constructor does not normalize case variants to duplicate attribute names"
         raise ValueError(message)
-    left: Final = BeautifulSoup("", "html.parser").new_tag("div")
-    right: Final = BeautifulSoup("", "html.parser").new_tag("div")
+    left: Final[Tag] = BeautifulSoup("", "html.parser").new_tag("div")
+    right: Final[Tag] = BeautifulSoup("", "html.parser").new_tag("div")
     fill_equality_pair(left.attrs, right.attrs, count, variant)
     return left, right
 

@@ -165,11 +165,11 @@ def test_svg_and_mathml_carry_their_foreign_namespace() -> None:
 
 
 def test_namespace_values_survive_builder_reentry() -> None:
-    recorder: Final = _NamespaceRecorder()
-    root: Final = parse_into("<svg><foreignObject><p>outer</p></foreignObject><circle/></svg>", recorder)
-    svg: Final = root.children[0].children[1].children[0]
+    recorder: Final[_NamespaceRecorder] = _NamespaceRecorder()
+    root: Final[Built] = parse_into("<svg><foreignObject><p>outer</p></foreignObject><circle/></svg>", recorder)
+    svg: Final[Built] = root.children[0].children[1].children[0]
     assert recorder.nested is not None
-    math: Final = recorder.nested.children[0].children[1].children[0]
+    math: Final[Built] = recorder.nested.children[0].children[1].children[0]
     assert (
         svg.payload[1],
         svg.children[0].payload[1],
@@ -245,7 +245,7 @@ def _fragment_count(markup: str) -> int:
 
 
 def _stream_count(markup: str) -> int:
-    parser: Final = IncrementalParser()
+    parser: Final[IncrementalParser] = IncrementalParser()
     parser.feed(markup)
     return len(parser.close().select("b"))
 
@@ -454,8 +454,8 @@ _LXML_CORPUS: Final[list[pytest.ParameterSet]] = [
 @pytest.mark.parametrize("markup", _LXML_CORPUS)
 @pytest.mark.oracle
 def test_parse_into_rebuilds_the_tree_in_lxml(markup: str) -> None:
-    lxml_etree: Final = pytest.importorskip("lxml.etree")
-    built: Final = parse_into(markup, _LxmlBuilder(lxml_etree))
+    lxml_etree: Final[ModuleType] = pytest.importorskip("lxml.etree")
+    built = parse_into(markup, _LxmlBuilder(lxml_etree))
     assert not isinstance(built, tuple)
     mine: Final[list[_LxmlEvent]] = []
     _flatten_lxml(built[0], mine, lxml_etree)
@@ -481,7 +481,7 @@ class _LxmlBuilder:
         namespace: str,  # ruff:ignore[unused-method-argument]  # the callback signature is fixed by the protocol; this argument is unused
         attrs: tuple[tuple[str, str | None], ...],
     ) -> _LxmlNode | tuple[str, ...]:
-        node: Final = self.etree.Element(name)
+        node = self.etree.Element(name)
         for attr_name, value in attrs:
             node.set(attr_name, value or "")
         return node
@@ -498,7 +498,7 @@ class _LxmlBuilder:
     def append(self, parent: _LxmlNode, child: _LxmlNode | tuple[str, ...]) -> None:  # ruff:ignore[no-self-use]  # the method implements a protocol that takes no instance state
         if isinstance(child, tuple):
             if child[0] == "text":
-                data: Final = str(child[1])
+                data: Final[str] = str(child[1])
                 if len(parent) == 0:
                     parent.text = (parent.text or "") + data
                 else:
@@ -532,7 +532,9 @@ def _flatten_turbo(node: Node, out: list[_LxmlEvent]) -> None:
             out.append(("text", child.data))
         else:
             assert isinstance(child, Element)
-            attrs: Final = tuple(sorted((name, _attr_value(value)) for name, value in child.attrs.items()))
+            attrs: Final[tuple[tuple[str, str], ...]] = tuple(
+                sorted((name, _attr_value(value)) for name, value in child.attrs.items())
+            )
             out.append(("element", child.tag, attrs))
             _flatten_turbo(child, out)
 
@@ -553,8 +555,8 @@ def _attr_value(value: str | list[str] | None) -> str:
     ],
 )
 def test_lxml_builder_preserves_processing_instruction(data: str, expected: str) -> None:
-    lxml_etree: Final = pytest.importorskip("lxml.etree")
-    built: Final = parse_into(f"<body><?php {data}?></body>", _LxmlBuilder(lxml_etree))
+    lxml_etree: Final[ModuleType] = pytest.importorskip("lxml.etree")
+    built = parse_into(f"<body><?php {data}?></body>", _LxmlBuilder(lxml_etree))
     assert not isinstance(built, tuple)
     assert lxml_etree.tostring(built[0]) == expected.encode()
 
@@ -586,7 +588,7 @@ class _LxmlNode(Protocol):
 
 
 def test_builder_can_reenter_while_copying_text() -> None:
-    root: Final = parse_into("<p>outer 水 😀</p>", _ReentrantRecorder())
+    root: Final[Built] = parse_into("<p>outer 水 😀</p>", _ReentrantRecorder())
     assert root.children[0].children[1].children[0].children[0].payload == ("outer 水 😀",)
 
 

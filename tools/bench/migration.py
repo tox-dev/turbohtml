@@ -33,10 +33,6 @@ _SIZE_OPS: Final[frozenset[str]] = SIZE_OPS
 _MEMORY_OPS: Final[frozenset[str]] = frozenset({"find-cold", "parse-dense", "rewrite"})
 _WIDE_OPS: Final[frozenset[str]] = _SIZE_OPS | _MEMORY_OPS
 
-# Why a variant repeats the sibling's figure when the library is measured in more than one configuration: the
-# operation runs the same code whichever one is chosen, so benchmarking it twice would publish a duplicate column.
-_SHARED_WITH_OTHER_VARIANT: Final[str] = "same in both configurations, so measured once"
-
 # A competitor module's stem maps to its migration page's slug by turning ``_`` into ``-``; these libraries
 # name the two differently, so the map pins them. A stem with no ``docs/migration/<slug>.rst`` is skipped, so
 # columns that only appear inside another library's table (cchardet, cssmin, css_html_js_minify) fall out.
@@ -53,7 +49,10 @@ def _merge_caveat(note: str | None, *, shared: bool) -> str | None:
     # Join an operation note with the measured-once caveat when a row repeats one figure across configurations.
     if not shared:
         return note
-    return _SHARED_WITH_OTHER_VARIANT if note is None else f"{note}; {_SHARED_WITH_OTHER_VARIANT}"
+    # Why a variant repeats the sibling's figure when the library is measured in more than one configuration: the
+    # operation runs the same code whichever one is chosen, so benchmarking it twice would publish a duplicate column.
+    shared_with_other_variant: str = "same in both configurations, so measured once"
+    return shared_with_other_variant if note is None else f"{note}; {shared_with_other_variant}"
 
 
 def _slug(stem: str) -> str:

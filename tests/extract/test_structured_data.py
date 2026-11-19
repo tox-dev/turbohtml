@@ -657,7 +657,7 @@ def test_opengraph_document_method(html: str, expected: dict[str, str]) -> None:
 
 
 def test_opengraph_duplicate_preserves_insertion_order() -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         '<meta property="og:title" content="first"><meta name="twitter:card" content="summary">'
         '<meta property="og:type" content="article"><meta property="og:title" content="last">'
     )
@@ -665,7 +665,7 @@ def test_opengraph_duplicate_preserves_insertion_order() -> None:
 
 
 def test_structured_data_opengraph_keeps_the_insertion_order() -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         '<meta property="og:title" content="first"><meta name="twitter:card" content="summary">'
         '<meta property="og:type" content="article"><meta property="og:title" content="last">'
     )
@@ -756,7 +756,7 @@ def test_opengraph_resolution_cases(html: str, expected: dict[str, str]) -> None
 
 
 def test_opengraph_ignores_malformed_twitter_url() -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         '<meta property="twitter:image" content="http://[bad"><meta property="og:title" content="T">'
     )
     assert document.opengraph(base_url=_OPENGRAPH_BASE) == {"title": "T"}
@@ -768,7 +768,7 @@ def test_opengraph_base_href_refines_base_url() -> None:
 
 
 def test_opengraph_empty_base_resolves_encoded_parent() -> None:
-    html: Final = '<base href="%2e%2e/sub/"><meta property="og:image" content="photo.jpg">'
+    html: Final[str] = '<base href="%2e%2e/sub/"><meta property="og:image" content="photo.jpg">'
     assert parse(html).opengraph(base_url="") == {"image": "sub/photo.jpg"}
 
 
@@ -1316,8 +1316,8 @@ def test_microdata_nested_scope_keeps_following_properties() -> None:
 )
 @pytest.mark.parametrize("depth", [pytest.param(0, id="siblings"), pytest.param(20, id="nested")])
 def test_microdata_shuffled_references_keep_tree_order(size: int, depth: int) -> None:
-    references: Final = " ".join(f"r{index}" for offset in (0, 1) for index in range(offset, size, 2))
-    document: Final = parse(
+    references: Final[str] = " ".join(f"r{index}" for offset in (0, 1) for index in range(offset, size, 2))
+    document: Final[Document] = parse(
         f"""<div itemscope itemref="{references}"></div>{"<section>" * depth}{
             "".join(f'<span id="r{index}" itemprop=name>{index}</span>' for index in range(size))
         }{"</section>" * depth}"""
@@ -1355,8 +1355,8 @@ def _crowded_itemref_markup(elements: int) -> str:
 
 
 def test_microdata_long_itemprop_keeps_each_name_once() -> None:
-    names: Final = [f"n{index}" for index in range(1_500)]
-    document: Final = parse(f'<div itemscope><span itemprop="{" ".join(names + names[::-1])}">v</span></div>')
+    names: Final[list[str]] = [f"n{index}" for index in range(1_500)]
+    document: Final[Document] = parse(f'<div itemscope><span itemprop="{" ".join(names + names[::-1])}">v</span></div>')
     (item,) = document.microdata()
     assert list(item.properties.items()) == [(name, ["v"]) for name in names]
 
@@ -1486,7 +1486,7 @@ _INDEX_TRIGGER: Final[str] = (
 
 
 def test_microdata_index_skips_valueless_id_and_itemprop() -> None:
-    markup: Final = "<p id itemprop>skip</p><p id=x itemprop=a>1</p><div itemscope itemref=x></div>"
+    markup: Final[str] = "<p id itemprop>skip</p><p id=x itemprop=a>1</p><div itemscope itemref=x></div>"
     assert [item.properties for item in _microdata_records(markup, indexed=True)] == [{"a": ["1"]}]
 
 
@@ -1550,21 +1550,21 @@ def test_microdata_resolves_a_shared_itemref_value_for_every_item(
 
 
 def test_microdata_resolves_a_long_itemref_once_for_its_reopened_copies(work_steps: WorkSteps) -> None:
-    items: Final = parse(_long_itemref(5000)).microdata()
+    items: Final[list[MicrodataItem]] = parse(_long_itemref(5000)).microdata()
     assert len(items) == 20001
     assert not any(item.properties for item in items)
     work_steps.assert_linear(lambda n: partial(parse(_long_itemref(n)).microdata), (1_000, 4_000))
 
 
 def _long_itemref(size: int) -> str:
-    tokens: Final = " ".join(f"a{index}" for index in range(size))
-    targets: Final = "".join(f"<p id=a{index}>" for index in range(size))
+    tokens: Final[str] = " ".join(f"a{index}" for index in range(size))
+    targets: Final[str] = "".join(f"<p id=a{index}>" for index in range(size))
     return f"{targets}<div><p><i itemscope itemref='{tokens} {'a0 ' * (4 * size)}'>{'<p>x' * (4 * size)}"
 
 
 def test_microdata_resolves_itemref_in_a_copied_document() -> None:
     # a deep copy's tree has no parser document to look ids up in: they are those of the node microdata() is called on
-    document: Final = copy.deepcopy(parse("<div itemscope itemref=x></div><p id=x itemprop=a>1</p>"))
+    document: Final[Document] = copy.deepcopy(parse("<div itemscope itemref=x></div><p id=x itemprop=a>1</p>"))
     assert document.microdata() == [_properties(a=["1"])]
 
 
@@ -1647,13 +1647,15 @@ def test_several_blocks_keep_only_the_ones_carrying_data() -> None:
     ],
 )
 def test_json_ld_nesting_past_the_cap_is_skipped(depth: int, *, kept: bool) -> None:
-    html: Final = f'<script type="application/ld+json">{"[" * depth + "]" * depth}</script>'
+    html: Final[str] = f'<script type="application/ld+json">{"[" * depth + "]" * depth}</script>'
     assert bool(turbohtml.parse(html).json_ld()) is kept
 
 
 def test_json_ld_brackets_inside_a_string_do_not_count_toward_depth() -> None:
-    value: Final = f'{"[" * 1000}\\"{"]" * 1000}'  # brackets inside a JSON string, so the block nests one level deep
-    html: Final = f'<script type="application/ld+json">{{"k": "{value}"}}</script>'
+    value: Final[str] = (
+        f'{"[" * 1000}\\"{"]" * 1000}'  # brackets inside a JSON string, so the block nests one level deep
+    )
+    html: Final[str] = f'<script type="application/ld+json">{{"k": "{value}"}}</script>'
     assert turbohtml.parse(html).json_ld() == [{"k": f'{"[" * 1000}"{"]" * 1000}'}]
 
 
@@ -1769,18 +1771,18 @@ def test_json_ld_foreign_script_uses_own_text_only(html: str, expected: list[dic
 
 @pytest.mark.parametrize("root", ["svg", "math"])
 def test_json_ld_script_staircase_yields_one_block_per_script(root: str) -> None:
-    blocks: Final = [{f"k{index}": index} for index in range(80)]
-    staircase: Final = (
+    blocks: Final[list[dict[str, int]]] = [{f"k{index}": index} for index in range(80)]
+    staircase: Final[str] = (
         "".join(f'<script type="application/ld+json">{json.dumps(block)}' for block in blocks) + "\n" * 1000
     )
-    document: Final = parse(f"<{root}>{staircase}")
+    document: Final[Document] = parse(f"<{root}>{staircase}")
     assert document.json_ld() == blocks
     assert document.structured_data().json_ld == blocks
 
 
 def test_json_ld_html_script_drops_text_of_appended_element() -> None:
-    document: Final = parse('<script type="application/ld+json">[1</script>')
-    script: Final = document.select_one("script")
+    document: Final[Document] = parse('<script type="application/ld+json">[1</script>')
+    script: Final[Element | None] = document.select_one("script")
     assert isinstance(script, Element)
     script.append(Element("i", children=[Text(",2]")]))
     assert document.json_ld() == []

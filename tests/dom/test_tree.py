@@ -549,7 +549,7 @@ def test_repeated_start_tags_merge_attributes_in_linear_steps(tag: str, work_ste
 def test_repeated_start_tags_merge_into_spare_attribute_slots() -> None:
     # the attribute array doubles when a merge outgrows it: <html c> leaves four slots holding three names, <html d>
     # takes the spare one without a copy, and of the edits that follow the first grows the array and the second fits
-    html: Final = parse("<html a=1><html b=2><html c=3 a=9><html d=4>").find("html")
+    html: Final[Element | None] = parse("<html a=1><html b=2><html c=3 a=9><html d=4>").find("html")
     assert html is not None
     html.attrs["e"] = "5"
     html.attrs["f"] = "6"
@@ -557,9 +557,9 @@ def test_repeated_start_tags_merge_into_spare_attribute_slots() -> None:
 
 
 def test_repeated_start_tag_past_scan_limit_keeps_first_value_and_order() -> None:
-    initial: Final = " ".join(f"a{index}=1" for index in range(10))
-    markup: Final = f"<body {initial}><body a9=2 b=2 a0=3 c=4><body b=5 a9=6 d=7>"
-    body: Final = parse(markup).find("body")
+    initial: Final[str] = " ".join(f"a{index}=1" for index in range(10))
+    markup: Final[str] = f"<body {initial}><body a9=2 b=2 a0=3 c=4><body b=5 a9=6 d=7>"
+    body: Final[Element | None] = parse(markup).find("body")
     assert body is not None
     assert list(body.attrs.items()) == [(f"a{index}", "1") for index in range(10)] + [
         ("b", "2"),
@@ -569,11 +569,11 @@ def test_repeated_start_tag_past_scan_limit_keeps_first_value_and_order() -> Non
 
 
 def test_repeated_html_and_body_past_scan_limit_keep_their_own_names() -> None:
-    html_names: Final = " ".join(f"a{index}=1" for index in range(10))
-    body_names: Final = " ".join(f"b{index}=2" for index in range(9))
-    document: Final = parse(f"<html {html_names}><body {body_names}><html z=3><body a0=9 z=4>")
-    html: Final = document.find("html")
-    body: Final = document.find("body")
+    html_names: Final[str] = " ".join(f"a{index}=1" for index in range(10))
+    body_names: Final[str] = " ".join(f"b{index}=2" for index in range(9))
+    document: Final[Document] = parse(f"<html {html_names}><body {body_names}><html z=3><body a0=9 z=4>")
+    html: Final[Element | None] = document.find("html")
+    body: Final[Element | None] = document.find("body")
     assert html is not None
     assert body is not None
     assert list(html.attrs.items()) == [(f"a{index}", "1") for index in range(10)] + [("z", "3")]
@@ -1268,8 +1268,8 @@ def test_fragment_root_of_a_foreign_context_keeps_its_content(source: str, conte
 
 @pytest.mark.parametrize("distinct", [pytest.param(True, id="distinct-values"), pytest.param(False, id="same-values")])
 def test_formatting_duplicate_scan_keeps_all_source_elements(*, distinct: bool) -> None:
-    values: Final = [str(index) if distinct else "same" for index in range(256)]
-    source: Final = f"""{"".join(f'<b title="{value}">' for value in values)}a{"</b>" * 256}"""
+    values: Final[list[str]] = [str(index) if distinct else "same" for index in range(256)]
+    source: Final[str] = f"""{"".join(f'<b title="{value}">' for value in values)}a{"</b>" * 256}"""
     assert [(element.attrs["title"], element.text) for element in parse(source).find_all("b")] == [
         (value, "a") for value in values
     ]
@@ -1285,7 +1285,7 @@ def test_formatting_duplicate_scan_keeps_all_source_elements(*, distinct: bool) 
     ],
 )
 def test_formatting_duplicate_limit_keeps_distinct_attributes(other: str, attributes: dict[str, str]) -> None:
-    source: Final = f"""<p><b title="same">{f"<b {other}>"}{'<b title="same">' * 3}one</p>two"""
+    source: Final[str] = f"""<p><b title="same">{f"<b {other}>"}{'<b title="same">' * 3}one</p>two"""
     assert [(element.text, dict(element.attrs)) for element in parse(source).find_all("b")] == [
         ("one", {"title": "same"}),
         ("one", attributes),
@@ -1311,13 +1311,13 @@ def test_formatting_duplicate_limit_keeps_distinct_attributes(other: str, attrib
     ],
 )
 def test_formatting_duplicate_limit_preserves_nested_structure(source: str, expected: str) -> None:
-    root: Final = parse(source).find("body")
+    root: Final[Element | None] = parse(source).find("body")
     assert root is not None
     assert root.inner_html == expected
 
 
 def test_formatting_duplicate_checks_first_of_multiple_attributes() -> None:
-    source: Final = (
+    source: Final[str] = (
         f"""<p><b title="same" lang="en"><b title="other" lang="en">{'<b title="same" lang="en">' * 3}one</p>two"""
     )
     assert [(element.text, dict(element.attrs)) for element in parse(source).find_all("b")] == [
@@ -1331,16 +1331,16 @@ def test_formatting_duplicate_checks_first_of_multiple_attributes() -> None:
 
 @pytest.mark.parametrize("depth", [pytest.param(1, id="shallow"), pytest.param(256, id="deep")])
 def test_formatting_reconstruction_keeps_persistent_ancestor(depth: int) -> None:
-    source: Final = f"<b>{'<span>' * depth}{'<samp>text</samp>' * 100}{'</span>' * depth}</b>"
-    root: Final = parse(source).find("b")
+    source: Final[str] = f"<b>{'<span>' * depth}{'<samp>text</samp>' * 100}{'</span>' * depth}</b>"
+    root: Final[Element | None] = parse(source).find("b")
     assert root is not None
     assert (root.text, [element.text for element in root.find_all("samp")]) == ("text" * 100, ["text"] * 100)
 
 
 @pytest.mark.parametrize("depth", [pytest.param(1, id="shallow"), pytest.param(100, id="deep")])
 def test_formatting_reconstruction_after_ancestor_removal(depth: int) -> None:
-    source: Final = f"<b>{'<span>' * depth}first</b>second{'</span>' * depth}<i>third</i>"
-    root: Final = parse_fragment(source, "div")
+    source: Final[str] = f"<b>{'<span>' * depth}first</b>second{'</span>' * depth}<i>third</i>"
+    root: Final[Element] = parse_fragment(source, "div")
     assert (root.text, [element.text for element in root.find_all("b")]) == ("firstsecondthird", ["first"])
 
 
@@ -1357,7 +1357,7 @@ def test_formatting_reconstruction_after_ancestor_removal(depth: int) -> None:
 def test_formatting_reconstruction_stack_changes(
     source: str, bold: list[str], italic: list[str], *, locations: bool
 ) -> None:
-    root: Final = parse_fragment(source, "div", source_locations=locations)
+    root: Final[Element] = parse_fragment(source, "div", source_locations=locations)
     assert ([element.text for element in root.find_all("b")], [element.text for element in root.find_all("i")]) == (
         bold,
         italic,
@@ -1373,7 +1373,7 @@ def test_formatting_reconstruction_stack_changes(
     ],
 )
 def test_formatting_reconstruction_reopens_nested_elements(source: str, expected: list[tuple[str, list[str]]]) -> None:
-    root: Final = parse_fragment(source, "div")
+    root: Final[Element] = parse_fragment(source, "div")
     assert [(bold.text, [italic.text for italic in bold.find_all("i")]) for bold in root.find_all("b")] == expected
 
 
@@ -1645,7 +1645,7 @@ def test_cloned_attribute_removal_is_independent(
 
 @pytest.mark.parametrize("count", [pytest.param(1, id="small"), pytest.param(32, id="bulk")])
 def test_sanitizing_reconstructed_attributes_keeps_unique_names(count: int) -> None:
-    attributes: Final = " ".join(f'data-{index}="{index}"' for index in range(count))
+    attributes: Final[str] = " ".join(f'data-{index}="{index}"' for index in range(count))
     assert (
         sanitize(
             f'<p><b onclick="bad()" {attributes}>one</p>two',
@@ -1664,7 +1664,7 @@ def test_sanitizing_reconstructed_attributes_keeps_unique_names(count: int) -> N
     ],
 )
 def test_formatting_clones_keep_a_node_share_of_attributes(document: Callable[[str], str]) -> None:
-    elements: Final = parse(document(f"<em {_attributes('k', 16)}>")).find_all("em")
+    elements: Final[list[Element]] = parse(document(f"<em {_attributes('k', 16)}>")).find_all("em")
     assert len(elements) > 3000
     assert {len(element.attrs) for element in elements} == {16}
 
@@ -1683,8 +1683,10 @@ def _attributes(prefix: str, count: int) -> str:
     ],
 )
 def test_formatting_clones_past_the_attribute_bound_keep_the_structure(document: Callable[[str], str]) -> None:
-    sizes: Final = [len(element.attrs) for element in parse(document(f"<em {_attributes('k', 3000)}>")).find_all("em")]
-    kept: Final = sizes.count(3000)
+    sizes: Final[list[int]] = [
+        len(element.attrs) for element in parse(document(f"<em {_attributes('k', 3000)}>")).find_all("em")
+    ]
+    kept: Final[int] = sizes.count(3000)
     # the clones the allowance pays for keep every attribute, the rest take their place without any
     assert sizes == [3000] * kept + [0] * (len(parse(document("<em>")).find_all("em")) - kept)
     assert 0 < kept < len(sizes)
@@ -1704,23 +1706,23 @@ def test_formatting_clones_past_the_attribute_bound_keep_the_structure(document:
 def test_formatting_clones_past_the_attribute_bound_count_for_noahs_ark(
     clones: Callable[[list[str]], str], prefix: str
 ) -> None:
-    spent: Final = f"<h1><b {_attributes('b', 5000)}></h1>{'<h2>y</h2>' * 16}"
-    tags: Final = [f"<em {_attributes(name, 5000)}>" for name in "xyz"]
-    document: Final = parse(f"{prefix}{spent}{clones(tags)}<h3><em>v</h3><h4>w</h4>")
+    spent: Final[str] = f"<h1><b {_attributes('b', 5000)}></h1>{'<h2>y</h2>' * 16}"
+    tags: Final[list[str]] = [f"<em {_attributes(name, 5000)}>" for name in "xyz"]
+    document: Final[Document] = parse(f"{prefix}{spent}{clones(tags)}<h3><em>v</h3><h4>w</h4>")
     # the three listed clones are bare, so the new em is a fourth equal entry and pushing it drops the earliest
     assert [len(document.select(f"{name} em")) for name in ("h3", "h4")] == [4, 3]
 
 
 def test_formatting_clone_attributes_peak_memory_grows_linearly(peak_bytes: PeakBytes) -> None:
     # as many reopenings as attributes: copying every attribute onto every clone would quadruple the peak per doubling
-    script: Final = (
+    script: Final[str] = (
         "import sys, tracemalloc\nfrom turbohtml import parse\n"
         "count = int(sys.argv[1])\n"
         "attributes = ' '.join(f'k{index}' for index in range(count))\n"
         "source = f'<h1><em {attributes}></h1>{\"<h2>y</h2>\" * count}'\n"
         "tracemalloc.start()\nparse(source)\nprint(tracemalloc.get_traced_memory()[1])\n"
     )
-    small: Final = peak_bytes(script, ("1500",))
+    small: Final[int] = peak_bytes(script, ("1500",))
     assert peak_bytes(script, ("3000",)) < 3 * small
 
 
@@ -1750,7 +1752,7 @@ def test_formatting_clone_attributes_peak_memory_grows_linearly(peak_bytes: Peak
 def test_normalized_text_survives_temporary_input_and_detachment(
     text: str, make: Callable[[str, bool], Document | DocumentFragment], *, locations: bool
 ) -> None:
-    paragraph: Final = make(f"<p>{text}\r\n{text}\r{text}</p><p>\0</p>", locations).find("p")
+    paragraph: Final[Element | None] = make(f"<p>{text}\r\n{text}\r{text}</p><p>\0</p>", locations).find("p")
     assert paragraph is not None
     paragraph.extract()
     assert (paragraph.parent, paragraph.text, paragraph.html) == (
@@ -1762,7 +1764,7 @@ def test_normalized_text_survives_temporary_input_and_detachment(
 
 @pytest.mark.parametrize("tag", ["script", "style", "textarea"])
 def test_normalized_text_keeps_raw_text_newlines(tag: str) -> None:
-    element: Final = parse(f"<{tag}>left\r\nright\r</{tag}>").find(tag)
+    element: Final[Element | None] = parse(f"<{tag}>left\r\nright\r</{tag}>").find(tag)
     assert element is not None
     assert element.text == "left\nright\n"
 
@@ -1786,12 +1788,12 @@ def test_normalized_text_keeps_raw_text_newlines(tag: str) -> None:
 def test_nul_text_preserves_clean_runs_and_source_positions(
     text: str, *, locations: bool, position: tuple[int, int] | None
 ) -> None:
-    clean: Final = text * 80
-    source: Final = (
+    clean: Final[str] = text * 80
+    source: Final[str] = (
         f"<p>first\0{text}</p>\n<p>{clean}</p><script>{clean}</script>"
         f"<textarea>\n{clean}</textarea><svg>{text}\0{text}</svg>"
     )
-    document: Final = parse(source, positions=locations, source_locations=locations)
+    document: Final[Document] = parse(source, positions=locations, source_locations=locations)
     assert [(element.tag, element.text) for element in document.select("p, script, textarea, svg")] == [
         ("p", f"first{text}"),
         ("p", clean),
@@ -1804,16 +1806,16 @@ def test_nul_text_preserves_clean_runs_and_source_positions(
 
 @pytest.mark.parametrize("tag", ["script", "style", "textarea"])
 def test_nul_text_keeps_raw_text_replacement(tag: str) -> None:
-    root: Final = parse(f"<p>before\0after</p><{tag}>left\0right</{tag}><p>clean</p>")
-    element: Final = root.find(tag)
+    root: Final[Document] = parse(f"<p>before\0after</p><{tag}>left\0right</{tag}><p>clean</p>")
+    element: Final[Element | None] = root.find(tag)
     assert element is not None
     assert element.text == "left\ufffdright"
 
 
 @pytest.mark.parametrize("depth", [pytest.param(1, id="shallow"), pytest.param(256, id="deep")])
 def test_scope_repeated_ignored_end_tags(depth: int) -> None:
-    source: Final = f"<div>{'<span>' * depth}before{'</address>' * 1000}after{'</span>' * depth}</div>"
-    root: Final = parse(source).find("div")
+    source: Final[str] = f"<div>{'<span>' * depth}before{'</address>' * 1000}after{'</span>' * depth}</div>"
+    root: Final[Element | None] = parse(source).find("div")
     assert root is not None
     assert (root.text, len(root.find_all("span"))) == ("beforeafter", depth)
 

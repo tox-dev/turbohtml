@@ -15,12 +15,8 @@ from typing import TYPE_CHECKING
 
 from ._native import (
     Element,  # stays importable so autodoc resolves it
-)
-from ._native import (
-    register_xpath_depth_error as _register_xpath_depth_error,
-)
-from ._native import (
-    register_xpath_string as _register_xpath_string,
+    register_xpath_depth_error,
+    register_xpath_string,
 )
 
 if TYPE_CHECKING:
@@ -79,8 +75,8 @@ class XPathDepthError(ValueError):
     """
 
 
-_register_xpath_string(XPathString)
-_register_xpath_depth_error(XPathDepthError)
+register_xpath_string(XPathString)
+register_xpath_depth_error(XPathDepthError)
 
 
 __all__ = [

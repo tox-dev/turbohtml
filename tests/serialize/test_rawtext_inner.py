@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Final
 
 import pytest
 
-from turbohtml import CData, Comment, Element, Html, Indent, Minify, Text, parse
+from turbohtml import CData, Comment, Element, Html, Indent, Minify, ShadowRoot, Text, parse
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -40,13 +40,15 @@ def test_rawtext_inner_cdata_literal(tag: str, inner: Callable[[Element], str]) 
 @pytest.mark.parametrize("tag", _RAW_TEXT_TAGS)
 @pytest.mark.parametrize("inner", _INNER_KEEPING_COMMENTS)
 def test_rawtext_inner_markup_children(tag: str, inner: Callable[[Element], str]) -> None:
-    node: Final = Element(tag, children=[Text("a<"), Element("b", children=[Text("i<")]), Comment("c"), CData("d<")])
+    node: Final[Element] = Element(
+        tag, children=[Text("a<"), Element("b", children=[Text("i<")]), Comment("c"), CData("d<")]
+    )
     assert inner(node) == "a<<b>i&lt;</b><!--c-->d<"
 
 
 @pytest.mark.parametrize("inner", _INNER)
 def test_rawtext_inner_nested_rawtext(inner: Callable[[Element], str]) -> None:
-    style: Final = Element("style", children=[Text("s<"), CData("t<")])
+    style: Final[Element] = Element("style", children=[Text("s<"), CData("t<")])
     assert inner(Element("script", children=[Element("b", children=[style])])) == "<b><style>s<t<</style></b>"
 
 
@@ -57,7 +59,7 @@ def test_rawtext_inner_rawtext_child_of_ordinary(inner: Callable[[Element], str]
 
 @pytest.mark.parametrize("inner", _INNER)
 def test_rawtext_inner_noscript_with_scripting(inner: Callable[[Element], str]) -> None:
-    noscript: Final = parse("<body><noscript>a<b</noscript>", scripting=True).find("noscript")
+    noscript: Final[Element | None] = parse("<body><noscript>a<b</noscript>", scripting=True).find("noscript")
     assert noscript is not None
     assert inner(noscript) == "a<b"
 
@@ -81,9 +83,11 @@ def test_rawtext_inner_xml_escapes(inner: Callable[[Element], str]) -> None:
 
 def test_rawtext_inner_shadow_root_text_escaped() -> None:
     # a clonable shadow root carries a flag bit that a raw-text check on a non-element would misread
-    host: Final = parse('<div><template shadowrootmode="open" shadowrootclonable>x</template></div>').find("div")
+    host: Final[Element | None] = parse(
+        '<div><template shadowrootmode="open" shadowrootclonable>x</template></div>'
+    ).find("div")
     assert host is not None
-    shadow: Final = host.shadow_root
+    shadow: Final[ShadowRoot | None] = host.shadow_root
     assert shadow is not None
     shadow.append(Text("y<"))
     assert shadow.inner_html == "xy&lt;"

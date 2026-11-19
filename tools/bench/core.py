@@ -17,55 +17,41 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, cast
 
 import turbohtml
-from turbohtml import Markdown as _Markdown
-from turbohtml import Range as _Range
-from turbohtml import clean as _clean
+from turbohtml import Markdown, Range, clean
 from turbohtml.build import E
-from turbohtml.clean import LinkDetector as _LinkDetector
-from turbohtml.clean import Linker as _Linker
-from turbohtml.clean import Linkify as _Linkify
-from turbohtml.clean import OnDisallowed as _OnDisallowed
-from turbohtml.clean import PhoneFormat as _PhoneFormat
-from turbohtml.clean import PhoneNumber as _PhoneNumber
-from turbohtml.clean import PhoneNumbers as _PhoneNumbers
-from turbohtml.clean import Policy as _Policy
-from turbohtml.clean import Sanitizer as _Sanitizer
-from turbohtml.clean import Transform as _CleanTransform
-from turbohtml.clean import collapse_whitespace_node as _collapse_whitespace_node
-from turbohtml.clean import linkify as _lib_linkify
-from turbohtml.clean import minify as _lib_minify
-from turbohtml.clean import nofollow as _nofollow
-from turbohtml.clean import strip_comments_node as _strip_comments_node
-from turbohtml.clean import target_blank as _target_blank
-from turbohtml.clean import transform_node as _transform_node
-from turbohtml.conformance import check as _check_conformance
-from turbohtml.convert import css_specificity as _css_specificity
-from turbohtml.convert import css_to_xpath as _css_to_xpath
-from turbohtml.cssom import computed_style as _lib_computed_style
-from turbohtml.detect import EncodingDetector as _EncodingDetector
-from turbohtml.detect import detect as _detect_encoding
-from turbohtml.detect import detect_language as _lib_detect_language
-from turbohtml.detect import normalize as _lib_normalize
-from turbohtml.extract import boilerplate as _extract_boilerplate
-from turbohtml.extract import clean_url as _clean_url
-from turbohtml.extract import dates as _extract_dates
-from turbohtml.extract import extract_links as _extract_links
-from turbohtml.extract import normalize_url as _normalize_url
-from turbohtml.migration.markupsafe import Markup as _Markup
-from turbohtml.migration.markupsafe import escape as _markup_escape
-from turbohtml.migration.stdlib import HTMLParser as _TurboHTMLParser
-from turbohtml.query import Query as _Query
-from turbohtml.query import compile as _compile
-from turbohtml.query import escape_identifier as _lib_escape_identifier
-from turbohtml.rewrite import Element as _RewriteElement
-from turbohtml.rewrite import rewrite as _lib_rewrite
-from turbohtml.saxparse import SaxHandler as _SaxHandler
-from turbohtml.saxparse import iter_events as _iter_events
-from turbohtml.saxparse import sax_parse as _sax_parse
-from turbohtml.transform import Transform as _Transform
-from turbohtml.treebuild import parse_into as _parse_into
-from turbohtml.validate import RelaxNG as _RelaxNG
-from turbohtml.validate import XMLSchema as _XMLSchema
+from turbohtml.clean import (
+    LinkDetector,
+    Linker,
+    Linkify,
+    OnDisallowed,
+    PhoneFormat,
+    PhoneNumber,
+    PhoneNumbers,
+    Policy,
+    Sanitizer,
+    collapse_whitespace_node,
+    linkify,
+    minify,
+    nofollow,
+    strip_comments_node,
+    target_blank,
+    transform_node,
+)
+from turbohtml.conformance import check
+from turbohtml.convert import css_specificity, css_to_xpath
+from turbohtml.cssom import computed_style
+from turbohtml.detect import EncodingDetector, detect, detect_language, normalize
+from turbohtml.extract import boilerplate, clean_url, dates, extract_links, normalize_url
+from turbohtml.migration.markupsafe import Markup, escape
+from turbohtml.migration.stdlib import HTMLParser
+from turbohtml.query import Query, escape_identifier
+from turbohtml.query import compile as compile_query
+from turbohtml.rewrite import Element as RewriteElement
+from turbohtml.rewrite import rewrite
+from turbohtml.saxparse import SaxHandler, iter_events, sax_parse
+from turbohtml.transform import Transform
+from turbohtml.treebuild import parse_into
+from turbohtml.validate import RelaxNG, XMLSchema
 
 from ._attributes import fill_equality_pair  # simplint: ignore[private-import-path]  # shared benchmark helper
 from .operations import ColdFind
@@ -79,18 +65,18 @@ if TYPE_CHECKING:
 
     from .operations import Case, Timed
 
-_SANITIZER: Final[_Sanitizer] = _Sanitizer(_Policy.relaxed())
-_DISALLOWED_SANITIZERS: Final[MappingProxyType[str, _Sanitizer]] = MappingProxyType({
-    mode.name.lower(): _Sanitizer(_Policy(tags=frozenset(), on_disallowed_tag=mode))
-    for mode in (_OnDisallowed.ESCAPE, _OnDisallowed.STRIP)
+_SANITIZER: Final[Sanitizer] = Sanitizer(Policy.relaxed())
+_DISALLOWED_SANITIZERS: Final[MappingProxyType[str, Sanitizer]] = MappingProxyType({
+    mode.name.lower(): Sanitizer(Policy(tags=frozenset(), on_disallowed_tag=mode))
+    for mode in (OnDisallowed.ESCAPE, OnDisallowed.STRIP)
 })
-_SANITIZER_ATTRIBUTES: Final[_Sanitizer] = _Sanitizer(
-    _Policy(tags=frozenset({"p"}), attribute_prefixes=frozenset({"data-"}))
+_SANITIZER_ATTRIBUTES: Final[Sanitizer] = Sanitizer(
+    Policy(tags=frozenset({"p"}), attribute_prefixes=frozenset({"data-"}))
 )
-_SANITIZER_TEMPLATES: Final[_Sanitizer] = _Sanitizer(replace(_Policy.relaxed(), strip_template_markers=True))
-_SANITIZER_STYLES: Final[_Sanitizer] = _Sanitizer(
+_SANITIZER_TEMPLATES: Final[Sanitizer] = Sanitizer(replace(Policy.relaxed(), strip_template_markers=True))
+_SANITIZER_STYLES: Final[Sanitizer] = Sanitizer(
     replace(
-        _Policy.relaxed(),
+        Policy.relaxed(),
         attributes={"*": frozenset({"style", "title", "lang", "dir"})},
         css_properties=frozenset({"color", "text-align", "font-size"}),
         allowed_styles={"*": {"color": [r"^#[0-9a-f]{3,6}$", r"^rgb\("], "text-align": [r"^left$|^center$|^right$"]}},
@@ -98,8 +84,8 @@ _SANITIZER_STYLES: Final[_Sanitizer] = _Sanitizer(
 )
 # rename the deprecated presentational tags a real feed still carries to their modern equivalents in the same walk,
 # sanitize-html's transformTags; the added class exercises the attribute-injection path alongside the rename
-_RELAXED: Final[_Policy] = _Policy.relaxed()
-_SANITIZER_TRANSFORM: Final[_Sanitizer] = _Sanitizer(
+_RELAXED: Final[Policy] = Policy.relaxed()
+_SANITIZER_TRANSFORM: Final[Sanitizer] = Sanitizer(
     replace(
         _RELAXED,
         attributes={**_RELAXED.attributes, "div": frozenset({"class"})},
@@ -110,13 +96,13 @@ _SANITIZER_TRANSFORM: Final[_Sanitizer] = _Sanitizer(
             "tt": "code",
             "strike": "s",
             "font": "span",
-            "center": _CleanTransform("div", {"class": "center"}),
+            "center": clean.Transform("div", {"class": "center"}),
         },
     )
 )
 # allow id/name broadly and keep the form controls that carry the clobbering-prone values, so isolation prefixes most
 # attributes rather than skipping a value it never touches
-_SANITIZER_NAMED_PROPS: Final[_Sanitizer] = _Sanitizer(
+_SANITIZER_NAMED_PROPS: Final[Sanitizer] = Sanitizer(
     replace(
         _RELAXED,
         attributes={**_RELAXED.attributes, "*": frozenset({"id", "name", "title", "lang", "dir"})},
@@ -126,14 +112,14 @@ _SANITIZER_NAMED_PROPS: Final[_Sanitizer] = _Sanitizer(
 )
 # keep an app's own x-* custom elements and their data-* attributes by predicate, DOMPurify's CUSTOM_ELEMENT_HANDLING,
 # so the walk runs the tag and attribute matchers on most elements rather than escaping every unlisted one
-_SANITIZER_CUSTOM: Final[_Sanitizer] = _Sanitizer(
+_SANITIZER_CUSTOM: Final[Sanitizer] = Sanitizer(
     replace(
         _RELAXED,
         custom_element_check=re.compile(r"^x-").search,
         custom_attribute_check=lambda _tag, name: name.startswith("data-"),
     )
 )
-_SANITIZER_XML: Final[_Sanitizer] = _Sanitizer(replace(_Policy.relaxed(), xml=True))
+_SANITIZER_XML: Final[Sanitizer] = Sanitizer(replace(Policy.relaxed(), xml=True))
 _LINKS_BASE: Final[str] = "https://example.com/base/"
 _FIND_TEXT_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"test"
@@ -142,19 +128,19 @@ _FIND_TEXT_OVERLAP_PATTERN: Final[re.Pattern[str]] = re.compile(f"{'a' * 4096}b"
 _CSS: Final[str] = "div a[href]"  # a descendant combinator with an attribute test, common in scrapers
 _HAS: Final[str] = "div:has(a)"  # the :has() relational pseudo-class
 _STRIP: Final[str] = "code, a, q"  # a bulk set of tags to drop or unwrap
-_DETECTOR: Final[_LinkDetector] = _LinkDetector()
-_PHONE_DETECTORS: Final[MappingProxyType[str, _LinkDetector]] = MappingProxyType({
-    "valid": _LinkDetector(phones=_PhoneNumbers(regions=("US",))),
-    "possible": _LinkDetector(phones=_PhoneNumbers(regions=("US",), require_valid=False)),
-    "regions-8": _LinkDetector(phones=_PhoneNumbers(regions=("US", "GB", "DE", "IN", "BR", "JP", "FR", "AU"))),
+_DETECTOR: Final[LinkDetector] = LinkDetector()
+_PHONE_DETECTORS: Final[MappingProxyType[str, LinkDetector]] = MappingProxyType({
+    "valid": LinkDetector(phones=PhoneNumbers(regions=("US",))),
+    "possible": LinkDetector(phones=PhoneNumbers(regions=("US",), require_valid=False)),
+    "regions-8": LinkDetector(phones=PhoneNumbers(regions=("US", "GB", "DE", "IN", "BR", "JP", "FR", "AU"))),
 })
-_PHONE_STYLES: Final[MappingProxyType[str, _PhoneFormat]] = MappingProxyType({
-    style.value: style for style in _PhoneFormat
+_PHONE_STYLES: Final[MappingProxyType[str, PhoneFormat]] = MappingProxyType({
+    style.value: style for style in PhoneFormat
 })
-_PHONE_PARSED: Final[dict[tuple[str, str], _PhoneNumber]] = {}  # exclude parsing from formatting and construction
-_LINKER: Final[_Linker] = _Linker()
-_LINKER_SKIP: Final[_Linker] = _Linker(_Linkify(skip_tags=("code",)))
-_LINKER_CALLBACKS: Final[_Linker] = _Linker(_Linkify(callbacks=(_nofollow, _target_blank), process_existing=True))
+_PHONE_PARSED: Final[dict[tuple[str, str], PhoneNumber]] = {}  # exclude parsing from formatting and construction
+_LINKER: Final[Linker] = Linker()
+_LINKER_SKIP: Final[Linker] = Linker(Linkify(skip_tags=("code",)))
+_LINKER_CALLBACKS: Final[Linker] = Linker(Linkify(callbacks=(nofollow, target_blank), process_existing=True))
 _INNER_INDENT: Final[turbohtml.Html] = turbohtml.Html(layout=turbohtml.Indent())
 _INNER_MINIFY: Final[turbohtml.Html] = turbohtml.Html(layout=turbohtml.Minify())
 _XML: Final[turbohtml.Html] = turbohtml.Html(
@@ -215,7 +201,7 @@ def _shadow(count: int) -> None:
 
 def _shadow_slot(case: tuple[int, str, int]) -> None:
     size, markup, repeats = case
-    slot: Final = _slotted((size, markup))
+    slot: Final[Element] = _slotted((size, markup))
     for _ in range(repeats):
         slot.assigned_nodes()
 
@@ -256,7 +242,7 @@ def _parse_xml(text: str) -> None:
     turbohtml.parse_xml(text)
 
 
-_VALIDATORS: Final[dict[str, _XMLSchema]] = {}
+_VALIDATORS: Final[dict[str, XMLSchema]] = {}
 
 
 def _validate(case: tuple[str, str]) -> None:
@@ -264,18 +250,18 @@ def _validate(case: tuple[str, str]) -> None:
     schema, document = case
     validator = _VALIDATORS.get(schema)
     if validator is None:
-        validator = _VALIDATORS[schema] = _XMLSchema(schema)
+        validator = _VALIDATORS[schema] = XMLSchema(schema)
     validator.validate(turbohtml.parse_xml(document))
 
 
 def _is_valid(case: tuple[str, str]) -> None:
     schema, document = case
     if (validator := _VALIDATORS.get(schema)) is None:
-        validator = _VALIDATORS[schema] = _XMLSchema(schema)
+        validator = _VALIDATORS[schema] = XMLSchema(schema)
     validator.is_valid(turbohtml.parse_xml(document))
 
 
-_RNG_VALIDATORS: Final[dict[str, _RelaxNG]] = {}
+_RNG_VALIDATORS: Final[dict[str, RelaxNG]] = {}
 
 
 def _validate_rng(case: tuple[str, str]) -> None:
@@ -283,20 +269,20 @@ def _validate_rng(case: tuple[str, str]) -> None:
     schema, document = case
     validator = _RNG_VALIDATORS.get(schema)
     if validator is None:
-        validator = _RNG_VALIDATORS[schema] = _RelaxNG(schema)
+        validator = _RNG_VALIDATORS[schema] = RelaxNG(schema)
     validator.validate(turbohtml.parse_xml(document))
 
 
 def _is_valid_rng(case: tuple[str, str]) -> None:
     schema, document = case
     if (validator := _RNG_VALIDATORS.get(schema)) is None:
-        validator = _RNG_VALIDATORS[schema] = _RelaxNG(schema)
+        validator = _RNG_VALIDATORS[schema] = RelaxNG(schema)
     validator.is_valid(turbohtml.parse_xml(document))
 
 
 def _compile_rng(schema: str) -> None:
     # Measure schema construction rather than the cached validation path.
-    _RelaxNG(schema)
+    RelaxNG(schema)
 
 
 def _parse_scripting(text: str) -> None:
@@ -334,7 +320,7 @@ def _tokenize(text: str) -> None:
 
 
 def _render_options_setup(case: tuple[str, bool, int]) -> Callable[[], str | bytes]:
-    node: Final = turbohtml.Element("p", children=[turbohtml.Text("x")])
+    node: Final[Element] = turbohtml.Element("p", children=[turbohtml.Text("x")])
     kind, supplied, repeats = case
     if kind == "html":
         render = functools.partial(node.serialize, turbohtml.Html()) if supplied else node.serialize
@@ -440,22 +426,22 @@ def _computed_style(text: str) -> None:
     # Resolve the CSSOM computed style of every element in the parsed, styled document.
     for node in _parsed(text).descendants:
         if isinstance(node, turbohtml.Element):
-            _lib_computed_style(node)
+            computed_style(node)
 
 
 def _computed_style_reverse(text: str) -> None:
     for node in reversed(tuple(_parsed(text).descendants)):
         if isinstance(node, turbohtml.Element):
-            _lib_computed_style(node)
+            computed_style(node)
 
 
 def _computed_style_first(text: str) -> None:
-    _lib_computed_style(turbohtml.parse(text).select("div")[0])
+    computed_style(turbohtml.parse(text).select("div")[0])
 
 
 def _match(text: str) -> None:
     # Test every anchor against a selector with the soupsieve-shaped turbohtml.query matcher.
-    matcher = _compile(_CSS)
+    matcher = compile_query(_CSS)
     for anchor in _parsed(text).find_all("a"):
         matcher.match(anchor)
 
@@ -549,7 +535,7 @@ def _transform_dispatch(count: int) -> None:
 
 @functools.cache
 def _dispatch_pipeline(count: int) -> Callable[[], turbohtml.Node]:
-    return functools.partial(_transform_node, turbohtml.parse_fragment("<p>x</p>"), *(_identity_node,) * count)
+    return functools.partial(transform_node, turbohtml.parse_fragment("<p>x</p>"), *(_identity_node,) * count)
 
 
 def _identity_node(node: turbohtml.Node) -> turbohtml.Node:
@@ -562,17 +548,17 @@ def _parsed_body(text: str) -> turbohtml.Element:
 
 
 def _whitespace_roundtrip(document: turbohtml.Document) -> str:
-    _collapse_whitespace_node(document)
+    collapse_whitespace_node(document)
     return document.serialize()
 
 
 def _transform_tree(document: turbohtml.Document) -> None:
-    _transform_node(document, _strip_comments_node, _collapse_whitespace_node)
+    transform_node(document, strip_comments_node, collapse_whitespace_node)
 
 
 def _conformance(text: str) -> None:
     # Run the HTML5 authoring-conformance checks over a parsed document.
-    _check_conformance(_parsed(text))
+    check(_parsed(text))
 
 
 def _serialize_xml(text: str) -> None:
@@ -587,19 +573,19 @@ def _canonicalize(text: str) -> None:
 
 def _canonicalize_deep(case: tuple[str, int]) -> None:
     text, repeats = case
-    document: Final = _parsed(text)
+    document: Final[turbohtml.Document] = _parsed(text)
     for _ in range(repeats):
         _ = document.canonicalize()
 
 
 def _minify(text: str) -> str:
     # Minify an HTML document with turbohtml, parsing then serializing through the round-trip-safe Minify layout.
-    return _lib_minify(text)
+    return minify(text)
 
 
 def minify_js(source: str) -> str:
     # Minify a JavaScript source with turbohtml's native lex-parse-optimize-print minifier.
-    return _clean.minify_js(source)
+    return clean.minify_js(source)
 
 
 def _edit(document: turbohtml.Document) -> None:
@@ -672,7 +658,7 @@ def _treewalk(text: str) -> None:
 
 def _chain(text: str) -> None:
     # Run a fluent jQuery-style chain with turbohtml's Query wrapper.
-    _Query(_parsed(text))("a").filter("[href]").eq(0).add_class("seen").attr("href")
+    Query(_parsed(text))("a").filter("[href]").eq(0).add_class("seen").attr("href")
 
 
 def _range_clone(text: str) -> None:
@@ -775,17 +761,17 @@ def _sanitize_xml(text: str) -> None:
 
 def _markup(text: str) -> None:
     # Escape a string into a Markup with turbohtml's markupsafe-compatible escape.
-    _markup_escape(text)
+    escape(text)
 
 
-_MARKUP_TEMPLATE: Final[_Markup] = _Markup("<li>{}</li><span>{}</span>")
-_MARKUP_JOINER: Final[_Markup] = _Markup(", ")
+_MARKUP_TEMPLATE: Final[Markup] = Markup("<li>{}</li><span>{}</span>")
+_MARKUP_JOINER: Final[Markup] = Markup(", ")
 
 
 @functools.cache
-def _markup_of(text: str) -> _Markup:
+def _markup_of(text: str) -> Markup:
     # Return a Markup wrapping the text, cached so the Markup operations time only the method call.
-    return _Markup(text)
+    return Markup(text)
 
 
 def _markup_op(case: tuple[str, Case]) -> None:
@@ -803,7 +789,7 @@ def _markup_op(case: tuple[str, Case]) -> None:
 
 def _linkify(text: str) -> None:
     # Auto-link URLs and emails in HTML with turbohtml, parsing and rewriting the tree.
-    _lib_linkify(text)
+    linkify(text)
 
 
 def _linkify_node(node: Node) -> Node:
@@ -844,15 +830,15 @@ def _phone_parse(case: tuple[str, tuple[tuple[str, str], ...]]) -> None:
     # Read each held string as one number with turbohtml's PhoneNumber.parse, at the case's leniency.
     mode, held = case
     for region, text in held:
-        _PhoneNumber.parse(text, regions=(region,), require_valid=mode == "valid")
+        PhoneNumber.parse(text, regions=(region,), require_valid=mode == "valid")
 
 
 def _phone_construct(held: tuple[tuple[str, str], ...]) -> None:
     # Construct validated numbers from held public fields, excluding parsing.
     for region, text in held:
         if (number := _PHONE_PARSED.get((region, text))) is None:
-            number = _PHONE_PARSED[region, text] = _PhoneNumber.parse(text, regions=(region,))
-        _PhoneNumber(number.country_code, number.national_number, number.extension, number.region, number.type)
+            number = _PHONE_PARSED[region, text] = PhoneNumber.parse(text, regions=(region,))
+        PhoneNumber(number.country_code, number.national_number, number.extension, number.region, number.type)
 
 
 def _phone_format(case: tuple[str, tuple[tuple[str, str], ...]]) -> None:
@@ -860,7 +846,7 @@ def _phone_format(case: tuple[str, tuple[tuple[str, str], ...]]) -> None:
     style, held = case
     for region, text in held:
         if (number := _PHONE_PARSED.get((region, text))) is None:
-            number = _PHONE_PARSED[region, text] = _PhoneNumber.parse(text, regions=(region,))
+            number = _PHONE_PARSED[region, text] = PhoneNumber.parse(text, regions=(region,))
         number.format(_PHONE_STYLES[style])
 
 
@@ -872,11 +858,11 @@ def _markdown(case: tuple[str, str]) -> None:
     kind, text = case
     if kind == "configured":
         turbohtml.parse(text).to_markdown(
-            _Markdown(
-                inline=_Markdown.Inline(strong="__", emphasis="_"),
-                links=_Markdown.Links(style="reference"),
-                tables=_Markdown.Tables(pad=True),
-                escaping=_Markdown.Escaping(mode="all"),
+            Markdown(
+                inline=Markdown.Inline(strong="__", emphasis="_"),
+                links=Markdown.Links(style="reference"),
+                tables=Markdown.Tables(pad=True),
+                escaping=Markdown.Escaping(mode="all"),
             )
         )
     else:
@@ -890,14 +876,14 @@ def _markdown_wrap(case: tuple[int, str]) -> None:
 
 
 @functools.cache
-def _markdown_wrap_case(case: tuple[int, str]) -> tuple[_Markdown, turbohtml.Document]:
+def _markdown_wrap_case(case: tuple[int, str]) -> tuple[Markdown, turbohtml.Document]:
     width, source = case
-    return _Markdown(wrapping=_Markdown.Wrapping(width=width)), turbohtml.parse(source)
+    return Markdown(wrapping=Markdown.Wrapping(width=width)), turbohtml.parse(source)
 
 
 def _markdown_google(text: str) -> None:
     # Convert a Google Docs export to Markdown with turbohtml's google_doc mode.
-    turbohtml.parse(text).to_markdown(_Markdown.google_doc())
+    turbohtml.parse(text).to_markdown(Markdown.google_doc())
 
 
 def _tables(case: tuple[str, str]) -> None:
@@ -916,12 +902,12 @@ def _article(text: str) -> None:
 
 def _boilerplate(text: str) -> None:
     # Classify every paragraph good or boilerplate with turbohtml's layer over the C main-content scoring.
-    _extract_boilerplate(text)
+    boilerplate(text)
 
 
 def _date(text: str) -> None:
     # Recover the publication date with turbohtml, scoring the meta, JSON-LD, time, and URL signals off the DOM.
-    _extract_dates(text)
+    dates(text)
 
 
 def _text_render(text: str) -> None:
@@ -976,7 +962,7 @@ def _extract_url(case: tuple[str, str]) -> None:
         turbohtml.parse(text).meta_refresh(url_hint_base)
 
 
-class _Counter(_TurboHTMLParser):
+class _Counter(HTMLParser):
     # A turbohtml html.parser adapter subclass whose handler does minimal, identical work.
     def __init__(self) -> None:
         super().__init__()
@@ -994,7 +980,7 @@ def _htmlparser(text: str) -> None:
     parser.close()
 
 
-class _SaxCounter(_SaxHandler):
+class _SaxCounter(SaxHandler):
     # A SAX handler whose start-tag callback does the same minimal work as the html.parser counters.
     def __init__(self) -> None:
         self.work = 0
@@ -1006,11 +992,11 @@ class _SaxCounter(_SaxHandler):
 
 def _sax(text: str) -> None:
     # Parse the whole document into SAX events, dispatched to a counting handler, retaining no tree.
-    _sax_parse(text, _SaxCounter())
+    sax_parse(text, _SaxCounter())
 
 
 def _sax_records(text: str) -> None:
-    deque(_iter_events(text), maxlen=0)
+    deque(iter_events(text), maxlen=0)
 
 
 class _Node:
@@ -1048,27 +1034,27 @@ class _NodeBuilder:
 
 def _treebuild(text: str) -> None:
     # Retarget the parser at a custom tree, materializing it directly and never building a navigable Node.
-    _parse_into(text, _NodeBuilder())
+    parse_into(text, _NodeBuilder())
 
 
-def _rewrite_rel(element: _RewriteElement) -> None:
+def _rewrite_rel(element: RewriteElement) -> None:
     # Mark a link rel=nofollow as the streaming rewriter visits it.
     element.set_attribute("rel", "nofollow")
 
 
-def _rewrite_lazy(element: _RewriteElement) -> None:
+def _rewrite_lazy(element: RewriteElement) -> None:
     # Defer an image's load as the streaming rewriter visits it.
     element.set_attribute("loading", "lazy")
 
 
-def _rewrite_strip_comment(comment: _RewriteElement) -> None:
+def _rewrite_strip_comment(comment: RewriteElement) -> None:
     # Drop a comment as the streaming rewriter visits it.
     comment.remove()
 
 
 def _rewrite(text: str) -> None:
     # Rewrite the whole document in one streaming pass -- retag links, lazy-load images, drop comments -- no tree.
-    _lib_rewrite(
+    rewrite(
         text,
         elements=(("a[href]", _rewrite_rel), ("img", _rewrite_lazy)),
         comments=_rewrite_strip_comment,
@@ -1078,16 +1064,16 @@ def _rewrite(text: str) -> None:
 def _rewrite_attributes(case: tuple[int, str, int]) -> None:
     # Exclude attribute-name preparation from steady-state timing.
     count, text, repeats = case
-    handler: Final = _rewrite_attribute_handler(count)
+    handler: Final[Callable[[RewriteElement], None]] = _rewrite_attribute_handler(count)
     for _ in range(repeats):
-        _lib_rewrite(text, elements=(("x", handler),))
+        rewrite(text, elements=(("x", handler),))
 
 
 @functools.cache
-def _rewrite_attribute_handler(count: int) -> Callable[[_RewriteElement], None]:
-    names: Final = tuple(f"a{index}" for index in range(count))
+def _rewrite_attribute_handler(count: int) -> Callable[[RewriteElement], None]:
+    names: Final[tuple[str, ...]] = tuple(f"a{index}" for index in range(count))
 
-    def add(element: _RewriteElement) -> None:
+    def add(element: RewriteElement) -> None:
         for name in names:
             element.set_attribute(name, "x")
 
@@ -1144,13 +1130,13 @@ def _xslt_sheet(sheet: str) -> turbohtml.Document:
 
 def _transform_compile(case: tuple[str, str]) -> None:
     sheet, _source = case
-    _Transform(_xslt_sheet(sheet))
+    Transform(_xslt_sheet(sheet))
 
 
 @functools.cache
-def _xslt_compiled(sheet: str, source: str) -> tuple[_Transform, turbohtml.Document]:
+def _xslt_compiled(sheet: str, source: str) -> tuple[Transform, turbohtml.Document]:
     # Keep construction and source parsing outside application timing.
-    return _Transform(turbohtml.parse_xml(sheet)), turbohtml.parse_xml(source)
+    return Transform(turbohtml.parse_xml(sheet)), turbohtml.parse_xml(source)
 
 
 def transform(case: tuple[str, str]) -> str:
@@ -1162,7 +1148,7 @@ def transform(case: tuple[str, str]) -> str:
 
 def _transform_compile_run(case: tuple[str, str]) -> str:
     sheet, source = case
-    return _Transform(_xslt_sheet(sheet))(_xslt_sheet(source))
+    return Transform(_xslt_sheet(sheet))(_xslt_sheet(source))
 
 
 def _transform_reuse(case: tuple[str, str]) -> None:
@@ -1253,7 +1239,7 @@ def _xpath_id(text: str) -> None:
 
 def minify_css(css: str) -> str:
     # Minify a stylesheet with turbohtml's value-safe CSS minifier.
-    return _clean.minify_css(css)
+    return clean.minify_css(css)
 
 
 def _stream(text: str) -> None:
@@ -1266,27 +1252,27 @@ def _stream(text: str) -> None:
 
 def _encoding_chunks(case: tuple[int, bytes]) -> None:
     chunk_size, data = case
-    detector: Final = _EncodingDetector()
+    detector: Final[EncodingDetector] = EncodingDetector()
     for start in range(0, len(data), chunk_size):
         detector.feed(data[start : start + chunk_size])
     detector.close()
 
 
 def _encoding_stream(data: bytes) -> None:
-    detector: Final = _EncodingDetector()
+    detector: Final[EncodingDetector] = EncodingDetector()
     detector.feed(data)
     detector.close()
 
 
 def _encoding(data: bytes) -> None:
     # Detect a byte stream's character encoding with turbohtml's C sniffing pipeline.
-    _detect_encoding(data)
+    detect(data)
 
 
 def _encoding_result(case: tuple[int, bytes]) -> None:
     count, data = case
     for _ in range(count):
-        _detect_encoding(data)
+        detect(data)
 
 
 def _encoding_result_stream(case: tuple[int, bytes]) -> None:
@@ -1303,18 +1289,18 @@ def _decode(case: tuple[str, bytes]) -> None:
 
 def _detect_language(text: str) -> None:
     # Detect a string's natural language with turbohtml's trigram scorer.
-    _lib_detect_language(text)
+    detect_language(text)
 
 
 def _set_attributes(case: tuple[turbohtml.Element, tuple[str, ...]]) -> None:
-    attrs: Final = case[0].attrs
+    attrs = case[0].attrs
     for name in case[1]:
         attrs[name] = "after"
 
 
 def _attribute_tree(case: tuple[int, bool]) -> tuple[turbohtml.Element, tuple[str, ...]]:
-    root: Final = turbohtml.Element("div")
-    names: Final = tuple(f"data-{index}" for index in range(case[0]))
+    root: Final[Element] = turbohtml.Element("div")
+    names: Final[tuple[str, ...]] = tuple(f"data-{index}" for index in range(case[0]))
     if case[1]:
         for name in names:
             root.attrs[name] = "before"
@@ -1322,7 +1308,7 @@ def _attribute_tree(case: tuple[int, bool]) -> tuple[turbohtml.Element, tuple[st
 
 
 def _normalization_tree(case: tuple[int, str]) -> turbohtml.Element:
-    root: Final = turbohtml.Element("p")
+    root: Final[Element] = turbohtml.Element("p")
     if not case[1]:
         root.append(turbohtml.Text("word"))
     root.extend(turbohtml.Text(case[1]) for _ in range(case[0]))
@@ -1331,51 +1317,51 @@ def _normalization_tree(case: tuple[int, str]) -> turbohtml.Element:
 
 def _normalize(text: str) -> None:
     # Normalize text to Unicode NFC with turbohtml's C engine (quick-checked, then decompose/reorder/compose).
-    _lib_normalize("NFC", text)
+    normalize("NFC", text)
 
 
 def _escape_identifier(idents: tuple[str, ...]) -> None:
     # Escape each raw identifier for use in a selector with turbohtml's CSSOM escape.
     for ident in idents:
-        _lib_escape_identifier(ident)
+        escape_identifier(ident)
 
 
 def _idna(urls: tuple[str, ...]) -> None:
     # Run the domain-to-ASCII conversion over a batch of distinct Unicode hosts.
     for url in urls:
-        _normalize_url(url)
+        normalize_url(url)
 
 
 def _translate(case: tuple[str, int]) -> None:
     # Translate one CSS selector to XPath 1.0 with turbohtml's C translator.
     selector, repeats = case
     for _ in range(repeats):
-        _css_to_xpath(selector)
+        css_to_xpath(selector)
 
 
 def _specificity(case: tuple[str, int]) -> None:
     # Weigh a CSS selector list's specificity with turbohtml's C selector parser.
     selector, repeats = case
     for _ in range(repeats):
-        _css_specificity(selector)
+        css_specificity(selector)
 
 
 def _urls_clean(case: tuple[str, tuple[str, ...]]) -> None:
     # Run turbohtml's URL scrub-and-normalize (or bare normalize) over the shared URL batch, by case kind.
     kind, batch = case
-    transform = _clean_url if kind == "clean" else _normalize_url
+    transform = clean_url if kind == "clean" else normalize_url
     for url in batch:
         transform(url)
 
 
 def _links_filter(text: str) -> None:
     # Collect the cleaned, deduplicated page links with turbohtml's extract_links, parsing the cold string.
-    _extract_links(text, _LINKS_BASE)
+    extract_links(text, _LINKS_BASE)
 
 
 def _links_external(text: str) -> None:
     # Collect links outside the base URL's registrable domain.
-    _extract_links(text, "https://www.example.co.uk/", external_only=True)
+    extract_links(text, "https://www.example.co.uk/", external_only=True)
 
 
 def _node_equals(case: tuple[int, str, int]) -> bool:
@@ -1387,27 +1373,29 @@ def _node_equals(case: tuple[int, str, int]) -> bool:
 @functools.cache
 def _equality_pair(count: int, variant: str) -> tuple[turbohtml.Element, turbohtml.Element]:
     if variant == "duplicates":
-        duplicates: Final = {
+        duplicates: Final[dict[str, str]] = {
             "".join(
                 letter.upper() if mask & (1 << index) else letter for index, letter in enumerate("abcdefghij")
             ): "same"
             for mask in range(count - 3)
         }
-        anchors: Final = {"first": "1", "second": "2", "third": "3"}
+        anchors: Final[dict[str, str]] = {"first": "1", "second": "2", "third": "3"}
         return turbohtml.Element("div", anchors | duplicates), turbohtml.Element("div", duplicates | anchors)
-    left: Final = turbohtml.Element("div")
-    right: Final = turbohtml.Element("div")
+    left: Final[Element] = turbohtml.Element("div")
+    right: Final[Element] = turbohtml.Element("div")
     fill_equality_pair(left.attrs, right.attrs, count, variant)
     return left, right
 
 
 def _radio_group_setup(case: tuple[int, int, int, str]) -> Callable[[], tuple[bool, ...]]:
     padding, forms, repeats, mode = case
-    tag: Final = "section" if mode in {"document", "mutate"} else "form"
-    markup: Final = f"<{tag}>{'<input type=radio name=choice>' * 16}{'<div></div>' * padding}</{tag}>"
-    document: Final = turbohtml.parse(markup * forms)
-    form: Final = cast("turbohtml.Element", document.children[0].children[-1].children[0])
-    radios: Final = [node for node in form.children if isinstance(node, turbohtml.Element) and node.tag == "input"]
+    tag: Final[str] = "section" if mode in {"document", "mutate"} else "form"
+    markup: Final[str] = f"<{tag}>{'<input type=radio name=choice>' * 16}{'<div></div>' * padding}</{tag}>"
+    document: Final[turbohtml.Document] = turbohtml.parse(markup * forms)
+    form: Final[Element] = cast("turbohtml.Element", document.children[0].children[-1].children[0])
+    radios: Final[list[Element]] = [
+        node for node in form.children if isinstance(node, turbohtml.Element) and node.tag == "input"
+    ]
 
     def run() -> tuple[bool, ...]:
         if mode in {"document", "select"}:
@@ -1428,13 +1416,13 @@ def _run_radio_group(run: Callable[[], tuple[bool, ...]]) -> tuple[bool, ...]:
 
 def _range_boundary_setup(case: tuple[int, str, int]) -> Callable[[], None]:
     count, variant, repeats = case
-    root: Final = turbohtml.Element("div")
+    root: Final[Element] = turbohtml.Element("div")
     root.extend(turbohtml.Element("i") for _ in range(count))
-    offset: Final = count if variant == "end" else 0
+    offset: Final[int] = count if variant == "end" else 0
 
     def run() -> None:
         for _ in range(repeats):
-            _Range(root, offset)
+            Range(root, offset)
 
     return run
 
@@ -1445,9 +1433,9 @@ def _run_prepared(run: Callable[[], None]) -> None:
 
 def _range_contained_setup(case: tuple[int, str, int]) -> Callable[[], None]:
     count, variant, repeats = case
-    root: Final = turbohtml.Element("div")
+    root: Final[Element] = turbohtml.Element("div")
     root.extend(turbohtml.Element("i") for _ in range(count))
-    boundary: Final = _Range(root)
+    boundary: Final[turbohtml.Range] = Range(root)
     boundary.set_end(root, count)
 
     def run() -> None:
@@ -1462,10 +1450,10 @@ def _range_contained_setup(case: tuple[int, str, int]) -> Callable[[], None]:
 
 def _range_partial_setup(case: tuple[int, str, int]) -> Callable[[], None]:
     count, variant, repeats = case
-    root: Final = turbohtml.Element("div")
+    root: Final[Element] = turbohtml.Element("div")
     root.set_inner_html(f"<section>abcdef{'<i></i>' * count}</section>tail")
-    selected: Final = root.children[0].children[0]
-    boundary: Final = _Range(root)
+    selected: Final[Node] = root.children[0].children[0]
+    boundary: Final[turbohtml.Range] = Range(root)
     boundary.set_start(root, 0)
     boundary.set_end(selected, 3)
 
@@ -1481,10 +1469,10 @@ def _range_partial_setup(case: tuple[int, str, int]) -> Callable[[], None]:
 
 def _observe_registrations_setup(case: tuple[int, str, int]) -> Callable[[], None]:
     count, variant, repeats = case
-    root: Final = turbohtml.Element("div")
+    root: Final[Element] = turbohtml.Element("div")
     root.set_inner_html(f"{'<div>' * 100}target{'</div>' * 100}{'<span></span>' * count}")
-    target: Final = root.select("div")[-1]
-    observer: Final = turbohtml.MutationObserver()
+    target: Final[Element] = root.select("div")[-1]
+    observer: Final[turbohtml.MutationObserver] = turbohtml.MutationObserver()
     for watched in root.select("span"):
         observer.observe(watched, child_list=variant == "wrong-kind", attributes=variant != "wrong-kind", subtree=True)
     if variant == "match":
@@ -1500,10 +1488,10 @@ def _observe_registrations_setup(case: tuple[int, str, int]) -> Callable[[], Non
 
 def _shadow_fallback_setup(case: tuple[int, str, int]) -> Callable[[], None]:
     count, _variant, repeats = case
-    host: Final = turbohtml.Element("div")
-    shadow: Final = host.attach_shadow("open")
+    host: Final[Element] = turbohtml.Element("div")
+    shadow: Final[turbohtml.ShadowRoot] = host.attach_shadow("open")
     shadow.set_inner_html(f"<slot>{'<slot>fallback</slot>' * count}</slot>")
-    first: Final = shadow.select("slot")[0]
+    first: Final[Element] = shadow.select("slot")[0]
 
     def run() -> None:
         for _ in range(repeats):
@@ -1514,9 +1502,9 @@ def _shadow_fallback_setup(case: tuple[int, str, int]) -> Callable[[], None]:
 
 def _shadow_assignment_setup(case: tuple[int, str, int]) -> Callable[[], None]:
     count, _variant, repeats = case
-    host: Final = turbohtml.Element("div")
+    host: Final[Element] = turbohtml.Element("div")
     host.set_inner_html("".join(f'<i slot="name-{index}">{index}</i>' for index in range(count)))
-    shadow: Final = host.attach_shadow("open")
+    shadow: Final[turbohtml.ShadowRoot] = host.attach_shadow("open")
     shadow.set_inner_html("".join(f'<slot name="name-{index}">fallback</slot>' for index in range(count)))
 
     def run() -> None:
@@ -1530,7 +1518,7 @@ def _prune_shared_setup(case: tuple[int, int, int]) -> list[turbohtml.Element]:
     depth, matches, repeats = case
     roots: Final[list[turbohtml.Element]] = []
     for _ in range(repeats):
-        root: Final = turbohtml.Element("main")
+        root: Final[Element] = turbohtml.Element("main")
         root.set_inner_html("<section>" * depth + "<b>keep</b><i>drop</i>" * matches + "</section>" * depth)
         roots.append(root)
     return roots
@@ -1546,14 +1534,14 @@ def _query_roots(case: tuple[int, str]) -> None:
 
 
 @functools.cache
-def _query_root_case(case: tuple[int, str]) -> _Query:
+def _query_root_case(case: tuple[int, str]) -> Query:
     count, order = case
     nodes = turbohtml.parse(f"<main>{'<div><i>x</i></div>' * count}</main>").select("div")
     if order == "reversed":
         nodes.reverse()
     elif order == "shuffled":
         nodes = nodes[::2] + nodes[1::2]
-    return _Query(nodes)
+    return Query(nodes)
 
 
 def _query_closest(case: tuple[int, bool]) -> None:
@@ -1562,7 +1550,7 @@ def _query_closest(case: tuple[int, bool]) -> None:
 
 def _node_closest(case: tuple[int, bool, int]) -> None:
     count, shared, repeats = case
-    node: Final = _query_parents_case((count, shared))[0]
+    node: Final[Element] = _query_parents_case((count, shared))[0]
     for _ in range(repeats):
         node.closest("main")
 
@@ -1572,10 +1560,10 @@ def _query_parents(case: tuple[int, bool]) -> None:
 
 
 @functools.cache
-def _query_parents_case(case: tuple[int, bool]) -> _Query:
+def _query_parents_case(case: tuple[int, bool]) -> Query:
     count, shared = case
-    text: Final = f"<main>{'<p>x</p>' * count}</main>" if shared else "<main><p>x</p></main>" * count
-    return _Query(text)("p")
+    text: Final[str] = f"<main>{'<p>x</p>' * count}</main>" if shared else "<main><p>x</p></main>" * count
+    return Query(text)("p")
 
 
 def _query_siblings(case: tuple[int, bool]) -> None:
@@ -1583,15 +1571,15 @@ def _query_siblings(case: tuple[int, bool]) -> None:
 
 
 @functools.cache
-def _query_siblings_case(case: tuple[int, bool]) -> _Query:
+def _query_siblings_case(case: tuple[int, bool]) -> Query:
     count, all_selected = case
-    selected: Final = _Query(f"<main>{'<p>x</p>' * count}</main>")("p")
+    selected: Final[Query] = Query(f"<main>{'<p>x</p>' * count}</main>")("p")
     return selected if all_selected else selected.eq(0)
 
 
 def _form_data_fieldsets(case: tuple[int, str]) -> list[tuple[str, str]]:
     repeats, text = case
-    form: Final = _form_data_case(text)
+    form: Final[Element] = _form_data_case(text)
     return [form.form_data() for _ in range(repeats)][-1]
 
 
@@ -1600,12 +1588,12 @@ def _form_data_case(text: str) -> turbohtml.Element:
     return turbohtml.parse(text).select("form")[0]
 
 
-def _query_root_groups(case: tuple[str, int]) -> _Query:
+def _query_root_groups(case: tuple[str, int]) -> Query:
     return _query_root_group_case(case).find("p")
 
 
 @functools.cache
-def _query_root_group_case(case: tuple[str, int]) -> _Query:
+def _query_root_group_case(case: tuple[str, int]) -> Query:
     kind, count = case
     if kind == "documents":
         roots = [turbohtml.parse(f"<main><p>{index}</p></main>").select("main")[0] for index in range(count)]
@@ -1614,7 +1602,7 @@ def _query_root_group_case(case: tuple[str, int]) -> _Query:
         if kind == "detached":
             for root in roots:
                 root.extract()
-    return _Query(roots)
+    return Query(roots)
 
 
 OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
@@ -1664,9 +1652,9 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "validate-facets": (_validate, "turbohtml"),
     "validate-attributes": (_validate, "turbohtml"),
     "validate-numeric-facets": (_validate, "turbohtml"),
-    "compile-facets": (_XMLSchema, "turbohtml"),
+    "compile-facets": (XMLSchema, "turbohtml"),
     "validate-pattern-reuse": (_validate, "turbohtml"),
-    "compile-pattern": (_XMLSchema, "turbohtml"),
+    "compile-pattern": (XMLSchema, "turbohtml"),
     "validate-pattern": (_validate, "turbohtml"),
     "compile-rng": (_compile_rng, "turbohtml"),
     "parse-scripting": (_parse_scripting, "turbohtml"),
@@ -1724,8 +1712,8 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "iterate-inner": (_iterate_inner, "turbohtml"),
     "iterate-inner-indent": (_iterate_inner_indent, "turbohtml"),
     "transform-dispatch": (_transform_dispatch, "turbohtml"),
-    "collapse-whitespace": (Mutating(setup=turbohtml.parse, run=_collapse_whitespace_node), "turbohtml"),
-    "strip-comments": (Mutating(setup=turbohtml.parse, run=_strip_comments_node), "turbohtml"),
+    "collapse-whitespace": (Mutating(setup=turbohtml.parse, run=collapse_whitespace_node), "turbohtml"),
+    "strip-comments": (Mutating(setup=turbohtml.parse, run=strip_comments_node), "turbohtml"),
     "whitespace-roundtrip": (Mutating(setup=turbohtml.parse, run=_whitespace_roundtrip), "turbohtml"),
     "transform-tree": (Mutating(setup=turbohtml.parse, run=_transform_tree), "turbohtml"),
     "conformance": (_conformance, "turbohtml"),

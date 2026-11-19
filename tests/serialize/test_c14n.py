@@ -15,7 +15,9 @@ from turbohtml import Canonical, CData, Element, Html, ProcessingInstruction, Te
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from types import ModuleType
 
+    from lxml import etree as lxml_types
     from work_steps import WorkSteps
 
     from turbohtml import Document, Node
@@ -879,7 +881,7 @@ def test_html_c14n_declares_non_ascii_prefix(prefix: str, options: Canonical) ->
 
 
 def test_html_c14n_prefixed_declaration_steps_grow_linearly(work_steps: WorkSteps) -> None:
-    options: Final = Canonical(exclusive=True)
+    options: Final[Canonical] = Canonical(exclusive=True)
     work_steps.assert_linear(
         lambda count: partial(_one(_prefixed_siblings(count), "r").canonicalize, options), (500, 2000)
     )
@@ -954,16 +956,16 @@ def test_xml_c14n_sorts_attributes_by_namespace_uri(source: str, expected: bytes
 
 
 def test_xml_c14n_apex_sorts_attributes_by_namespace_uri_declared_above() -> None:
-    document: Final = parse_xml('<r xmlns:a="urn:z" xmlns:b="urn:m" xml:lang="en"><c a:x="1" b:x="2"/></r>')
+    document: Final[Document] = parse_xml('<r xmlns:a="urn:z" xmlns:b="urn:m" xml:lang="en"><c a:x="1" b:x="2"/></r>')
     assert document.children[0].children[0].canonicalize() == (
         b'<c xmlns:a="urn:z" xmlns:b="urn:m" xml:lang="en" b:x="2" a:x="1"></c>'
     )
 
 
 def test_xml_c14n_sorts_many_attributes_on_one_long_uri() -> None:
-    count: Final = 2000
-    uri: Final = f"urn:{'a' * count}"
-    attributes: Final = " ".join(f'p:a{index:05}=""' for index in range(count))
+    count: Final[int] = 2000
+    uri: Final[str] = f"urn:{'a' * count}"
+    attributes: Final[str] = " ".join(f'p:a{index:05}=""' for index in range(count))
     assert (
         parse_xml(_attributes_on_one_uri(count)).canonicalize()
         == f'<r xmlns:p="{uri}"><a {attributes}></a></r>'.encode()
@@ -971,18 +973,18 @@ def test_xml_c14n_sorts_many_attributes_on_one_long_uri() -> None:
 
 
 def _attributes_on_one_uri(count: int) -> str:
-    uri: Final = f"urn:{'a' * count}"
-    attributes: Final = " ".join(f'p:a{index:05}=""' for index in reversed(range(count)))
+    uri: Final[str] = f"urn:{'a' * count}"
+    attributes: Final[str] = " ".join(f'p:a{index:05}=""' for index in reversed(range(count)))
     return f'<r xmlns:p="{uri}"><a {attributes}/></r>'
 
 
 def test_xml_c14n_sorts_attributes_by_distinct_long_uris() -> None:
-    uris: Final = [f"urn:{'u' * 150}{index:02}" for index in range(20)]
-    declarations: Final = " ".join(sorted(f'xmlns:p{19 - index:02}="{uri}"' for index, uri in enumerate(uris)))
-    attributes: Final = [f'p{19 - index:02}:v="{index}"' for index in range(20)]
-    plain: Final = f'plain="{"w" * 200}"'
-    shuffled: Final = " ".join(attributes[index * 7 % 20] for index in range(20))
-    source: Final = f"<r {declarations} {shuffled} {plain}/>"
+    uris: Final[list[str]] = [f"urn:{'u' * 150}{index:02}" for index in range(20)]
+    declarations: Final[str] = " ".join(sorted(f'xmlns:p{19 - index:02}="{uri}"' for index, uri in enumerate(uris)))
+    attributes: Final[list[str]] = [f'p{19 - index:02}:v="{index}"' for index in range(20)]
+    plain: Final[str] = f'plain="{"w" * 200}"'
+    shuffled: Final[str] = " ".join(attributes[index * 7 % 20] for index in range(20))
+    source: Final[str] = f"<r {declarations} {shuffled} {plain}/>"
     assert parse_xml(source).canonicalize() == f"<r {declarations} {plain} {' '.join(attributes)}></r>".encode()
 
 
@@ -991,14 +993,14 @@ def test_xml_c14n_attribute_sort_steps_grow_linearly_in_uri_length(work_steps: W
 
 
 def test_xml_c14n_exclusive_redeclared_uri_steps_grow_linearly_in_uri_length(work_steps: WorkSteps) -> None:
-    options: Final = Canonical(exclusive=True)
+    options: Final[Canonical] = Canonical(exclusive=True)
     work_steps.assert_linear(
         lambda count: partial(parse_xml(_redeclared_uri(count)).canonicalize, options), (500, 2000)
     )
 
 
 def _redeclared_uri(count: int) -> str:
-    uri: Final = f"urn:{'a' * count}"
+    uri: Final[str] = f"urn:{'a' * count}"
     return f'<p:r xmlns:p="{uri}"><m xmlns:p="{uri}">{"<p:a/>" * count}</m></p:r>'
 
 
@@ -1078,14 +1080,14 @@ def test_xml_c14n_nested_namespace_scopes(source: str, expected: bytes, *, exclu
 
 
 def test_xml_c14n_forced_prefix_declared_below_apex() -> None:
-    source: Final = '<r><a xmlns:p="urn:p"><b/></a></r>'
+    source: Final[str] = '<r><a xmlns:p="urn:p"><b/></a></r>'
     assert parse_xml(source).canonicalize(Canonical(exclusive=True, inclusive_ns_prefixes=("p",))) == (
         b'<r><a xmlns:p="urn:p"><b></b></a></r>'
     )
 
 
 def test_xml_c14n_forced_empty_default_without_parent_binding() -> None:
-    source: Final = '<r><a xmlns=""><b/></a></r>'
+    source: Final[str] = '<r><a xmlns=""><b/></a></r>'
     assert parse_xml(source).canonicalize(Canonical(exclusive=True, inclusive_ns_prefixes=("#default",))) == (
         b"<r><a><b></b></a></r>"
     )
@@ -1162,7 +1164,7 @@ def test_xml_c14n_namespace_prefixes_and_attribute_keys(source: str, expected: b
 
 
 def test_xml_c14n_preserves_text_and_cdata() -> None:
-    source: Final = '<r xmlns:p="urn:p">a&amp;b&lt;c&gt;d&#xD;<![CDATA[<x>&]]></r>'
+    source: Final[str] = '<r xmlns:p="urn:p">a&amp;b&lt;c&gt;d&#xD;<![CDATA[<x>&]]></r>'
     assert parse_xml(source).canonicalize() == b'<r xmlns:p="urn:p">a&amp;b&lt;c&gt;d&#xD;&lt;x&gt;&amp;</r>'
 
 
@@ -1187,7 +1189,7 @@ def test_xml_c14n_attribute_character_references(source_value: str, expected: by
 
 
 def test_xml_c14n_renders_comments_and_processing_instructions() -> None:
-    source: Final = '<r xmlns:p="urn:p"><!--x--><?pi a?><p:a/></r>'
+    source: Final[str] = '<r xmlns:p="urn:p"><!--x--><?pi a?><p:a/></r>'
     assert parse_xml(source).canonicalize(Canonical(with_comments=True)) == (
         b'<r xmlns:p="urn:p"><!--x--><?pi a?><p:a></p:a></r>'
     )
@@ -1204,7 +1206,7 @@ def test_xml_c14n_omits_inserted_processing_instruction_with_invalid_target() ->
 
 
 def test_xml_c14n_document_nodes_surround_root() -> None:
-    source: Final = '<!--pre--><?pi lead?><!DOCTYPE r><r xmlns:p="urn:p"/><?pi tail?><!--post-->'
+    source: Final[str] = '<!--pre--><?pi lead?><!DOCTYPE r><r xmlns:p="urn:p"/><?pi tail?><!--post-->'
     assert parse_xml(source).canonicalize(Canonical(with_comments=True)) == (
         b'<!--pre-->\n<?pi lead?>\n<r xmlns:p="urn:p"></r>\n<?pi tail?>\n<!--post-->'
     )
@@ -1233,9 +1235,9 @@ def test_xml_c14n_1_1_does_not_inherit_xml_id() -> None:
 
 
 def test_xml_c14n_many_namespaces_and_attributes() -> None:
-    names: Final = tuple(f"p{index:02d}" for index in range(33))
-    source: Final = f"""<r {" ".join(f'xmlns:{name}="urn:{name}" {name}:x="v"' for name in names)}/>"""
-    expected: Final = (
+    names: Final[tuple[str, ...]] = tuple(f"p{index:02d}" for index in range(33))
+    source: Final[str] = f"""<r {" ".join(f'xmlns:{name}="urn:{name}" {name}:x="v"' for name in names)}/>"""
+    expected: Final[bytes] = (
         f"""<r {" ".join(f'xmlns:{name}="urn:{name}"' for name in names)} """
         f"""{" ".join(f'{name}:x="v"' for name in names)}></r>"""
     ).encode()
@@ -1261,25 +1263,25 @@ def test_xml_c14n_rejects_relative_namespace(namespace: str, options: Canonical)
 
 
 def test_xml_c14n_rejects_relative_namespace_with_heap_allocated_bindings() -> None:
-    source: Final = f"""<r {" ".join(f'xmlns:p{index}="urn:{index}"' for index in range(33))} xmlns:bad="rel"/>"""
+    source: Final[str] = f"""<r {" ".join(f'xmlns:p{index}="urn:{index}"' for index in range(33))} xmlns:bad="rel"/>"""
     with pytest.raises(ValueError, match="relative namespace URI cannot be canonicalized"):
         parse_xml(source).canonicalize()
 
 
 def test_xml_c14n_rejects_relative_namespace_in_a_descendant() -> None:
-    document: Final = parse_xml('<r><c xmlns:p="relative"><p:a/></c></r>')
+    document: Final[Document] = parse_xml('<r><c xmlns:p="relative"><p:a/></c></r>')
     with pytest.raises(ValueError, match="relative namespace URI cannot be canonicalized"):
         document.canonicalize()
 
 
 def test_xml_c14n_rejects_an_inherited_relative_namespace() -> None:
-    node: Final = parse_xml('<r xmlns:p="relative"><c><p:a/></c></r>').children[0].children[0]
+    node: Final[Node] = parse_xml('<r xmlns:p="relative"><c><p:a/></c></r>').children[0].children[0]
     with pytest.raises(ValueError, match="relative namespace URI cannot be canonicalized"):
         node.canonicalize()
 
 
 def test_xml_c14n_accepts_shadowed_relative_namespace_on_subtree() -> None:
-    document: Final = parse_xml('<r xmlns:p="relative"><c xmlns:p="urn:absolute"><p:a/></c></r>')
+    document: Final[Document] = parse_xml('<r xmlns:p="relative"><c xmlns:p="urn:absolute"><p:a/></c></r>')
     assert document.children[0].children[0].canonicalize() == (b'<c xmlns:p="urn:absolute"><p:a></p:a></c>')
 
 
@@ -1302,28 +1304,28 @@ def test_xml_c14n_accepts_absolute_namespace_scheme(scheme: str) -> None:
     [pytest.param("é", id="two-byte"), pytest.param("ࠀ", id="three-byte"), pytest.param("𐀀", id="four-byte")],
 )
 def test_xml_c14n_exclusive_renders_unicode_prefix_on_child(prefix: str) -> None:
-    source: Final = f'<r xmlns:{prefix}="urn:p"><{prefix}:a/></r>'
+    source: Final[str] = f'<r xmlns:{prefix}="urn:p"><{prefix}:a/></r>'
     assert parse_xml(source).canonicalize(Canonical(exclusive=True)) == (
         f'<r><{prefix}:a xmlns:{prefix}="urn:p"></{prefix}:a></r>'.encode()
     )
 
 
 def test_xml_c14n_exclusive_sorts_visible_prefixes() -> None:
-    source: Final = '<r xmlns:p="urn:p" xmlns:long="urn:long"><x long:a="1" p:a="2"/></r>'
+    source: Final[str] = '<r xmlns:p="urn:p" xmlns:long="urn:long"><x long:a="1" p:a="2"/></r>'
     assert parse_xml(source).canonicalize(Canonical(exclusive=True)) == (
         b'<r><x xmlns:long="urn:long" xmlns:p="urn:p" long:a="1" p:a="2"></x></r>'
     )
 
 
 def test_xml_c14n_exclusive_renders_rebound_prefix_after_nonusing_element() -> None:
-    source: Final = '<r xmlns:p="urn:a"><p:a><x xmlns:p="urn:b"><p:b/></x></p:a></r>'
+    source: Final[str] = '<r xmlns:p="urn:a"><p:a><x xmlns:p="urn:b"><p:b/></x></p:a></r>'
     assert parse_xml(source).canonicalize(Canonical(exclusive=True)) == (
         b'<r><p:a xmlns:p="urn:a"><x><p:b xmlns:p="urn:b"></p:b></x></p:a></r>'
     )
 
 
 def test_xml_c14n_exclusive_forced_prefix_list_renders_once() -> None:
-    source: Final = '<r xmlns:p="urn:p"><a/></r>'
+    source: Final[str] = '<r xmlns:p="urn:p"><a/></r>'
     assert parse_xml(source).canonicalize(Canonical(exclusive=True, inclusive_ns_prefixes=("p", "other"))) == (
         b'<r xmlns:p="urn:p"><a></a></r>'
     )
@@ -1364,28 +1366,28 @@ def test_xml_c14n_exclusive_prefix_boundaries(source: str, expected: bytes) -> N
 
 
 def test_xml_c14n_exclusive_forced_default_namespace() -> None:
-    source: Final = '<r xmlns="urn:d"><a/></r>'
+    source: Final[str] = '<r xmlns="urn:d"><a/></r>'
     assert parse_xml(source).canonicalize(Canonical(exclusive=True, inclusive_ns_prefixes=("#default",))) == (
         b'<r xmlns="urn:d"><a></a></r>'
     )
 
 
 def test_xml_c14n_exclusive_forces_unused_default_namespace() -> None:
-    source: Final = '<p:r xmlns="urn:d" xmlns:p="urn:p"><a xmlns="urn:e"/></p:r>'
+    source: Final[str] = '<p:r xmlns="urn:d" xmlns:p="urn:p"><a xmlns="urn:e"/></p:r>'
     assert parse_xml(source).canonicalize(Canonical(exclusive=True, inclusive_ns_prefixes=("#default",))) == (
         b'<p:r xmlns="urn:d" xmlns:p="urn:p"><a xmlns="urn:e"></a></p:r>'
     )
 
 
 def test_xml_c14n_exclusive_forced_prefix_rebound_on_child() -> None:
-    source: Final = '<r xmlns:p="urn:p"><p:a xmlns:p="urn:q"/></r>'
+    source: Final[str] = '<r xmlns:p="urn:p"><p:a xmlns:p="urn:q"/></r>'
     assert parse_xml(source).canonicalize(Canonical(exclusive=True, inclusive_ns_prefixes=("p",))) == (
         b'<r xmlns:p="urn:p"><p:a xmlns:p="urn:q"></p:a></r>'
     )
 
 
 def test_xml_c14n_exclusive_forced_prefix_rebound_without_use() -> None:
-    source: Final = '<r xmlns:p="urn:a"><a xmlns:p="urn:b"><b/></a></r>'
+    source: Final[str] = '<r xmlns:p="urn:a"><a xmlns:p="urn:b"><b/></a></r>'
     assert parse_xml(source).canonicalize(Canonical(exclusive=True, inclusive_ns_prefixes=("p",))) == (
         b'<r xmlns:p="urn:a"><a xmlns:p="urn:b"><b></b></a></r>'
     )
@@ -1443,7 +1445,7 @@ def test_xml_c14n_apex_inherits_nearest_binding() -> None:
 
 @pytest.mark.parametrize("listed", [pytest.param("pp", id="prefix"), pytest.param("#defaults", id="default")])
 def test_xml_c14n_exclusive_forced_prefix_matches_whole_name(listed: str) -> None:
-    source: Final = '<q:r xmlns="urn:d" xmlns:p="urn:p" xmlns:q="urn:q"><q:a/></q:r>'
+    source: Final[str] = '<q:r xmlns="urn:d" xmlns:p="urn:p" xmlns:q="urn:q"><q:a/></q:r>'
     assert parse_xml(source).canonicalize(Canonical(exclusive=True, inclusive_ns_prefixes=(listed,))) == (
         b'<q:r xmlns:q="urn:q"><q:a></q:a></q:r>'
     )
@@ -1462,7 +1464,7 @@ def test_xml_c14n_exclusive_forced_prefix_matches_whole_name(listed: str) -> Non
     ],
 )
 def test_xml_c14n_assigned_attribute_with_unbound_prefix(source: str, target: str, expected: bytes) -> None:
-    document: Final = parse_xml(source)
+    document: Final[Document] = parse_xml(source)
     element = document.find(target)
     assert element is not None
     element.attrs["q:x"] = "1"
@@ -1510,7 +1512,7 @@ def _prefixed_depth(size: int) -> str:
 def test_xml_c14n_namespace_scope_steps_grow_linearly(
     build: Callable[[int], str], sizes: tuple[int, int], work_steps: WorkSteps, *, exclusive: bool
 ) -> None:
-    options: Final = Canonical(exclusive=exclusive)
+    options: Final[Canonical] = Canonical(exclusive=exclusive)
     work_steps.assert_linear(lambda size: partial(parse_xml(build(size)).canonicalize, options), sizes)
 
 
@@ -1554,13 +1556,13 @@ def test_xml_c14n_apex_rebases_own_xml_base_past_other_attributes() -> None:
 
 
 def test_xml_c14n_apex_takes_the_nearest_of_many_inherited_xml_attributes() -> None:
-    count: Final = 2048
-    far: Final = " ".join(f'xml:n{index}="far"' for index in range(count))
-    near: Final = " ".join(f'xml:n{index}="near"' for index in range(0, count, 2))
-    own: Final = " ".join(f'xml:n{index}="own"' for index in range(0, count, 4))
-    source: Final = f'<r xmlns:p="urn:p" {far} n="r"><a {near}><p:b {own} n="b"/></a></r>'
-    values: Final = {f"n{index}": ("own", "far", "near", "far")[index % 4] for index in range(count)}
-    expected: Final = " ".join(f'xml:{name}="{values[name]}"' for name in sorted(values))
+    count: Final[int] = 2048
+    far: Final[str] = " ".join(f'xml:n{index}="far"' for index in range(count))
+    near: Final[str] = " ".join(f'xml:n{index}="near"' for index in range(0, count, 2))
+    own: Final[str] = " ".join(f'xml:n{index}="own"' for index in range(0, count, 4))
+    source: Final[str] = f'<r xmlns:p="urn:p" {far} n="r"><a {near}><p:b {own} n="b"/></a></r>'
+    values: Final[dict[str, str]] = {f"n{index}": ("own", "far", "near", "far")[index % 4] for index in range(count)}
+    expected: Final[str] = " ".join(f'xml:{name}="{values[name]}"' for name in sorted(values))
     assert parse_xml(source).children[0].children[0].children[0].canonicalize() == (
         f'<p:b xmlns:p="urn:p" n="b" {expected}></p:b>'.encode()
     )
@@ -1568,7 +1570,7 @@ def test_xml_c14n_apex_takes_the_nearest_of_many_inherited_xml_attributes() -> N
 
 def test_xml_c14n_apex_inherits_many_xml_attributes_in_linear_time(work_steps: WorkSteps) -> None:
     def apex(count: int) -> Callable[[], bytes]:
-        inherited: Final = " ".join(f'xml:a{index}=""' for index in range(count))
+        inherited: Final[str] = " ".join(f'xml:a{index}=""' for index in range(count))
         return parse_xml(f'<r xmlns:p="urn:p" {inherited}><p:a/></r>').children[0].children[0].canonicalize
 
     work_steps.assert_linear(apex, (500, 2000))
@@ -1858,7 +1860,7 @@ def test_xml_c14n_1_1_rejects_invalid_ancestor_base(bindings: str, attributes: s
 
 
 def test_html_c14n_1_1_rejects_invalid_ancestor_base_with_many_attributes() -> None:
-    attributes: Final = " ".join(f'a{index}="x"' for index in range(33))
+    attributes: Final[str] = " ".join(f'a{index}="x"' for index in range(33))
     node = _one(f'<div xml:base="http://[bad"><p xml:base="x" {attributes}></p></div>', "p")
     with pytest.raises(ValueError, match="Invalid IPv6 URL"):
         node.canonicalize(Canonical(version="1.1"))
@@ -1936,7 +1938,7 @@ def test_xml_c14n_1_1_rejects_invalid_outer_base_above_long_value(inner: list[st
 
 
 def test_html_c14n_1_1_joins_ancestor_bases_at_depth() -> None:
-    wrapper: Final = '<aside xml:base="ub/">'
+    wrapper: Final[str] = '<aside xml:base="ub/">'
     node = _one(f"{wrapper * 120}<em></em>", "em")
     assert node.canonicalize(Canonical(version="1.1")) == f'<em xml:base="{"ub/" * 120}"></em>'.encode()
 
@@ -1964,7 +1966,7 @@ def _base_chain_apex(parse_markup: Callable[[str], Document], value: str, apex: 
 
 
 def test_xml_c14n_comment_is_omitted_without_option() -> None:
-    source: Final = '<!--pre--><r xmlns:p="urn:p"><!--inner--><p:a/></r><!--post-->'
+    source: Final[str] = '<!--pre--><r xmlns:p="urn:p"><!--inner--><p:a/></r><!--post-->'
     assert parse_xml(source).canonicalize() == b'<r xmlns:p="urn:p"><p:a></p:a></r>'
 
 
@@ -2053,19 +2055,19 @@ def test_apex_rebases_own_xml_base_past_other_attributes() -> None:
 
 
 def test_apex_takes_the_nearest_of_many_inherited_xml_attributes() -> None:
-    count: Final = 2048
-    far: Final = " ".join(f"xml:n{index}=far" for index in range(count))
-    near: Final = " ".join(f"xml:n{index}=near" for index in range(0, count, 2))
-    own: Final = " ".join(f"xml:n{index}=own" for index in range(0, count, 4))
+    count: Final[int] = 2048
+    far: Final[str] = " ".join(f"xml:n{index}=far" for index in range(count))
+    near: Final[str] = " ".join(f"xml:n{index}=near" for index in range(0, count, 2))
+    own: Final[str] = " ".join(f"xml:n{index}=own" for index in range(0, count, 4))
     node = _one(f"<div {far} n=div><section {near}><p {own} n=p>x</p></section></div>", "p")
-    values: Final = {f"n{index}": ("own", "far", "near", "far")[index % 4] for index in range(count)}
-    expected: Final = " ".join(f'xml:{name}="{values[name]}"' for name in sorted(values))
+    values: Final[dict[str, str]] = {f"n{index}": ("own", "far", "near", "far")[index % 4] for index in range(count)}
+    expected: Final[str] = " ".join(f'xml:{name}="{values[name]}"' for name in sorted(values))
     assert node.canonicalize() == f'<p n="p" {expected}>x</p>'.encode()
 
 
 def test_apex_inherits_many_xml_attributes_in_linear_time(work_steps: WorkSteps) -> None:
     def apex(count: int) -> Callable[[], bytes]:
-        inherited: Final = " ".join(f"xml:a{index}" for index in range(count))
+        inherited: Final[str] = " ".join(f"xml:a{index}" for index in range(count))
         return _one(f"<div {inherited}><p>x</p></div>", "p").canonicalize
 
     work_steps.assert_linear(apex, (500, 2000))
@@ -2223,9 +2225,9 @@ def test_canonicalize_shared_sparse_xlink_input() -> None:
 )
 @pytest.mark.oracle
 def test_canonicalize_benchmark_html_parser_difference(case: int) -> None:
-    etree: Final = pytest.importorskip("lxml.etree")
-    source: Final = cast("tuple[str, int]", INPUTS["canonicalize-deep"]()[case][1])[0]
-    expected: Final = parse(source).canonicalize()
+    etree: Final[ModuleType] = pytest.importorskip("lxml.etree")
+    source: Final[str] = cast("tuple[str, int]", INPUTS["canonicalize-deep"]()[case][1])[0]
+    expected: Final[bytes] = parse(source).canonicalize()
     assert etree.tostring(etree.HTML(source), method="c14n") == (
         expected
         .replace(b"<head></head>", b"")
@@ -2251,12 +2253,14 @@ def test_canonicalize_benchmark_html_parser_difference(case: int) -> None:
 )
 @pytest.mark.oracle
 def test_whole_document_matches_lxml(html: str, *, exclusive: bool, with_comments: bool) -> None:
-    etree: Final = pytest.importorskip("lxml.etree")
-    tree: Final = parse(html)
-    ours: Final = tree.canonicalize(Canonical(exclusive=exclusive, with_comments=with_comments))
-    reparsed: Final = etree.parse(BytesIO(tree.serialize(Html(xml=True)).encode()))
-    sink: Final = BytesIO()
-    reparsed.write_c14n(sink, exclusive=exclusive, with_comments=with_comments)
+    etree: Final[ModuleType] = pytest.importorskip("lxml.etree")
+    tree: Final[Document] = parse(html)
+    ours: Final[bytes] = tree.canonicalize(Canonical(exclusive=exclusive, with_comments=with_comments))
+    reparsed: Final[lxml_types._ElementTree[lxml_types._Element]] = etree.parse(
+        BytesIO(tree.serialize(Html(xml=True)).encode())
+    )
+    sink: Final[BytesIO] = BytesIO()
+    reparsed.write(sink, method="c14n", exclusive=exclusive, with_comments=with_comments)
     assert ours == sink.getvalue()
 
 
@@ -2271,16 +2275,16 @@ def test_whole_document_matches_lxml(html: str, *, exclusive: bool, with_comment
 )
 @pytest.mark.oracle
 def test_subtree_matches_lxml(selector: str, xpath: str, *, exclusive: bool, prefixes: list[str] | None) -> None:
-    etree: Final = pytest.importorskip("lxml.etree")
-    tree: Final = parse("<svg xlink:href=x><g><rect/></g></svg>")
-    node: Final = tree.select_one(selector)
+    etree: Final[ModuleType] = pytest.importorskip("lxml.etree")
+    tree: Final[Document] = parse("<svg xlink:href=x><g><rect/></g></svg>")
+    node: Final[Element | None] = tree.select_one(selector)
     assert node is not None
-    ours: Final = node.canonicalize(Canonical(exclusive=exclusive, inclusive_ns_prefixes=tuple(prefixes or ())))
-    root: Final = etree.fromstring(tree.serialize(Html(xml=True)).encode())
-    target: Final = root.find(
+    ours: Final[bytes] = node.canonicalize(Canonical(exclusive=exclusive, inclusive_ns_prefixes=tuple(prefixes or ())))
+    root: Final[lxml_types._Element] = etree.fromstring(tree.serialize(Html(xml=True)).encode())
+    target: Final[lxml_types._Element | None] = root.find(
         xpath, namespaces={"s": "http://www.w3.org/2000/svg", "m": "http://www.w3.org/1998/Math/MathML"}
     )
-    theirs: Final = etree.tostring(target, method="c14n", exclusive=exclusive, inclusive_ns_prefixes=prefixes)
+    theirs: Final[bytes] = etree.tostring(target, method="c14n", exclusive=exclusive, inclusive_ns_prefixes=prefixes)
     assert ours == theirs
 
 
@@ -2292,8 +2296,8 @@ def _xml_root(source: str) -> Node:
 
 
 def _xml_left_out_run() -> Node:
-    document: Final = parse_xml('<r xmlns="urn:a"><s/></r>')
-    holder: Final = document.select_one("s")
+    document: Final[Document] = parse_xml('<r xmlns="urn:a"><s/></r>')
+    holder: Final[Element | None] = document.select_one("s")
     assert holder is not None
     holder.append(Element("1a", {"xmlns:p": _LONG_URI}, children=[Element("p:b") for _ in range(64)]))
     return document
@@ -2366,7 +2370,7 @@ def _xml_left_out_run() -> Node:
 def test_c14n_repeated_namespace_declarations_out_of_proportion_raise(
     build: Callable[[], Node], options: Canonical
 ) -> None:
-    node: Final = build()
+    node: Final[Node] = build()
     with pytest.raises(ValueError, match="exceed the allowance of 65536 characters plus 32 per character of other"):
         node.canonicalize(options)
 
@@ -2379,14 +2383,14 @@ def test_c14n_repeated_namespace_declarations_out_of_proportion_raise(
     ],
 )
 def test_c14n_repeated_namespace_declarations_in_proportion_are_kept(build: Callable[[str], Node]) -> None:
-    name: Final = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-    node: Final = build(f'<root xmlns:r="{name}">{"<r:id></r:id>" * 4000}</root>')
-    repeated: Final = f'<r:id xmlns:r="{name}"></r:id>' * 4000
+    name: Final[str] = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    node: Final[Node] = build(f'<root xmlns:r="{name}">{"<r:id></r:id>" * 4000}</root>')
+    repeated: Final[str] = f'<r:id xmlns:r="{name}"></r:id>' * 4000
     assert node.canonicalize(Canonical(exclusive=True)) == f"<root>{repeated}</root>".encode()
 
 
 def test_c14n_long_repeated_namespace_declaration_fits_a_short_document() -> None:
-    document: Final = parse_xml(f'<r xmlns:p="{_LONG_URI * 10}"><p:a/><p:b/></r>')
+    document: Final[Document] = parse_xml(f'<r xmlns:p="{_LONG_URI * 10}"><p:a/><p:b/></r>')
     assert len(document.canonicalize(Canonical(exclusive=True))) > 60000
 
 

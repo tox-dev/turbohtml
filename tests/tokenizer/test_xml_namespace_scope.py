@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Final
 
 import pytest
 
-from turbohtml import HTMLParseError, parse_xml
+from turbohtml import Element, HTMLParseError, parse_xml
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -17,12 +17,12 @@ def _prefix(index: int) -> str:
 
 
 def _declared_on_root(uses: str) -> str:
-    declarations: Final = " ".join(f'xmlns:{_prefix(index)}="urn:{index}"' for index in range(_PREFIX_COUNT))
+    declarations: Final[str] = " ".join(f'xmlns:{_prefix(index)}="urn:{index}"' for index in range(_PREFIX_COUNT))
     return f"<root {declarations}><leaf {uses}/></root>"
 
 
 def _declared_one_per_ancestor(uses: str) -> str:
-    opening: Final = "".join(f'<level xmlns:{_prefix(index)}="urn:{index}">' for index in range(_PREFIX_COUNT))
+    opening: Final[str] = "".join(f'<level xmlns:{_prefix(index)}="urn:{index}">' for index in range(_PREFIX_COUNT))
     return f"{opening}<leaf {uses}/>{'</level>' * _PREFIX_COUNT}"
 
 
@@ -41,7 +41,7 @@ def build(request: pytest.FixtureRequest) -> Callable[[str], str]:
 
 
 def test_xml_namespace_many_prefixes_resolve_to_own_uri(build: Callable[[str], str]) -> None:
-    leaf: Final = parse_xml(build(_every_prefix_used())).find("leaf")
+    leaf: Final[Element | None] = parse_xml(build(_every_prefix_used())).find("leaf")
     assert leaf is not None
     assert list(leaf.attrs.items()) == [(f"{_prefix(index)}:k", str(index)) for index in range(_PREFIX_COUNT)]
 
@@ -93,7 +93,7 @@ _SHADOWED_AFTER_SWITCH: Final[str] = (
     ],
 )
 def test_xml_namespace_table_switch_keeps_shadow(template: str) -> None:
-    shadowed: Final = parse_xml(template.format(after='<v xmlns:q="urn:c" p:k="1" q:k="2"/>')).find("v")
+    shadowed: Final[Element | None] = parse_xml(template.format(after='<v xmlns:q="urn:c" p:k="1" q:k="2"/>')).find("v")
     assert shadowed is not None
     assert dict(shadowed.attrs) == {"xmlns:q": "urn:c", "p:k": "1", "q:k": "2"}
 

@@ -127,12 +127,12 @@ def test_minify_keeps_trailing_dot_after_numeric_member() -> None:
     [pytest.param(JSMinify(fold=False), id="mangle-only"), pytest.param(JSMinify(), id="mangle-and-fold")],
 )
 def test_dropped_function_leaves_no_binding_behind(options: JSMinify) -> None:
-    source: Final = "function f(){const x=073\nfunction f(g){x}[x,x]}"
+    source: Final[str] = "function f(){const x=073\nfunction f(g){x}[x,x]}"
     assert minify_js(source, options) == "function f(){[073,073]}"
 
 
 def test_dropped_function_in_inline_script_leaves_no_binding_behind() -> None:
-    markup: Final = "<script>function f(){const x=073\nfunction f(g){x}[x,x]}</script>"
+    markup: Final[str] = "<script>function f(){const x=073\nfunction f(g){x}[x,x]}</script>"
     assert clean.minify(markup, Minify(minify_js=JSMinify(fold=False))) == "<script>function f(){[073,073]}</script>"
 
 
@@ -587,7 +587,7 @@ _CALLBACK_ORDER_MINIFIERS: Final[tuple[tuple[str, str | None, str], ...]] = (
 
 def _callback_order_expected(operation: str, case: int, shape: tuple[int, int]) -> dict[str, list[int] | list[None]]:
     count, repeat = shape
-    values: Final = [index % 10 if operation == "minify-js-propagation" else index for index in range(count)]
+    values: Final[list[int]] = [index % 10 if operation == "minify-js-propagation" else index for index in range(count)]
     if operation == "minify-js-var-initialization":
         if case == 2:
             return {"calls": [None] * count, "result": [None] * count}
@@ -625,8 +625,8 @@ _CALLBACK_ORDER_CASES: Final[list[pytest.ParameterSet]] = [
 def test_minifiers_preserve_callback_order(
     operation: str, case: int, module: str, expected: dict[str, list[int] | list[None]]
 ) -> None:
-    minify: Final = cast("Callable[[str], str]", pytest.importorskip(module).minify_js)
-    source: Final = cast("str", INPUTS[operation]()[case][1])
+    minify: Final[Callable[[str], str]] = cast("Callable[[str], str]", pytest.importorskip(module).minify_js)
+    source: Final[str] = cast("str", INPUTS[operation]()[case][1])
     assert (
         json.loads(
             subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true] - fixed corpus and CLI arguments
@@ -663,7 +663,9 @@ def test_minifiers_preserve_callback_order(
     ],
 )
 def test_minifiers_calmjs_rejects_const(operation: str, case: int) -> None:
-    minify: Final = cast("Callable[[str], str]", pytest.importorskip("bench.competitors.calmjs_parse").minify_js)
+    minify: Final[Callable[[str], str]] = cast(
+        "Callable[[str], str]", pytest.importorskip("bench.competitors.calmjs_parse").minify_js
+    )
     with pytest.raises(SyntaxError, match="Unexpected 'const'"):
         minify(cast("str", INPUTS[operation]()[case][1]))
 
@@ -677,8 +679,8 @@ def test_minifiers_calmjs_rejects_const(operation: str, case: int) -> None:
     ],
 )
 def test_integer_benchmark_preserves_values(case: int, count: int, scale: int, offset: int) -> None:
-    source: Final = cast("str", INPUTS["minify-js-integers"]()[case][1])
-    minified: Final = minify_js(source)
+    source: Final[str] = cast("str", INPUTS["minify-js-integers"]()[case][1])
+    minified: Final[str] = minify_js(source)
     assert [int(float(value)) for value in minified.removeprefix("x=[").removesuffix("]").split(",")] == [
         (index + 1) * scale + offset for index in range(count)
     ]

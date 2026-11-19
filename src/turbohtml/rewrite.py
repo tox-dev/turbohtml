@@ -24,13 +24,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
-from ._html import RewriteHandle as _RewriteHandle
-from ._html import rewrite as _rewrite
+from ._html import RewriteHandle
+from ._html import rewrite as native_rewrite
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-Element = _RewriteHandle
+Element = RewriteHandle
 """The node handle a rewrite handler receives.
 
 The same handle backs every handler kind; which members apply depends on :attr:`~Element.kind`. An element handle
@@ -139,7 +139,7 @@ def rewrite(
     :raises RecursionError: if a selector chains more compound selectors than the C stack this thread has left can
         match.
     """
-    return _rewrite(html, tuple(elements), text, comments, doctype)
+    return native_rewrite(html, tuple(elements), text, comments, doctype)
 
 
 __all__ = [

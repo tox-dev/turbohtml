@@ -21,10 +21,6 @@ _SHORT_PROSE: Final[str] = "The tail points away from the Sun."
 # A very long paragraph (>300 chars) so the length bonus saturates at the cap.
 _LONG_PROSE: Final[str] = f"{_PROSE} {_PROSE} {_PROSE}"
 
-# A div/list-structured body that holds no <p>/<td>/<pre> to score: the visible text
-# lives in <li>, the shape the semantic-container fallback has to rescue.
-_LIST_ITEM: Final[str] = "<li><strong>Elf Modelle sind empfehlenswert in punkto Sicherheit.</strong></li>"
-
 # The minimal content body the article() metadata cases hang their head/body fixtures off.
 _BODY: Final[str] = f"<article class=post><p>{_PROSE}</p></article>"
 
@@ -257,7 +253,10 @@ def test_div_list_body_without_paragraphs_falls_back_to_article() -> None:
 
 
 def list_body(items: int) -> str:
-    return f"<div class=text><ul>{_LIST_ITEM * items}</ul></div>"
+    # A div/list-structured body that holds no <p>/<td>/<pre> to score: the visible text
+    # lives in <li>, the shape the semantic-container fallback has to rescue.
+    list_item: str = "<li><strong>Elf Modelle sind empfehlenswert in punkto Sicherheit.</strong></li>"
+    return f"<div class=text><ul>{list_item * items}</ul></div>"
 
 
 def test_semantic_fallback_ignores_a_thin_container() -> None:
@@ -696,8 +695,8 @@ def test_article_document_and_element_agree_on_metadata() -> None:
     ],
 )
 def test_nested_candidates_keep_link_density(read_root: Callable[[Document], Element]) -> None:
-    classes: Final = {32: "article"}
-    document: Final = parse(
+    classes: Final[dict[int, str]] = {32: "article"}
+    document: Final[Document] = parse(
         "<main>"
         f"""{
             "".join(
@@ -713,7 +712,7 @@ def test_nested_candidates_keep_link_density(read_root: Callable[[Document], Ele
 
 
 def test_many_link_only_candidates_have_no_main_content() -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         f"""<main>{'<section><p><a href="/">A linked sentence with enough text to score.</a></p></section>' * 64}"""
         "</main>"
     )

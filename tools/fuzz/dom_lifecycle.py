@@ -66,9 +66,15 @@ def dom_lifecycle_generate(rng: random.Random) -> str:
 
 def dom_lifecycle_controls() -> dict[str, bool]:
     # Require a reported violation and a drifting replay to fail the registered checker.
-    seed: Final = dom_lifecycle_seeds()[0]
-    broken: Final = ((LifecycleStep(0, "element", "ok", (1, 0, 0, 0)),), ())
-    replays: Final = iter((((), ("<p></p>",)), ((), ("<div></div>",))))
+    seed: Final[str] = dom_lifecycle_seeds()[0]
+    broken: Final[tuple[tuple[LifecycleStep, ...], tuple[str, ...]]] = (
+        (LifecycleStep(0, "element", "ok", (1, 0, 0, 0)),),
+        (),
+    )
+    replays: Final[Iterator[tuple[tuple[LifecycleStep, ...], tuple[str, ...]]]] = iter((
+        ((), ("<p></p>",)),
+        ((), ("<div></div>",)),
+    ))
     return {
         "missing violation": dom_lifecycle_check(seed, lambda _program: broken) is not None,
         "replay drift": dom_lifecycle_check(seed, lambda _program: next(replays)) is not None,
@@ -91,15 +97,15 @@ def dom_lifecycle_check(
 ) -> str | None:
     # Require clean native invariants after every step and an identical replay.
     if len(text) > _MAX_BYTES * 2:
-        msg: Final = "DOM lifecycle program exceeds the input limit"
+        msg: Final[str] = "DOM lifecycle program exceeds the input limit"
         raise UnsupportedDomLifecycleError(msg)
     try:
-        program: Final = bytes.fromhex(text)
+        program: Final[bytes] = bytes.fromhex(text)
     except ValueError as error:
-        msg: Final = "DOM lifecycle program must contain hexadecimal bytes"
+        msg: Final[str] = "DOM lifecycle program must contain hexadecimal bytes"
         raise UnsupportedDomLifecycleError(msg) from error
-    runner: Final = run or run_dom_lifecycle
-    first: Final = runner(program)
+    runner: Final[Callable[[bytes], tuple[tuple[LifecycleStep, ...], tuple[str, ...]]]] = run or run_dom_lifecycle
+    first: Final[tuple[tuple[LifecycleStep, ...], tuple[str, ...]]] = runner(program)
     if broken := next((step for step in first[0] if any(step.violations)), None):
         return f"tree invariant broken after {broken.operation}"
     return None if runner(program) == first else "DOM lifecycle program replays differently"
@@ -112,13 +118,13 @@ class UnsupportedDomLifecycleError(ValueError):
 
 def run_dom_lifecycle(program: bytes) -> tuple[tuple[LifecycleStep, ...], tuple[str, ...]]:
     # Execute the program and return each step plus the final markup of every node register.
-    machine: Final = _Machine(_instructions(program))
+    machine: Final[_Machine] = _Machine(_instructions(program))
     machine.block(range(len(machine.code)))
     return tuple(machine.trace), tuple("" if node is None else node.serialize() for node in machine.nodes)
 
 
 def _instructions(program: bytes) -> list[tuple[int, int, int, int]]:
-    bounded: Final = program[:_MAX_BYTES]
+    bounded: Final[bytes] = program[:_MAX_BYTES]
     return [
         (bounded[index], bounded[index + 1], bounded[index + 2], bounded[index + 3])
         for index in range(0, len(bounded) - len(bounded) % 4, 4)
@@ -131,14 +137,14 @@ def dom_lifecycle_race(seeds: Sequence[str], *, shared: bool = False) -> list[tu
     # With ``shared`` set, every program reads and writes one set of node registers, so the threads also edit, move and
     # walk the same trees.
     nodes: Final[list[Node | None] | None] = [None] * _SLOTS if shared else None
-    machines: Final = [_Machine(_instructions(bytes.fromhex(seed)), nodes) for seed in seeds]
-    start: Final = threading.Barrier(len(machines))
+    machines: Final[list[_Machine]] = [_Machine(_instructions(bytes.fromhex(seed)), nodes) for seed in seeds]
+    start: Final[threading.Barrier] = threading.Barrier(len(machines))
 
     def run(machine: _Machine) -> None:
         start.wait()
         machine.block(range(len(machine.code)))
 
-    threads: Final = [threading.Thread(target=run, args=(machine,)) for machine in machines]
+    threads: Final[list[threading.Thread]] = [threading.Thread(target=run, args=(machine,)) for machine in machines]
     for thread in threads:
         thread.start()
     for thread in threads:
@@ -189,7 +195,7 @@ class _Machine:
             index = body.stop
 
     def verify(self) -> tuple[int, ...]:
-        roots: Final = [
+        roots: Final[list[Node]] = [
             *(node for node in self.nodes if node is not None),
             *(walker.root for walker in self.walkers if isinstance(walker, (TreeWalker, NodeIterator))),
         ]
@@ -224,8 +230,8 @@ def _parse(machine: _Machine, slot: int, second: int, _third: int, _body: range)
 def _navigate(machine: _Machine, slot: int, second: int, third: int, _body: range) -> str:
     if (source := machine.nodes[second % _SLOTS]) is None:
         return "empty"
-    children: Final = source.children
-    relatives: Final = (
+    children: Final[Sequence[Node]] = source.children
+    relatives = (
         source.parent,
         children[0] if children else None,
         children[-1] if children else None,
@@ -237,7 +243,7 @@ def _navigate(machine: _Machine, slot: int, second: int, third: int, _body: rang
 
 
 def _append(machine: _Machine, slot: int, second: int, _third: int, _body: range) -> str:
-    target: Final = machine.nodes[slot]
+    target: Final[Node | None] = machine.nodes[slot]
     if not isinstance(target, Element) or (child := machine.nodes[second % _SLOTS]) is None:
         return "empty"
     target.append(child)
@@ -245,7 +251,7 @@ def _append(machine: _Machine, slot: int, second: int, _third: int, _body: range
 
 
 def _insert(machine: _Machine, slot: int, second: int, third: int, body: range) -> str:
-    target: Final = machine.nodes[slot]
+    target: Final[Node | None] = machine.nodes[slot]
     if not isinstance(target, Element) or (child := machine.nodes[second % _SLOTS]) is None:
         return "empty"
     target.insert(cast("int", _Index(machine, body, third, second % 3)), child)
@@ -290,7 +296,7 @@ def _normalize(machine: _Machine, slot: int, _second: int, _third: int, _body: r
 def _range_extract(machine: _Machine, slot: int, second: int, _third: int, _body: range) -> str:
     if (node := machine.nodes[slot]) is None:
         return "empty"
-    selection: Final = Range(node)
+    selection: Final[Range] = Range(node)
     selection.select_node_contents(node)
     machine.nodes[second % _SLOTS] = selection.extract_contents()
     return "ok"
@@ -324,7 +330,7 @@ def _node_iterator(machine: _Machine, slot: int, second: int, third: int, body: 
 
 
 def _filter(machine: _Machine, body: range, third: int) -> Callable[[Node], int]:
-    verdicts: Final = (NodeFilter.FILTER_ACCEPT, NodeFilter.FILTER_REJECT, NodeFilter.FILTER_SKIP)
+    verdicts: Final[tuple[int, int, int]] = (NodeFilter.FILTER_ACCEPT, NodeFilter.FILTER_REJECT, NodeFilter.FILTER_SKIP)
 
     def verdict(_node: Node) -> int:
         machine.nested(body)
@@ -341,15 +347,19 @@ def _filter(machine: _Machine, body: range, third: int) -> Callable[[Node], int]
 def _iterate(machine: _Machine, slot: int, second: int, third: int, _body: range) -> str:
     if (node := machine.nodes[second % _SLOTS]) is None:
         return "empty"
-    iterators: Final = (node.descendants, node.iter_elements(), node.serialize_iter())
+    iterators: Final[tuple[Iterator[Node], Iterator[Element], Iterator[str]]] = (
+        node.descendants,
+        node.iter_elements(),
+        node.serialize_iter(),
+    )
     machine.walkers[slot] = iter(iterators[third % len(iterators)])
     return "ok"
 
 
 def _step(machine: _Machine, slot: int, second: int, third: int, _body: range) -> str:
-    walker: Final = machine.walkers[slot]
+    walker: Final[TreeWalker | Iterator[Node | str | Token] | None] = machine.walkers[slot]
     if isinstance(walker, TreeWalker):
-        moves: Final = (
+        moves = (
             walker.next_node,
             walker.previous_node,
             walker.parent_node,
@@ -377,7 +387,7 @@ def _observe(machine: _Machine, slot: int, second: int, third: int, body: range)
     def callback(_records: list[MutationRecord], _observer: MutationObserver) -> None:
         machine.nested(body)
 
-    observer: Final = MutationObserver(callback)
+    observer: Final[MutationObserver] = MutationObserver(callback)
     machine.observers[slot] = observer
     observer.observe(
         target,
@@ -393,7 +403,7 @@ def _observe(machine: _Machine, slot: int, second: int, third: int, body: range)
 def _deliver(machine: _Machine, slot: int, second: int, _third: int, _body: range) -> str:
     if (observer := machine.observers[slot]) is None:
         return "empty"
-    actions: Final = (observer.deliver, observer.take_records, observer.disconnect)
+    actions = (observer.deliver, observer.take_records, observer.disconnect)
     actions[second % len(actions)]()
     return "ok"
 
@@ -429,8 +439,8 @@ def _incremental(machine: _Machine, slot: int, _second: int, _third: int, _body:
 
 
 def _parser_call(machine: _Machine, slot: int, second: int, third: int, body: range) -> str:
-    parser: Final = machine.parsers[slot]
-    markup: Final = _MARKUP[third % len(_MARKUP)]
+    parser: Final[Tokenizer | IncrementalParser | None] = machine.parsers[slot]
+    markup: Final[str] = _MARKUP[third % len(_MARKUP)]
     if isinstance(parser, Tokenizer):
         if second % 4 == 0:
             machine.walkers[third % _SLOTS] = parser.feed(markup)

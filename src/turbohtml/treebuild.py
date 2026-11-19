@@ -25,7 +25,7 @@ __lazy_modules__ = [f"{__spec__.parent}._html"]  # ty: ignore[missing-union-attr
 
 from typing import Protocol, TypeVar, cast
 
-from ._html import parse_into as _parse_into
+from ._html import parse_into as native_parse_into
 
 H = TypeVar("H")  # simplint: ignore[single-letter-name,module-variable-prefix]  # preserve generic metadata
 """The builder's node handle: whatever :class:`TreeBuilder` returns for a node and takes back in ``append``."""
@@ -120,7 +120,7 @@ def parse_into(html: str, builder: TreeBuilder[H]) -> H:
     :raises TypeError: if ``html`` is not a str.
     :raises AttributeError: if ``builder`` is missing one of the :class:`TreeBuilder` methods.
     """
-    return cast("H", _parse_into(html, builder))
+    return cast("H", native_parse_into(html, builder))
 
 
 __all__ = [

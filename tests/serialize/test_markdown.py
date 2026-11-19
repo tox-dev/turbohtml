@@ -35,8 +35,8 @@ if TYPE_CHECKING:
 
 @pytest.mark.parametrize("depth", [16, 32, 64])
 def test_deep_inline_wrappers_spanning_blocks_have_linear_output(depth: int) -> None:
-    source: Final = f"{'<i><div>' * depth}x{'</div>' * depth}"
-    result: Final = md(source)
+    source: Final[str] = f"{'<i><div>' * depth}x{'</div>' * depth}"
+    result: Final[str] = md(source)
     assert len(result) <= len(source) * 2
     assert result.count("<em>") == depth
     assert result.count("</em>") == depth
@@ -49,8 +49,8 @@ def md(html: str) -> str:
 
 @pytest.mark.parametrize("depth", [16, 32])
 def test_deep_emphasis_before_block_has_linear_output(depth: int) -> None:
-    source: Final = f"{'<i>y' * depth}<div>x</div>{'</i>' * depth}"
-    result: Final = md(source)
+    source: Final[str] = f"{'<i>y' * depth}<div>x</div>{'</i>' * depth}"
+    result: Final[str] = md(source)
     assert "x" in result
     assert len(result) <= len(source) * 4
 
@@ -66,13 +66,13 @@ def test_deep_emphasis_before_block_has_linear_output(depth: int) -> None:
     ],
 )
 def test_deep_emphasis_around_many_blocks_has_linear_output(source: str) -> None:
-    result: Final = md(source)
+    result: Final[str] = md(source)
     assert result.count("x") == 2000
     assert len(result) <= len(source) * 10
 
 
 def test_deep_emphasis_reopens_nested_runs_while_funded() -> None:
-    blocks: Final = md("<b>" * 16 + "<p>x" * 5).split("\n\n")
+    blocks: Final[list[str]] = md("<b>" * 16 + "<p>x" * 5).split("\n\n")
     # each element pays for its own tags once; the 256 characters a document starts with reopen fifteen more runs and
     # each x a seventeenth of one, while the outermost run reopens for free
     assert [block.count("<strong>") for block in blocks] == [16, 16, 2, 1, 1]
@@ -80,18 +80,18 @@ def test_deep_emphasis_reopens_nested_runs_while_funded() -> None:
 
 
 def test_deep_emphasis_reopens_in_full_where_text_funds_it() -> None:
-    words: Final = "word " * 60
-    blocks: Final = md("<b>" * 16 + f"<p>{words}" * 8).split("\n\n")
+    words: Final[str] = "word " * 60
+    blocks: Final[list[str]] = md("<b>" * 16 + f"<p>{words}" * 8).split("\n\n")
     assert blocks == ["<strong>" * 16 + words.strip() + "</strong>" * 16] * 8
 
 
 def test_deep_emphasis_keeps_one_run_of_each_kind_when_unfunded() -> None:
-    blocks: Final = md("<b><i>" * 16 + "<p>x" * 12).split("\n\n")
+    blocks: Final[list[str]] = md("<b><i>" * 16 + "<p>x" * 12).split("\n\n")
     assert (blocks[0], blocks[-1]) == (f"{'<strong><em>' * 16}x{'</em></strong>' * 16}", "<strong><em>x</em></strong>")
 
 
 def test_unfunded_emphasis_reopens_once_the_nesting_is_shallow_again() -> None:
-    blocks: Final = md(f"{'<b>' * 8}<i>{'<p>x</p>' * 40}</i><p>z</p>").split("\n\n")
+    blocks: Final[list[str]] = md(f"{'<b>' * 8}<i>{'<p>x</p>' * 40}</i><p>z</p>").split("\n\n")
     assert (blocks[-2], blocks[-1]) == ("<strong><em>x</em></strong>", f"{'<strong>' * 8}z{'</strong>' * 8}")
 
 
@@ -103,38 +103,38 @@ def test_unfunded_emphasis_reopens_once_the_nesting_is_shallow_again() -> None:
     ],
 )
 def test_raw_table_cell_takes_one_run_of_a_kind_under_deep_emphasis(depth: int, wrapped: str) -> None:
-    result: Final = md(f"{'<b><i><b>' * depth}<table><tr><td colspan=2>x</table>")
+    result: Final[str] = md(f"{'<b><i><b>' * depth}<table><tr><td colspan=2>x</table>")
     assert result == f'<table><tbody><tr><td colspan="2">{wrapped}</td></tr></tbody></table>'
 
 
 def test_emphasis_closing_in_a_converted_element_keeps_deep_nesting_unfunded() -> None:
-    source: Final = f"{'<b>' * 504}{'<p><span><b>x</b></span>' * 2000}"
-    result: Final = parse(source).to_markdown(Markdown(converters={"span": lambda _element, content: content}))
+    source: Final[str] = f"{'<b>' * 504}{'<p><span><b>x</b></span>' * 2000}"
+    result: Final[str] = parse(source).to_markdown(Markdown(converters={"span": lambda _element, content: content}))
     assert result.count("x") == 2000
     assert len(result) <= len(source) * 10
 
 
 def test_pending_emphasis_after_deep_block_keeps_text() -> None:
-    source: Final = f"{'<i>y' * 8}<i><div>x</div>{'</i>' * 9}"
+    source: Final[str] = f"{'<i>y' * 8}<i><div>x</div>{'</i>' * 9}"
     assert "x" in md(source)
 
 
 def test_link_inside_deep_block_keeps_destination() -> None:
-    source: Final = f"{'<i>' * 9}<div>x</div><a href=/t>y</a>{'</i>' * 9}"
+    source: Final[str] = f"{'<i>' * 9}<div>x</div><a href=/t>y</a>{'</i>' * 9}"
     assert "[y](/t)" in md(source)
 
 
 def test_google_style_inside_deep_block_keeps_both_blocks() -> None:
-    source: Final = f'<span style="font-weight:bold">B{"<i>" * 9}<div>x</div><div>z</div>{"</i>" * 9}'
-    result: Final = parse(source).to_markdown(Markdown(google=Markdown.GoogleDoc(enabled=True)))
+    source: Final[str] = f'<span style="font-weight:bold">B{"<i>" * 9}<div>x</div><div>z</div>{"</i>" * 9}'
+    result: Final[str] = parse(source).to_markdown(Markdown(google=Markdown.GoogleDoc(enabled=True)))
     assert "x" in result
     assert "z" in result
     assert len(result) <= len(source) * 4
 
 
 def test_deep_list_keeps_paragraph_inside_innermost_item() -> None:
-    source: Final = f"{'<ul><li>' * 9}s<p>1</p>"
-    result: Final = parse_fragment(source).to_markdown()
+    source: Final[str] = f"{'<ul><li>' * 9}s<p>1</p>"
+    result: Final[str] = parse_fragment(source).to_markdown()
     assert result == f"{'<ul><li>' * 9}s<p>1</p>{'</li></ul>' * 9}"
     assert MarkdownIt().render(result).count("<ul>") == 9
 
@@ -162,16 +162,16 @@ def test_emphasis_around_textless_output_stays_linear(
 
 
 def test_emphasis_around_google_doc_hidden_output_stays_linear(work_steps: WorkSteps) -> None:
-    hidden: Final = '<noembed style="font-style:italic;font-family:courier new">y</noembed>'
-    google: Final = Markdown(google=Markdown.GoogleDoc(enabled=True))
+    hidden: Final[str] = '<noembed style="font-style:italic;font-family:courier new">y</noembed>'
+    google: Final[Markdown] = Markdown(google=Markdown.GoogleDoc(enabled=True))
     work_steps.assert_linear(
         lambda n: partial(parse(f"<p>{f'<em>{hidden}</em>' * n}").to_markdown, google), (500, 2000)
     )
 
 
 def test_deep_list_with_attributes_is_written_as_html() -> None:
-    source: Final = f"{'<ul><li>' * 8}<ul class=x><li>s<p>1</p>"
-    result: Final = parse_fragment(source).to_markdown()
+    source: Final[str] = f"{'<ul><li>' * 8}<ul class=x><li>s<p>1</p>"
+    result: Final[str] = parse_fragment(source).to_markdown()
     assert result == f'{"<ul><li>" * 8}<ul class="x"><li>s<p>1</p></li></ul>{"</li></ul>" * 8}'
 
 
@@ -223,30 +223,30 @@ def test_run_of_breaks_renders(source: str, expected: str) -> None:
 
 
 def test_break_in_stripped_link_is_not_decided_as_link_text() -> None:
-    source: Final = "<div>a<br><a href=u><br><p>c</p></a></div>"
+    source: Final[str] = "<div>a<br><a href=u><br><p>c</p></a></div>"
     # a stripped link writes no link text, so the paragraph inside it ends the run of breaks as it does without the link
     assert parse(source).to_markdown(Markdown(strip=["a"])) == "a\n\nc"
     assert parse("<div>a<br><br><p>c</p></div>").to_markdown() == "a\n\nc"
 
 
 def test_break_holding_content_is_not_decided_by_that_content() -> None:
-    document: Final = parse("<p>a<br><br>x")
-    text: Final = document.select("p")[0].children[-1]
+    document: Final[Document] = parse("<p>a<br><br>x")
+    text: Final[Node] = document.select("p")[0].children[-1]
     document.select("br")[1].append(text)
     # the first break sees the text inside the second, which has nothing after it
     assert document.to_markdown() == "a"
 
 
 def test_run_of_breaks_is_not_decided_by_a_break_holding_content() -> None:
-    document: Final = parse(f"<p>a{'<br>' * 11}z")
+    document: Final[Document] = parse(f"<p>a{'<br>' * 11}z")
     document.select("br")[-1].append(Text("y"))
     assert document.to_markdown() == "a  \n" + "\\\n" * 10 + "z"
 
 
 def test_break_in_unfunded_link_copy_is_not_decided_by_the_link_before_it() -> None:
-    href: Final = "u" * 300
-    document: Final = parse(f"<div><div><a href={href}>1</div>2</div>3</div>4")
-    copy: Final = document.select("a")[-1]
+    href: Final[str] = "u" * 300
+    document: Final[Document] = parse(f"<div><div><a href={href}>1</div>2</div>3</div>4")
+    copy: Final[Element] = document.select("a")[-1]
     for child in list(copy.children):
         child.extract()
     copy.insert_before(*(Element("br") for _ in range(10)))
@@ -268,19 +268,19 @@ def test_break_in_unfunded_link_copy_is_not_decided_by_the_link_before_it() -> N
     "attribute", [pytest.param("src", id="src"), pytest.param("alt", id="alt"), pytest.param("title", id="title")]
 )
 def test_image_url_whitespace_survives_markdown(separator: str, attribute: str) -> None:
-    fragment: Final = parse_fragment("<img>")
-    image: Final = fragment.select("img")[0]
+    fragment: Final[Element] = parse_fragment("<img>")
+    image: Final[Element] = fragment.select("img")[0]
     image.attrs["src"] = f'a{separator}&<"b'
     image.attrs["alt"] = 'x&<"'
     image.attrs["title"] = 'title&<"'
-    rendered: Final = MarkdownIt("commonmark", {"html": True}).render(fragment.to_markdown())
-    result: Final = parse_fragment(rendered).select("img")[0]
+    rendered: Final[str] = MarkdownIt("commonmark", {"html": True}).render(fragment.to_markdown())
+    result: Final[Element] = parse_fragment(rendered).select("img")[0]
     assert result.attr(attribute) == image.attr(attribute)
 
 
 def test_image_url_whitespace_without_optional_attributes() -> None:
-    fragment: Final = parse_fragment('<img src="a\nb">')
-    rendered: Final = MarkdownIt("commonmark", {"html": True}).render(fragment.to_markdown())
+    fragment: Final[Element] = parse_fragment('<img src="a\nb">')
+    rendered: Final[str] = MarkdownIt("commonmark", {"html": True}).render(fragment.to_markdown())
     assert parse_fragment(rendered).select("img")[0].attr("src") == "a\nb"
 
 
@@ -314,7 +314,7 @@ def test_headings(html: str, expected: str) -> None:
 
 
 def test_setext_heading_keeps_block_content() -> None:
-    config: Final = Markdown(headings=Markdown.Headings(style="setext"))
+    config: Final[Markdown] = Markdown(headings=Markdown.Headings(style="setext"))
     assert parse_fragment("<h1>a<p>b</p></h1>").to_markdown(config) == "a b\n==="
 
 
@@ -406,8 +406,8 @@ def test_unicode_space_emphasis(space: str) -> None:
 
 @pytest.mark.parametrize("space", _UNICODE_SPACES)
 def test_unicode_space_between_letters_round_trip(space: str) -> None:
-    output: Final = md(f"<p>x{space}y</p>")
-    paragraph: Final = parse_fragment(MarkdownIt("commonmark").render(output)).find("p")
+    output: Final[str] = md(f"<p>x{space}y</p>")
+    paragraph: Final[Element | None] = parse_fragment(MarkdownIt("commonmark").render(output)).find("p")
     assert paragraph is not None
     assert (output, paragraph.text) == (f"x{space}y", f"x{space}y")
 
@@ -418,8 +418,8 @@ def test_unicode_space_between_letters_round_trip(space: str) -> None:
     [pytest.param("", "x", id="leading"), pytest.param("x", "", id="trailing")],
 )
 def test_unicode_space_at_a_prose_edge_is_a_reference(space: str, before: str, after: str) -> None:
-    output: Final = md(f"<p>{before}{space}{after}</p>")
-    paragraph: Final = parse_fragment(MarkdownIt("commonmark").render(output)).find("p")
+    output: Final[str] = md(f"<p>{before}{space}{after}</p>")
+    paragraph: Final[Element | None] = parse_fragment(MarkdownIt("commonmark").render(output)).find("p")
     assert paragraph is not None
     assert (output, paragraph.text) == (f"{before}&#{ord(space)};{after}", f"{before}{space}{after}")
 
@@ -428,8 +428,8 @@ def test_unicode_space_at_a_prose_edge_is_a_reference(space: str, before: str, a
     "suffix", [pytest.param("", id="none"), pytest.param(" ", id="space"), pytest.param("\n", id="newline")]
 )
 def test_multiple_unicode_spaces_at_prose_end(suffix: str) -> None:
-    output: Final = md(f"<p>x&nbsp;&nbsp;{suffix}</p>")
-    paragraph: Final = parse_fragment(MarkdownIt("commonmark").render(output)).find("p")
+    output: Final[str] = md(f"<p>x&nbsp;&nbsp;{suffix}</p>")
+    paragraph: Final[Element | None] = parse_fragment(MarkdownIt("commonmark").render(output)).find("p")
     assert paragraph is not None
     assert (output, paragraph.text) == (
         "x&#160;&#160;",
@@ -438,15 +438,15 @@ def test_multiple_unicode_spaces_at_prose_end(suffix: str) -> None:
 
 
 def test_unicode_space_after_non_ascii_letter_at_prose_end() -> None:
-    output: Final = md("<p>xé&nbsp;</p>")
-    paragraph: Final = parse_fragment(MarkdownIt("commonmark").render(output)).find("p")
+    output: Final[str] = md("<p>xé&nbsp;</p>")
+    paragraph: Final[Element | None] = parse_fragment(MarkdownIt("commonmark").render(output)).find("p")
     assert paragraph is not None
     assert (output, paragraph.text) == ("xé&#160;", "xé\u00a0")
 
 
 def test_unicode_space_before_non_ascii_letter_at_prose_start() -> None:
-    output: Final = md("<p>&nbsp;é</p>")
-    paragraph: Final = parse_fragment(MarkdownIt("commonmark").render(output)).find("p")
+    output: Final[str] = md("<p>&nbsp;é</p>")
+    paragraph: Final[Element | None] = parse_fragment(MarkdownIt("commonmark").render(output)).find("p")
     assert paragraph is not None
     assert (output, paragraph.text) == ("&#160;é", "\u00a0é")
 
@@ -460,8 +460,8 @@ def test_unicode_space_before_non_ascii_letter_at_prose_start() -> None:
     ],
 )
 def test_heading_non_ascii_space_stays_after_markdown_reparse(source: str, expected: str) -> None:
-    first: Final = md(source)
-    second: Final = md(MarkdownIt("commonmark").render(first))
+    first: Final[str] = md(source)
+    second: Final[str] = md(MarkdownIt("commonmark").render(first))
     assert (first, second) == (expected, expected)
 
 
@@ -509,8 +509,8 @@ def test_heading_non_ascii_space_stays_after_markdown_reparse(source: str, expec
     ],
 )
 def test_emphasis_stays_after_markdown_reparse(source: str, expected: str) -> None:
-    first: Final = md(source)
-    second: Final = md(MarkdownIt("commonmark").render(first))
+    first: Final[str] = md(source)
+    second: Final[str] = md(MarkdownIt("commonmark").render(first))
     assert (first, second) == (expected, expected)
 
 
@@ -528,7 +528,7 @@ def test_emphasis_after_literal_tilde_keeps_punctuation() -> None:
 
 
 def test_empty_text_before_strike_keeps_markup() -> None:
-    root: Final = Element("p", children=[Text(""), Element("del", children=[Text("x")])])
+    root: Final[Element] = Element("p", children=[Text(""), Element("del", children=[Text("x")])])
     assert root.to_markdown() == "~~x~~"
 
 
@@ -717,7 +717,7 @@ def test_links_and_images(html: str, expected: str) -> None:
     ],
 )
 def test_bang_before_link_keeps_link_semantics(config: Markdown) -> None:
-    output: Final = parse('!<a href="/x">x</a>').to_markdown(config)
+    output: Final[str] = parse('!<a href="/x">x</a>').to_markdown(config)
     assert MarkdownIt("commonmark").render(output) == '<p>!<a href="/x">x</a></p>\n'
 
 
@@ -1154,7 +1154,7 @@ def test_adjacent_emphasis_alternation(html: str, options: Markdown, expected: s
 
 
 def test_code_empty_text_keeps_block_boundary() -> None:
-    code: Final = Element("code", children=[Element("p", children=[Text("one")]), Text(""), Text("two")])
+    code: Final[Element] = Element("code", children=[Element("p", children=[Text("one")]), Text(""), Text("two")])
     assert Element("main", children=[code]).to_markdown() == "`one two`"
 
 
@@ -1467,14 +1467,14 @@ def _render(markdown: str) -> str:
 @pytest.mark.parametrize("depth", [4, 5, 7])
 def test_code_in_lists_without_items_stays_code(depth: int) -> None:
     # no marker accounts for an indent here: four columns of it and a reader takes the fence for paragraph text
-    html: Final = f"<p>x</p>{'<ul>' * depth}<pre>&lt;em&gt;y&lt;/em&gt;\n\nz</pre>{'</ul>' * depth}"
-    rendered: Final = parse_fragment(MarkdownIt("commonmark").render(parse_fragment(html).to_markdown()))
+    html: Final[str] = f"<p>x</p>{'<ul>' * depth}<pre>&lt;em&gt;y&lt;/em&gt;\n\nz</pre>{'</ul>' * depth}"
+    rendered: Final[Element] = parse_fragment(MarkdownIt("commonmark").render(parse_fragment(html).to_markdown()))
     assert rendered.select("em") == []
     assert [code.text for code in rendered.select("pre > code")] == ["<em>y</em>\n\nz\n"]
 
 
 def test_loose_list_nested_heading_and_link_stay_structural() -> None:
-    rendered: Final = parse(MarkdownIt("gfm-like", {"linkify": False}).render(md(_LOOSE_NAV_HTML)))
+    rendered: Final[Document] = parse(MarkdownIt("gfm-like", {"linkify": False}).render(md(_LOOSE_NAV_HTML)))
     assert (
         len(rendered.select("ol > li")),
         [(node.tag, node.text, node.attr("href")) for node in rendered.select("h4, a")],
@@ -1730,17 +1730,17 @@ def test_ordered_list_ordinals(html: str, expected: str) -> None:
 
 
 def test_ordered_list_carriage_return_stays_inside_html_block() -> None:
-    root: Final = Element("ol", {"reversed": ""}, [Element("li", children=[Text("a\rb")])])
+    root: Final[Element] = Element("ol", {"reversed": ""}, [Element("li", children=[Text("a\rb")])])
     assert root.to_markdown() == '<ol reversed=""><li>a&#13;b</li></ol>'
 
 
 def test_ordered_list_html_fallback_escapes_text_and_attributes() -> None:
-    root: Final = Element("ol", {"reversed": 'a"&'}, [Element("li", children=[Text("<x&y>")])])
+    root: Final[Element] = Element("ol", {"reversed": 'a"&'}, [Element("li", children=[Text("<x&y>")])])
     assert root.to_markdown() == '<ol reversed="a&quot;&amp;"><li>&lt;x&amp;y&gt;</li></ol>'
 
 
 def test_ordered_list_empty_text_item() -> None:
-    root: Final = Element("ol", children=[Element("li", children=[Text("")])])
+    root: Final[Element] = Element("ol", children=[Element("li", children=[Text("")])])
     assert root.to_markdown() == "1."
 
 
@@ -1765,7 +1765,7 @@ def test_ordered_list_empty_text_item() -> None:
     ],
 )
 def test_ordered_list_past_marker_limit_stays_a_list(html: str, options: Markdown | None) -> None:
-    output: Final = parse(html).to_markdown(options)
+    output: Final[str] = parse(html).to_markdown(options)
     assert output == "999999999. a\n           ```\n           <b>\n           \n           c\n           ```"
     assert MarkdownIt("commonmark", {"html": True}).render(output) == (
         '<ol start="999999999">\n<li>a<pre><code>&lt;b&gt;\n\nc\n</code></pre>\n</li>\n</ol>\n'
@@ -2131,7 +2131,7 @@ def test_break_in_skipped_link_inside_link_text() -> None:
 def test_link_inside_link_text_is_written_as_its_content(html: str, config: Markdown, expected: str) -> None:
     # a CommonMark link cannot hold a link (6.3): written as one, the inner link alone would be read as a link and
     # the outer destination and title as text, where their `<` opens raw HTML
-    output: Final = parse(html).to_markdown(config)
+    output: Final[str] = parse(html).to_markdown(config)
     assert output == expected
     assert {element.tag for element in parse(_render(output)).select("body *")} == {"p", "a"}
 
@@ -2166,14 +2166,14 @@ def test_link_inside_link_text_is_written_as_its_content(html: str, config: Mark
 )
 def test_closing_run_next_to_a_link_placeholder(html: str, config: Markdown, expected: str) -> None:
     # a closing run after punctuation pairs only before more punctuation: a link writes a bracket, a placeholder none
-    output: Final = parse(html).to_markdown(config)
+    output: Final[str] = parse(html).to_markdown(config)
     assert output == expected
     assert [element.text for element in parse(_render(output)).select("em")] == [parse(html).select("em")[0].text]
 
 
 def test_break_in_link_inside_link_text() -> None:
     # the inner link is a placeholder, so the outer one's text still flattens the block after it
-    html: Final = '<a href="/u"><object><a href="/t">x<br></a><div>y</div></object></a>'
+    html: Final[str] = '<a href="/u"><object><a href="/t">x<br></a><div>y</div></object></a>'
     assert md(html) == "[x  \ny](/u)"
 
 
@@ -2186,12 +2186,12 @@ def test_break_in_link_inside_link_text() -> None:
 )
 def test_break_before_block_in_link_with_internal_links_skipped(href: str, expected: str) -> None:
     # a skipped link is a placeholder, so the block in it stays a block and ends the one the break is in
-    html: Final = f'<div>x<br><a href="{href}"><div>y</div></a></div>'
+    html: Final[str] = f'<div>x<br><a href="{href}"><div>y</div></a></div>'
     assert parse(html).to_markdown(Markdown(links=Markdown.Links(skip_internal=True))) == expected
 
 
 def test_break_inside_raw_emphasis_survives_round_trip() -> None:
-    output: Final = md("<ol><li><em>&nbsp;<br>e</em></li></ol>")
+    output: Final[str] = md("<ol><li><em>&nbsp;<br>e</em></li></ol>")
     assert output == "1. <em>\u00a0<br>e</em>"
     assert MarkdownIt("commonmark").render(output) == "<ol>\n<li><em>\u00a0<br>e</em></li>\n</ol>\n"
 
@@ -2566,7 +2566,7 @@ def test_processing_instruction_in_raw_table_stays_html() -> None:
 
 
 def test_raw_table_respects_ignored_emphasis() -> None:
-    options: Final = Markdown(inline=Markdown.Inline(ignore_emphasis=True))
+    options: Final[Markdown] = Markdown(inline=Markdown.Inline(ignore_emphasis=True))
     assert parse("<b><table><tr><td>a</td></tr><tr><td>b</td><td>c</td></tr></table></b>").to_markdown(options) == (
         "<table><tbody><tr><td>a</td></tr><tr><td>b</td><td>c</td></tr></tbody></table>"
     )
@@ -2783,7 +2783,7 @@ def test_link_destination(html: str, expected: str) -> None:
     ],
 )
 def test_link_destination_renders_source_href(html: str) -> None:
-    rendered: Final = parse(_render(md(html))).select("a")
+    rendered: Final[list[Element]] = parse(_render(md(html))).select("a")
     assert [unquote(link.attr("href") or "") for link in rendered] == [
         link.attr("href") for link in parse(html).select("a")
     ]
@@ -2802,12 +2802,12 @@ def test_link_destination_base_url(html: str, expected: str) -> None:
 
 
 def test_reference_definition_escapes_destination() -> None:
-    config: Final = Markdown(links=Markdown.Links(style="reference"))
+    config: Final[Markdown] = Markdown(links=Markdown.Links(style="reference"))
     assert parse('<a href="a)b">t</a>').to_markdown(config) == "[t][1]\n\n[1]: a\\)b"
 
 
 def test_link_title_angle_renders_source_title() -> None:
-    html: Final = '<a href="t" title="&lt;b&gt; a &lt; b &lt;">x</a>'
+    html: Final[str] = '<a href="t" title="&lt;b&gt; a &lt; b &lt;">x</a>'
     assert parse(_render(md(html))).select("a")[0].attr("title") == "<b> a < b <"
 
 
@@ -2827,14 +2827,14 @@ _REFERENCE_LINKS: Final[Markdown] = Markdown(links=Markdown.Links(style="referen
     ],
 )
 def test_refused_link_leaves_no_raw_html(html: str, config: Markdown) -> None:
-    rendered: Final = parse(MarkdownIt("commonmark", {"html": True}).render(parse(html).to_markdown(config)))
+    rendered: Final[Document] = parse(MarkdownIt("commonmark", {"html": True}).render(parse(html).to_markdown(config)))
     assert "<script>x</script>" in rendered.text
     assert rendered.select("script") == []
 
 
 def test_link_in_link_keeps_outer_destination_and_title() -> None:
-    html: Final = f'<a href="/a" title="{_SCRIPT}">x<table><tr><td><a href="/b">y</a></table></a>'
-    rendered: Final = parse(_render(md(html)))
+    html: Final[str] = f'<a href="/a" title="{_SCRIPT}">x<table><tr><td><a href="/b">y</a></table></a>'
+    rendered: Final[Document] = parse(_render(md(html)))
     assert [(link.attr("href"), link.attr("title")) for link in rendered.select("a")] == [
         ("/a", "<script>x</script>"),
     ]
@@ -2842,12 +2842,12 @@ def test_link_in_link_keeps_outer_destination_and_title() -> None:
 
 
 def test_atx_closed_heading_keeps_trailing_hash() -> None:
-    config: Final = Markdown(headings=Markdown.Headings(style="atx_closed"))
+    config: Final[Markdown] = Markdown(headings=Markdown.Headings(style="atx_closed"))
     assert parse("<h1>a #</h1>").to_markdown(config) == "# a # #"
 
 
 def test_setext_heading_escapes_line_start() -> None:
-    config: Final = Markdown(headings=Markdown.Headings(style="setext"))
+    config: Final[Markdown] = Markdown(headings=Markdown.Headings(style="setext"))
     assert parse("<h1>- a</h1>").to_markdown(config) == "\\- a\n===="
 
 
@@ -2907,7 +2907,7 @@ def test_edge_cases(html: str, expected: str) -> None:
 )
 @pytest.mark.parametrize("hidden", [pytest.param("title", id="title"), pytest.param("datalist", id="datalist")])
 def test_code_omits_hidden_descendants(container: str, expected: str, hidden: str) -> None:
-    fragment: Final = parse_fragment(f"<{container}><{hidden}>secret</{hidden}>shown</{container}>")
+    fragment: Final[Element] = parse_fragment(f"<{container}><{hidden}>secret</{hidden}>shown</{container}>")
     assert fragment.to_markdown() == expected
 
 
@@ -3031,8 +3031,8 @@ def test_to_markdown_on_text_node() -> None:
 
 def test_main_content_item_nested_in_an_item() -> None:
     # the extractor picks the <li> the parser foster-parented into the outer item, which no list numbers
-    page: Final = "<ol><li><table><li><p>Another sentence, with a comma, that scores well. "
-    content: Final = parse(page).main_content()
+    page: Final[str] = "<ol><li><table><li><p>Another sentence, with a comma, that scores well. "
+    content: Final[Element | None] = parse(page).main_content()
     assert content is not None
     assert content.to_markdown() == "- Another sentence, with a comma, that scores well."
 
@@ -3236,7 +3236,7 @@ def test_raw_html_drops_attribute_names_commonmark_cannot_read(
     name: str, html: str, config: Markdown, selector: str, expected: list[dict[str, str]]
 ) -> None:
     # one such name makes the reader escape the whole tag as text
-    rendered: Final = _render(parse_fragment(html.format(name)).to_markdown(config))
+    rendered: Final[str] = _render(parse_fragment(html.format(name)).to_markdown(config))
     assert [dict(element.attrs) for element in parse_fragment(rendered).select(selector)] == expected
 
 
@@ -3267,15 +3267,19 @@ def test_markdown_repeated_escapes(count: int) -> None:
     ],
 )
 def test_markdown_escaped_word_wrapping(html: str, expected: str) -> None:
-    config: Final = Markdown(wrapping=Markdown.Wrapping(width=5), document=Markdown.Document(transliterate=True))
+    config: Final[Markdown] = Markdown(
+        wrapping=Markdown.Wrapping(width=5), document=Markdown.Document(transliterate=True)
+    )
     assert parse(html).to_markdown(config) == expected
 
 
 @pytest.mark.parametrize("width", [pytest.param(80, id="ordinary"), pytest.param(8192, id="wide")])
 def test_markdown_many_words_wrap_at_requested_width(width: int) -> None:
-    words: Final = ["aa"] * 10_000
-    per_line: Final = (width + 1) // 3
-    expected: Final = "\n".join(" ".join(words[start : start + per_line]) for start in range(0, len(words), per_line))
+    words: Final[list[str]] = ["aa"] * 10_000
+    per_line: Final[int] = (width + 1) // 3
+    expected: Final[str] = "\n".join(
+        " ".join(words[start : start + per_line]) for start in range(0, len(words), per_line)
+    )
     assert parse(f"<p>{' '.join(words)}</p>").to_markdown(Markdown(wrapping=Markdown.Wrapping(width=width))) == expected
 
 
@@ -3295,7 +3299,7 @@ def test_markdown_wrapping_after_blocks(html: str, expected: str) -> None:
 
 
 def test_markdown_wrapping_after_converter_content() -> None:
-    config: Final = Markdown(wrapping=Markdown.Wrapping(width=5), converters={"span": _keep_content})
+    config: Final[Markdown] = Markdown(wrapping=Markdown.Wrapping(width=5), converters={"span": _keep_content})
     assert parse("<p>aa bb <span>cc dd ee</span>! ff gg</p>").to_markdown(config) == "aa bb\ncc dd\nee!\nff gg"
 
 
@@ -4195,7 +4199,7 @@ def test_html_passthrough(html: str, config: Markdown, expected: str) -> None:
 )
 def test_html_passthrough_stays_one_html_block(html: str, config: Markdown, selector: str) -> None:
     # a blank line ends a raw-HTML block, and the rest reads as Markdown (here an indented code block)
-    rendered: Final = MarkdownIt("commonmark", {"html": True}).render(_mode_markdown(html, config))
+    rendered: Final[str] = MarkdownIt("commonmark", {"html": True}).render(_mode_markdown(html, config))
     assert parse_fragment(rendered).select(selector)[0].html == parse(html).select(selector)[0].html
 
 
@@ -4278,7 +4282,7 @@ _TAG_AS_TEXT: Final[str] = "&lt;u data-probe=1&gt;"
 )
 def test_text_after_html_block_stays_text(html: str, config: Markdown) -> None:
     # a line written into an HTML block is raw HTML, its escapes and fences dead; only a blank line ends one (4.6)
-    rendered: Final = MarkdownIt("commonmark", {"html": True}).render(_mode_markdown(html, config))
+    rendered: Final[str] = MarkdownIt("commonmark", {"html": True}).render(_mode_markdown(html, config))
     assert parse_fragment(rendered).select("[data-probe]") == []
 
 
@@ -4462,14 +4466,14 @@ _PIPED_CODE: Final[str] = "<code>&lt;i&gt;|</code>"
 )
 def test_line_after_pipe_table_is_not_a_row(html: str, config: Markdown, expected: str) -> None:
     # a GFM reader takes the line under a table as one more row and cuts it at each pipe, splitting a code span
-    output: Final = _mode_markdown(html, config)
+    output: Final[str] = _mode_markdown(html, config)
     assert output == expected
-    rendered: Final = parse_fragment(MarkdownIt("gfm-like", {"linkify": False}).render(output))
+    rendered: Final[Element] = parse_fragment(MarkdownIt("gfm-like", {"linkify": False}).render(output))
     assert (rendered.find("i"), [code.text for code in rendered.select("code")]) == (None, ["<i>|"])
 
 
 def test_item_after_pipe_table_in_nested_item_stays_tight() -> None:
-    html: Final = f"<ul><li>x<ul><li>y{_PIPE_TABLE}</li><li>z</li></ul></li></ul>"
+    html: Final[str] = f"<ul><li>x<ul><li>y{_PIPE_TABLE}</li><li>z</li></ul></li></ul>"
     assert parse(html).to_markdown() == "- x\n  - y\n    | k |\n    | --- |\n  - z"
 
 
@@ -4846,9 +4850,9 @@ def test_indented_code_block_position(html: str, opts: Markdown, expected: str) 
 )
 def test_indented_code_block_reads_as_code(html: str, opts: Markdown) -> None:
     # the text of the block spells a tag, and a reader that takes it as code shows it instead of running it
-    output: Final = _configured_markdown(html.format("&lt;script&gt;x&lt;/script&gt;"), opts)
-    rendered: Final = parse_fragment(MarkdownIt("commonmark").render(output))
-    code: Final = rendered.find("code")
+    output: Final[str] = _configured_markdown(html.format("&lt;script&gt;x&lt;/script&gt;"), opts)
+    rendered: Final[Element] = parse_fragment(MarkdownIt("commonmark").render(output))
+    code: Final[Element | None] = rendered.find("code")
     assert code is not None
     assert (rendered.find("script"), code.text.strip()) == (None, "<script>x</script>")
 
@@ -5007,9 +5011,9 @@ def test_alt_only_image_with_empty_alt_writes_nothing() -> None:
 
 
 def test_alt_only_image_text_renders_no_markup() -> None:
-    root: Final = parse('<p>a <img alt="&lt;i&gt;x&lt;/i&gt; &lt;a href=y&gt;"></p>')
-    output: Final = root.to_markdown(Markdown(images=Markdown.Images(mode="alt")))
-    paragraph: Final = parse_fragment(MarkdownIt("commonmark").render(output)).find("p")
+    root: Final[Document] = parse('<p>a <img alt="&lt;i&gt;x&lt;/i&gt; &lt;a href=y&gt;"></p>')
+    output: Final[str] = root.to_markdown(Markdown(images=Markdown.Images(mode="alt")))
+    paragraph: Final[Element | None] = parse_fragment(MarkdownIt("commonmark").render(output)).find("p")
     assert paragraph is not None
     assert paragraph.find("i") is None
     assert paragraph.find("a") is None
@@ -5025,7 +5029,7 @@ def test_alt_only_image_text_on_detached_inline_element() -> None:
 
 
 def test_alt_only_image_text_follows_escaping_mode() -> None:
-    opts: Final = Markdown(images=Markdown.Images(mode="alt"), escaping=Markdown.Escaping(mode="none"))
+    opts: Final[Markdown] = Markdown(images=Markdown.Images(mode="alt"), escaping=Markdown.Escaping(mode="none"))
     assert parse('<p><img alt="[a] &lt;b&gt;"></p>').to_markdown(opts) == "[a] <b>"
 
 
@@ -5864,5 +5868,5 @@ def test_code_language_fallback_with_backtick_names_no_language() -> None:
     ],
 )
 def test_code_language_backtick_keeps_fence(source: str) -> None:
-    rendered: Final = parse(MarkdownIt("commonmark").render(parse(source).to_markdown()))
+    rendered: Final[Document] = parse(MarkdownIt("commonmark").render(parse(source).to_markdown()))
     assert [(node.tag, node.text) for node in rendered.select("b, code")] == [("code", "<b>one</b>\n")]

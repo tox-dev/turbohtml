@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Final, NamedTuple
 
 import pytest
 
-from turbohtml import IncrementalParser, Token, Tokenizer, TokenType, parse, tokenize
+from turbohtml import Document, IncrementalParser, Token, Tokenizer, TokenType, parse, tokenize
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -474,14 +474,14 @@ class _StartTags(HTMLParser):
 def test_foreign_content_tokenizes_like_a_browser(document: str, expected: list[str]) -> None:
     assert _start_tags(tokenize(document)) == expected
     # the rules that read a start tag's attributes still see them when the caller asked for none
-    bare: Final = list(tokenize(document, capture_attributes=False))
+    bare: Final[list[Token]] = list(tokenize(document, capture_attributes=False))
     assert _start_tags(bare) == expected
     assert not any(token.attrs for token in bare)
-    tokenizer: Final = Tokenizer()
-    streamed: Final = [token for char in document for token in tokenizer.feed(char)]
+    tokenizer: Final[Tokenizer] = Tokenizer()
+    streamed: Final[list[Token]] = [token for char in document for token in tokenizer.feed(char)]
     assert _start_tags([*streamed, *tokenizer.close()]) == expected
-    handler: Final = _StartTags()
-    dispatcher: Final = Tokenizer(capture_attributes=False)
+    handler: Final[_StartTags] = _StartTags()
+    dispatcher: Final[Tokenizer] = Tokenizer(capture_attributes=False)
     dispatcher.feed(document)
     dispatcher.dispatch(handler)
     dispatcher.close()
@@ -492,22 +492,22 @@ def test_foreign_content_tokenizes_like_a_browser(document: str, expected: list[
 
 
 def test_markup_inside_svg_title_keeps_its_attributes() -> None:
-    document: Final = "<svg><g><title><textarea>v</textarea></title><style><a href=1 class=k>"
+    document: Final[str] = "<svg><g><title><textarea>v</textarea></title><style><a href=1 class=k>"
     assert _start_tags(tokenize(document)) == ["svg", "g", "title", "textarea", "style", "a"]
     (anchor,) = [token for token in tokenize(document) if token.tag == "a"]
     assert anchor.attrs == [("href", "1"), ("class", "k")]
 
 
 def test_cdata_section_in_foreign_content_is_text() -> None:
-    tokens: Final = list(tokenize("<svg><![CDATA[a<b>]]></svg><![CDATA[c]]>"))
+    tokens: Final[list[Token]] = list(tokenize("<svg><![CDATA[a<b>]]></svg><![CDATA[c]]>"))
     assert [(token.type, token.tag or token.data) for token in tokens] == [
         (TokenType.START_TAG, "svg"),
         (TokenType.TEXT, "a<b>"),
         (TokenType.END_TAG, "svg"),
         (TokenType.COMMENT, "[CDATA[c]]"),
     ]
-    handler: Final = _StartTags()
-    tokenizer: Final = Tokenizer()
+    handler: Final[_StartTags] = _StartTags()
+    tokenizer: Final[Tokenizer] = Tokenizer()
     tokenizer.feed("<math><![CDATA[<i>]]>")
     tokenizer.close()
     tokenizer.dispatch(handler)
@@ -515,7 +515,7 @@ def test_cdata_section_in_foreign_content_is_text() -> None:
 
 
 def test_reset_forgets_open_foreign_elements() -> None:
-    tokenizer: Final = Tokenizer(capture_attributes=False)
+    tokenizer: Final[Tokenizer] = Tokenizer(capture_attributes=False)
     assert _start_tags([*tokenizer.feed("<svg><font color=red><svg><style><i>"), *tokenizer.close()]) == [
         "svg",
         "font",
@@ -524,7 +524,7 @@ def test_reset_forgets_open_foreign_elements() -> None:
         "i",
     ]
     tokenizer.reset()
-    tokens: Final = [*tokenizer.feed("<style><i></style><![CDATA[x]]><p id=a>"), *tokenizer.close()]
+    tokens: Final[list[Token]] = [*tokenizer.feed("<style><i></style><![CDATA[x]]><p id=a>"), *tokenizer.close()]
     assert [(token.type, token.tag or token.data, token.attrs) for token in tokens] == [
         (TokenType.START_TAG, "style", []),
         (TokenType.TEXT, "<i>", None),
@@ -558,7 +558,7 @@ def _iterated(tokenizer: Tokenizer, chunks: list[str]) -> list[str | None]:
 
 
 def _dispatched(tokenizer: Tokenizer, chunks: list[str]) -> list[str | None]:
-    handler: Final = _StartTags()
+    handler: Final[_StartTags] = _StartTags()
     for chunk in chunks:
         tokenizer.feed(chunk)
         tokenizer.dispatch(handler)
@@ -568,8 +568,8 @@ def _dispatched(tokenizer: Tokenizer, chunks: list[str]) -> list[str | None]:
 @pytest.mark.parametrize("read", [pytest.param(_iterated, id="iterate"), pytest.param(_dispatched, id="dispatch")])
 def test_long_stream_still_follows_open_elements(read: Callable[[Tokenizer, list[str]], list[str | None]]) -> None:
     # the open elements are followed chunk by chunk, however much input came before the first <svg>
-    chunks: Final = ["<div>", *["<p>words</p>"] * 10_000, "<svg><style><i></style></div><style><b>"]
-    tags: Final = read(Tokenizer(), chunks)
+    chunks: Final[list[str]] = ["<div>", *["<p>words</p>"] * 10_000, "<svg><style><i></style></div><style><b>"]
+    tags: Final[list[str | None]] = read(Tokenizer(), chunks)
     assert (tags[0], tags[-4:]) == ("div", ["svg", "style", "i", "style"])
 
 
@@ -727,7 +727,7 @@ def _stream_fed_in_chunks(document: str) -> list[_Shape]:
 )
 def test_unterminated_numeric_reference_holds_no_digits(prefix: str, peak_bytes: PeakBytes) -> None:
     # the digits of a numeric reference are never output, so a suspended run keeps only its prefix in the buffer
-    peak: Final = peak_bytes(
+    peak: Final[int] = peak_bytes(
         "import tracemalloc\n"
         "from turbohtml import Tokenizer\n"
         f"prefix = {prefix!r}\n"
@@ -757,12 +757,12 @@ def test_unterminated_numeric_reference_holds_no_digits(prefix: str, peak_bytes:
 @pytest.mark.parametrize("ending", ["", ";", " ", "x;"])
 def test_streamed_numeric_reference_matches_one_shot(prefix: str, ending: str, width_prefix: str) -> None:
     # the streamed scan drops the digits it has passed, so the reference must still end, report and advance as one-shot
-    document: Final = f"{width_prefix}{prefix}{'9' * 3000}{ending}tail"
-    whole: Final = parse(document)
-    streamed: Final = IncrementalParser()
+    document: Final[str] = f"{width_prefix}{prefix}{'9' * 3000}{ending}tail"
+    whole: Final[Document] = parse(document)
+    streamed: Final[IncrementalParser] = IncrementalParser()
     for offset in range(0, len(document), 7):
         streamed.feed(document[offset : offset + 7])
-    split: Final = streamed.close()
+    split: Final[Document] = streamed.close()
     assert _stream_fed_in_chunks(document) == [_shape(token) for token in tokenize(document)]
     assert [(error.code, error.line, error.col) for error in split.errors] == [
         (error.code, error.line, error.col) for error in whole.errors
@@ -779,7 +779,7 @@ def test_streamed_numeric_reference_matches_one_shot(prefix: str, ending: str, w
 )
 def test_unterminated_named_reference_holds_no_run(prefix: str, peak_bytes: PeakBytes) -> None:
     # past the longest entity name the rest of the run is text, so it leaves the input buffer as it arrives
-    peak: Final = peak_bytes(
+    peak: Final[int] = peak_bytes(
         "import tracemalloc\n"
         "from turbohtml import Tokenizer\n"
         f"prefix = {prefix!r}\n"
@@ -824,12 +824,12 @@ def test_unterminated_named_reference_holds_no_run(prefix: str, peak_bytes: Peak
 )
 def test_streamed_named_reference_matches_one_shot(prefix: str, stem: str, ending: str, width_prefix: str) -> None:
     # a run past the longest entity name is emitted as text as it streams, and must still read as one-shot does
-    document: Final = f"{width_prefix}{prefix}{stem}{'x' * 60}{ending}tail"
-    whole: Final = parse(document)
-    streamed: Final = IncrementalParser()
+    document: Final[str] = f"{width_prefix}{prefix}{stem}{'x' * 60}{ending}tail"
+    whole: Final[Document] = parse(document)
+    streamed: Final[IncrementalParser] = IncrementalParser()
     for offset in range(0, len(document), 7):
         streamed.feed(document[offset : offset + 7])
-    split: Final = streamed.close()
+    split: Final[Document] = streamed.close()
     assert split.html == whole.html
     assert [(error.code, error.line, error.col) for error in split.errors] == [
         (error.code, error.line, error.col) for error in whole.errors
@@ -855,12 +855,12 @@ def test_streamed_named_reference_matches_one_shot(prefix: str, stem: str, endin
 def test_named_reference_past_longest_name_reports_as_one_shot(
     document: str, codes: list[tuple[str, int, int]], width_prefix: str
 ) -> None:
-    streamed: Final = IncrementalParser()
-    prefixed: Final = width_prefix + document
+    streamed: Final[IncrementalParser] = IncrementalParser()
+    prefixed: Final[str] = width_prefix + document
     for offset in range(0, len(prefixed), 5):
         streamed.feed(prefixed[offset : offset + 5])
-    shift: Final = len(width_prefix)
-    expected: Final = [(code, line, col + shift) for code, line, col in codes]
+    shift: Final[int] = len(width_prefix)
+    expected: Final[list[tuple[str, int, int]]] = [(code, line, col + shift) for code, line, col in codes]
     assert [(error.code, error.line, error.col) for error in parse(prefixed).errors] == expected
     assert [(error.code, error.line, error.col) for error in streamed.close().errors] == expected
 
@@ -909,12 +909,12 @@ def assert_streaming_matches_whole(document: str) -> None:
     ],
 )
 def test_named_reference_with_source_locations_streams_as_one_shot(document: str, width_prefix: str) -> None:
-    prefixed: Final = width_prefix + document
-    streamed: Final = IncrementalParser(source_locations=True)
+    prefixed: Final[str] = width_prefix + document
+    streamed: Final[IncrementalParser] = IncrementalParser(source_locations=True)
     for offset in range(0, len(prefixed), 7):
         streamed.feed(prefixed[offset : offset + 7])
-    whole: Final = parse(prefixed, source_locations=True)
-    split: Final = streamed.close()
+    whole: Final[Document] = parse(prefixed, source_locations=True)
+    split: Final[Document] = streamed.close()
     assert split.html == whole.html
     assert [(error.code, error.line, error.col) for error in split.errors] == [
         (error.code, error.line, error.col) for error in whole.errors
@@ -943,7 +943,7 @@ def test_named_reference_with_source_locations_streams_as_one_shot(document: str
 def test_streamed_named_reference_matches_one_shot_in_each_mode(
     options: dict[str, bool], prefix: str, filler: str, width_prefix: str
 ) -> None:
-    document: Final = f"{width_prefix}{prefix}{filler}{'x' * 60};tail"
+    document: Final[str] = f"{width_prefix}{prefix}{filler}{'x' * 60};tail"
     tokenizer = Tokenizer(**options)
     streamed = [_shape(token) for char in document for token in tokenizer.feed(char)]
     streamed += [_shape(token) for token in tokenizer.close()]
@@ -953,7 +953,7 @@ def test_streamed_named_reference_matches_one_shot_in_each_mode(
 @pytest.mark.parametrize("prefix", ["", "<title>"])
 def test_long_named_reference_run_flushes_text_as_it_streams(prefix: str, width_prefix: str) -> None:
     # the text a streamed reference gathers is emitted in pieces once it passes a few thousand code points
-    document: Final = f"{width_prefix}{prefix}&{'a' * 9_000};tail"
+    document: Final[str] = f"{width_prefix}{prefix}&{'a' * 9_000};tail"
     tokenizer = Tokenizer()
     streamed: list[_Shape] = []
     for offset in range(0, len(document), 4096):
@@ -1292,7 +1292,7 @@ def test_dispatch_requires_every_handler() -> None:
     ],
 )
 def test_token_attrs_order(count: int) -> None:
-    expected: Final = [(f"a{index}", str(index)) for index in range(count)]
+    expected: Final[list[tuple[str, str]]] = [(f"a{index}", str(index)) for index in range(count)]
     (token,) = tokenize(f"<p {' '.join(f'{name}={value}' for name, value in expected)}>")
     assert token.attrs == expected
 
@@ -1300,8 +1300,8 @@ def test_token_attrs_order(count: int) -> None:
 @pytest.mark.parametrize("document", [pytest.param("<p>", id="empty"), pytest.param("<p a=1 b=2>", id="populated")])
 def test_token_attrs_returns_fresh_list(document: str) -> None:
     (token,) = tokenize(document)
-    expected: Final = token.attrs
-    attrs: Final = token.attrs
+    expected: Final[list[tuple[str, str]] | None] = token.attrs
+    attrs: Final[list[tuple[str, str]] | None] = token.attrs
     assert attrs is not None
     attrs[:] = [("replacement", "changed")]
     assert token.attrs == expected

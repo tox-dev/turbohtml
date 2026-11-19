@@ -80,20 +80,6 @@ _GRAMMAR_MARKERS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
     (re.compile(r"\|\||&&"), "non-XPath boolean operator"),
 )
 
-# fn:matches / fn:replace take Python's re syntax, so XSD-only constructs and counted repeats too large to compile are
-# out of scope.
-_RUNTIME_REGEX_ERRORS: Final[tuple[str, ...]] = (
-    "bad escape",
-    "bad character range",
-    "invalid group reference",
-    "repetition number is too large",
-    "unterminated",
-    "redefinition of group",
-    "cannot refer to an open group",
-    "global flags not at the start",
-    "regular expression compiles to more than",
-)
-
 
 _STRIP_FUNCTION_PREFIX_PATTERN: Final[re.Pattern[str]] = re.compile(r"\bfn:")
 
@@ -454,7 +440,19 @@ def _known_deviation() -> Generator[None]:
             pytest.xfail("XPath-1.0 count/sum/string-length restricted to node-sets, not atomic sequences")
         if "takes " in message and "argument" in message:
             pytest.xfail("function arity beyond XPath 1.0/2.0 (e.g. the 2-argument round is XPath 3.0)")
-        if any(marker in message for marker in _RUNTIME_REGEX_ERRORS):
+        # Python re rejects some XSD regex syntax and caps counted repeats.
+        runtime_regex_errors = (
+            "bad escape",
+            "bad character range",
+            "invalid group reference",
+            "repetition number is too large",
+            "unterminated",
+            "redefinition of group",
+            "cannot refer to an open group",
+            "global flags not at the start",
+            "regular expression compiles to more than",
+        )
+        if any(marker in message for marker in runtime_regex_errors):
             pytest.xfail("fn:matches/fn:replace take Python's re syntax, not the XSD regex dialect")
         raise
 

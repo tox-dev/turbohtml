@@ -31,17 +31,17 @@ if TYPE_CHECKING:
 
 def main(argv: Sequence[str] | None = None) -> int:
     # Preserve source bytes for the coverage-guided corpus.
-    parser: Final = argparse.ArgumentParser()
+    parser: Final[argparse.ArgumentParser] = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--budget", type=int, default=512)
     parser.add_argument("--steps", type=int, default=128)
     parser.add_argument("--count", type=int, default=0)
     parser.add_argument("--seed", type=int, default=0)
-    args: Final = parser.parse_args(argv)
+    args: Final[argparse.Namespace] = parser.parse_args(argv)
     if args.count < 0:
         parser.error("count must be nonnegative")
     try:
-        cases: Final = (
+        cases: Final[tuple[Generated, ...]] = (
             tuple(
                 css_generate(random.Random(args.seed + index), args.budget, steps=args.steps)
                 for index in range(args.count)
@@ -105,9 +105,9 @@ def css_grammar(rows: Sequence[CssRow] = CSS_ROWS) -> Grammar:
 
 
 def _production(row: CssRow) -> Production:
-    origin: Final = f"{SOURCE_URLS[row[0]]}#L{row[1]}"
-    name: Final = f"css:{'blink' if row[0] == 'blink-css.dict' else f'domato:{row[0]}'}:{row[1]}"
-    parts: Final = _references(row[4])
+    origin: Final[str] = f"{SOURCE_URLS[row[0]]}#L{row[1]}"
+    name: Final[str] = f"css:{'blink' if row[0] == 'blink-css.dict' else f'domato:{row[0]}'}:{row[1]}"
+    parts: Final[tuple[bytes | Identifier, ...]] = _references(row[4])
     if row[9] or row[10]:
         return Production(
             name=name,

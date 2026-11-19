@@ -46,20 +46,22 @@ def css_custom_check(case: str, minify: Callable[[str], str] | None = None) -> s
         "ident": ("MiXeD", "UPPER", "Lower", "Token", "Alpha", "Beta", "Gamma", "Delta"),
         "string": ("A B", "x;y", "MiXeD", "lower", "A:B", "A{B}", "A[B]", "A(B)"),
     }
-    declarations: Final = [
+    declarations: Final[list[tuple[str, str]]] = [
         (names[(int(offset) + index) % 4], values[kind][(int(offset) + index) % 8]) for index in range(int(count))
     ]
-    source: Final = " ; ".join(f"{name} : {repr(value) if kind == 'string' else value}" for name, value in declarations)
-    text: Final = f"a {{ {source} ; }}" if mode == "sheet" else f" {source} ; "
-    printer: Final = minify or (minify_css if mode == "sheet" else minify_css_inline)
-    output: Final = printer(text)
-    expected: Final = ";".join(
+    source: Final[str] = " ; ".join(
+        f"{name} : {repr(value) if kind == 'string' else value}" for name, value in declarations
+    )
+    text: Final[str] = f"a {{ {source} ; }}" if mode == "sheet" else f" {source} ; "
+    printer: Final[Callable[[str], str]] = minify or (minify_css if mode == "sheet" else minify_css_inline)
+    output: Final[str] = printer(text)
+    expected: Final[str] = ";".join(
         re.escape(name)
         + ":"
         + (f"(?:'{re.escape(value)}'|\"{re.escape(value)}\")" if kind == "string" else re.escape(value))
         for name, value in declarations
     )
-    pattern: Final = f"a\\{{{expected}\\}}" if mode == "sheet" else expected
+    pattern: Final[str] = f"a\\{{{expected}\\}}" if mode == "sheet" else expected
     if re.fullmatch(pattern, output) is None:
         return "custom-property tokens differ from literals"
     return None if printer(output) == output else "custom-property output changes on repeat"

@@ -101,7 +101,7 @@ def paired_backend_feed(tmp_path: Path) -> _Feed:
 
 
 def test_note_uses_the_operation_label(tmp_path: Path) -> None:
-    output: Final = tmp_path / "out"
+    output: Final[Path] = tmp_path / "out"
     output.mkdir()
     emit_migration_feeds(
         {
@@ -119,7 +119,7 @@ def test_note_uses_the_operation_label(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("operation", ["minify", "minify-css", "minify-js", "minify-js-sequences"])
 def test_size_operations_keep_output_bytes_and_timing_spread(tmp_path: Path, operation: str) -> None:
-    feed: Final = _emit(
+    feed: Final[_Feed] = _emit(
         tmp_path,
         {"beautifulsoup4": {operation: "competitor"}},
         {

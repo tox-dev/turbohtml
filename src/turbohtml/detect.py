@@ -48,29 +48,15 @@ from types import MappingProxyType
 from typing import Final, Literal
 
 from ._html import (
-    DetectStream as _DetectStream,
+    DetectStream,
+    codec_label,
+    detect_rank,
 )
-from ._html import (
-    codec_label as _codec_label,
-)
-from ._html import (
-    decode as _decode,
-)
-from ._html import (
-    detect as _detect,
-)
-from ._html import (
-    detect_language as _detect_language,
-)
-from ._html import (
-    detect_rank as _detect_rank,
-)
-from ._html import (
-    is_normalized as _is_normalized,
-)
-from ._html import (
-    normalize as _normalize,
-)
+from ._html import decode as native_decode
+from ._html import detect as native_detect
+from ._html import detect_language as native_detect_language
+from ._html import is_normalized as native_is_normalized
+from ._html import normalize as native_normalize
 
 #: The Unicode normalization forms :func:`normalize` and :func:`is_normalized` accept.
 NormalizationForm = Literal["NFC", "NFD", "NFKC", "NFKD"]
@@ -91,7 +77,7 @@ def _search(name: str) -> codecs.CodecInfo | None:
     # subset of the spec's, ``koi8-u`` reaches KOI8-U where the spec means KOI8-RU, and ``x-mac-cyrillic`` reaches no
     # codec at all. Which label a name resolves to is decided in C, which knows every spec alias and the byte-order-mark
     # names that delegate to CPython's own decoders.
-    if (found := _codec_label(name)) is None:
+    if (found := codec_label(name)) is None:
         return None
     delegate, label = found
 
@@ -99,7 +85,7 @@ def _search(name: str) -> codecs.CodecInfo | None:
         if delegate:
             # "replace" turns malformed bytes into U+FFFD as turbohtml.parse does, where the strict codec would raise
             return codecs.lookup(label).decode(data, "replace")
-        return _decode(data, label), len(data)
+        return native_decode(data, label), len(data)
 
     # CodecInfo's decoder is typed against _typeshed.ReadableBuffer, which Sphinx cannot import when it walks the
     # annotations at doc-build time; bytes is what the codecs machinery ever passes a decode function.
@@ -179,8 +165,8 @@ def detect(data: bytes, options: Detection | None = None, /) -> EncodingMatch:
         caller can strip it.
     :raises TypeError: when ``data`` is not a bytes-like object.
     """
-    active: Final = options or _DEFAULT
-    return _match(_detect(data, active.tld), active)
+    active: Final[Detection] = options or _DEFAULT
+    return _match(native_detect(data, active.tld), active)
 
 
 def _match(result: tuple[str | None, bool, list[tuple[str, int]], bool] | None, options: Detection) -> EncodingMatch:
@@ -239,7 +225,7 @@ class EncodingMatch:
 def _rank(
     result: tuple[str | None, bool, list[tuple[str, int]], bool] | None, options: Detection
 ) -> list[tuple[str | None, float, str | None, bool, str | None]]:
-    return _detect_rank(result, options.allowed, options.excluded, options.language, options.threshold, _languages())
+    return detect_rank(result, options.allowed, options.excluded, options.language, options.threshold, _languages())
 
 
 @cache
@@ -280,7 +266,7 @@ def detect_all(data: bytes, options: Detection | None = None, /) -> list[Encodin
     :raises TypeError: when ``data`` is not a bytes-like object.
     """
     active = options or _DEFAULT
-    return list(starmap(EncodingMatch, _rank(_detect(data, active.tld), active)))
+    return list(starmap(EncodingMatch, _rank(native_detect(data, active.tld), active)))
 
 
 class EncodingDetector:
@@ -305,7 +291,7 @@ class EncodingDetector:
     def __init__(self, options: Detection | None = None, /) -> None:
         """Start an empty stream with the given options."""
         self._options = options or _DEFAULT
-        self._stream = _DetectStream(self._options.tld)
+        self._stream = DetectStream(self._options.tld)
         self._result: EncodingMatch | None = None
         self.done = False
 
@@ -337,7 +323,7 @@ class EncodingDetector:
 
     def reset(self) -> None:
         """Forget the stream and the result so the instance can start over."""
-        self._stream = _DetectStream(self._options.tld)
+        self._stream = DetectStream(self._options.tld)
         self._result = None
         self.done = False
 
@@ -387,7 +373,7 @@ def detect_language(text: str, options: LanguageDetection | None = None, /) -> L
     :raises TypeError: when ``text`` is not a ``str``.
     """
     settings = options or _DEFAULT_LANGUAGE
-    return LanguageMatch(*_detect_language(text, settings.allowed, settings.excluded, settings.threshold))
+    return LanguageMatch(*native_detect_language(text, settings.allowed, settings.excluded, settings.threshold))
 
 
 @dataclass(frozen=True, slots=True)
@@ -441,7 +427,7 @@ def normalize(form: NormalizationForm, text: str, /) -> str:
     except KeyError:
         msg = f"invalid normalization form {form!r}"
         raise ValueError(msg) from None
-    return _normalize(code, text)
+    return native_normalize(code, text)
 
 
 def is_normalized(form: NormalizationForm, text: str, /) -> bool:
@@ -462,7 +448,7 @@ def is_normalized(form: NormalizationForm, text: str, /) -> bool:
     except KeyError:
         msg = f"invalid normalization form {form!r}"
         raise ValueError(msg) from None
-    return _is_normalized(code, text)
+    return native_is_normalized(code, text)
 
 
 __all__ = [

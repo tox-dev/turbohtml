@@ -197,9 +197,9 @@ def _encode_inner(text: str) -> bytes:
 
 
 def _fresh_transform(text: str) -> LexborHTMLParser:
-    tree: Final = _fresh(text)
+    tree: Final[LexborHTMLParser] = _fresh(text)
     if tree.css("template"):
-        message: Final = "selectolax does not expose template contents for mutation"
+        message: Final[str] = "selectolax does not expose template contents for mutation"
         raise ValueError(message)
     return tree
 
@@ -213,7 +213,7 @@ def _collapse_whitespace(tree: LexborHTMLParser) -> None:
             parent = parent.parent
         if parent is not None:
             continue
-        text: Final = cast("str", node.text_content)
+        text: Final[str] = cast("str", node.text_content)
         collapsed = SPACE_RUN.sub(" ", text)
         previous = node.prev
         while previous is not None and previous.is_text_node and not previous.text_content:

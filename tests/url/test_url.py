@@ -6,7 +6,7 @@ from typing import Final
 
 import pytest
 
-from turbohtml import parse, parse_fragment
+from turbohtml import Element, parse, parse_fragment
 
 
 @pytest.mark.parametrize(
@@ -1333,7 +1333,7 @@ def test_meta_refresh_selection(html: str, expected: tuple[float, str] | None) -
     ],
 )
 def test_resolve_links_resolves_backslash_scheme_relative(base: str, reference: str, expected: str) -> None:
-    fragment: Final = parse_fragment(f'<a href="{reference}"></a>')
+    fragment: Final[Element] = parse_fragment(f'<a href="{reference}"></a>')
     fragment.resolve_links(base)
     assert fragment.serialize() == f'<div><a href="{expected}"></a></div>'
 
@@ -1347,6 +1347,6 @@ def test_resolve_links_resolves_backslash_scheme_relative(base: str, reference: 
     ],
 )
 def test_resolve_links_keeps_a_special_host_as_written(href: str, expected: str) -> None:
-    fragment: Final = parse_fragment(f'<a href="{href}"></a>')
+    fragment: Final[Element] = parse_fragment(f'<a href="{href}"></a>')
     fragment.resolve_links("https://example.com/dir/page.html")
     assert fragment.serialize() == f'<div><a href="{expected}"></a></div>'

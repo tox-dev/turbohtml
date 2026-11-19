@@ -48,18 +48,18 @@ class _Meaning(NamedTuple):
 
 def main(argv: Sequence[str] | None = None) -> int:
     # Write source bytes so corpus consumers need no mode-string interpretation.
-    parser: Final = argparse.ArgumentParser()
+    parser: Final[argparse.ArgumentParser] = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--budget", type=int, default=64)
     parser.add_argument("--steps", type=int, default=256)
     parser.add_argument("--count", type=int, default=0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--html", action="store_true")
-    args: Final = parser.parse_args(argv)
+    args: Final[argparse.Namespace] = parser.parse_args(argv)
     if args.count < 0:
         parser.error("count must be nonnegative")
     try:
-        cases: Final = (
+        cases: Final[tuple[Generated, ...]] = (
             tuple(
                 markdown_generate(random.Random(args.seed + index), args.budget, steps=args.steps, html=args.html)
                 for index in range(args.count)
@@ -87,7 +87,7 @@ def markdown_grammar(*, html: bool = False) -> Grammar:
 
 def markdown_snapshot(source: str) -> tuple[MarkdownRecord, ...]:
     # Inline source spelling duplicates the semantic leaf text.
-    nodes: Final = tuple(SyntaxTreeNode(_READER.parse(source)).walk())
+    nodes: Final[tuple[SyntaxTreeNode, ...]] = tuple(SyntaxTreeNode(_READER.parse(source)).walk())
     return tuple(
         (
             node.type,
@@ -110,8 +110,8 @@ def markdown_source_seeds(*, html: bool = False) -> list[str]:
 
 def markdown_controls(*, html: bool = False) -> dict[str, bool]:
     # Stable losses distinguish first-conversion and repeated-pass checks.
-    check: Final = markdown_html_check if html else markdown_source_check
-    sources: Final = (
+    check = markdown_html_check if html else markdown_source_check
+    sources: Final[tuple[str, ...]] = (
         ("<p><strong>x</strong></p>", '<p><a href="/target">x</a></p>', "<p>x</p>")
         if html
         else ("**x**", "[x](/target)", "x")
@@ -126,8 +126,8 @@ def markdown_controls(*, html: bool = False) -> dict[str, bool]:
 
 def markdown_html_check(markup: str, render: Callable[[Node], str] = Node.to_markdown) -> str | None:
     # Compare source meaning because a stable conversion can lose HTML semantics.
-    expected: Final = markdown_html_meaning(markup)
-    converted: Final = _READER.render(render(parse_fragment(markup)))
+    expected: Final[tuple[_Meaning, ...]] = markdown_html_meaning(markup)
+    converted = _READER.render(render(parse_fragment(markup)))
     if markdown_html_meaning(converted) == expected:
         return None
     # Count decoded text: an HTML character reference can carry the control the reader drops.
@@ -142,7 +142,7 @@ def markdown_html_check(markup: str, render: Callable[[Node], str] = Node.to_mar
 def markdown_html_meaning(markup: str) -> tuple[_Meaning, ...]:
     # Collapse reader HTML to the structure and text the Markdown oracle compares.
     # read the tree to_markdown converts, so a parser that lags the WHATWG tree builder cannot pose as a lost meaning
-    root: Final = parse_fragment(markup)
+    root: Final[Element] = parse_fragment(markup)
     if any(sum(1 for _ in element.ancestors) > 128 for element in root.iter_elements()):
         msg = "HTML nesting exceeds the meaning model"
         raise MarkdownProfileError(msg)
@@ -157,7 +157,7 @@ def _outermost(records: tuple[_Meaning, ...], inside: frozenset[str]) -> tuple[_
         if tag in inside:
             output.extend(_outermost(children, inside))
         else:
-            nested: Final = inside | {tag} if tag in _EMPHASIS else inside
+            nested: Final[frozenset[str]] = inside | {tag} if tag in _EMPHASIS else inside
             output.append(_Meaning(tag, attributes, _outermost(children, nested)))
     return _merge(output)
 
@@ -276,10 +276,10 @@ def _block_end(records: tuple[_Meaning, ...]) -> tuple[_Meaning, ...]:
     tail = len(records)
     while tail and (records[tail - 1][0] == "br" or _draws_nothing(records[tail - 1])):
         tail -= 1
-    kept: Final = tuple(record for record in records[tail:] if record[0] != "br")
+    kept: Final[tuple[_Meaning, ...]] = tuple(record for record in records[tail:] if record[0] != "br")
     if len(kept) == len(records) - tail or not tail or records[tail - 1][0] != "#text":
         return (*records[:tail], *kept)
-    text: Final = records[tail - 1][1][0][1].rstrip(" \t\n\f\r")
+    text: Final[str] = records[tail - 1][1][0][1].rstrip(" \t\n\f\r")
     return (*records[: tail - 1], *((_Meaning("#text", (("value", text),), ()),) if text else ()), *kept)
 
 
@@ -294,10 +294,10 @@ def _spacing(records: tuple[_Meaning, ...], *, preserve: bool, inline: bool) -> 
             output.append(record)
             continue
         text: str = _TEXT_PATTERN.sub(" ", record[1][0][1])
-        previous: Final = records[index - 1][0] if index else None
+        previous: Final[str | None] = records[index - 1][0] if index else None
         if _at_block_edge(previous, inline=inline):
             text = text.lstrip(" \t\n\f\r")
-        following: Final = records[index + 1][0] if index + 1 < len(records) else None
+        following: Final[str | None] = records[index + 1][0] if index + 1 < len(records) else None
         # a line drops the collapsible spaces at its end (CSS Text 3, 4.1.2), so a space before a break draws nothing
         if _at_block_edge(following, inline=inline):
             text = text.rstrip(" \t\n\f\r")
@@ -317,7 +317,9 @@ def _children(element: _TreeNode, *, preserve: bool) -> tuple[_Meaning, ...]:
     for child in element:
         records.extend(_element(child, element.tag, preserve=preserve))
         records.extend(_text(child.tail, preserve=preserve))
-    spaced: Final = _spacing(_merge(records), preserve=preserve, inline=element.tag in _INLINE_TEXT)
+    spaced: Final[tuple[_Meaning, ...]] = _spacing(
+        _merge(records), preserve=preserve, inline=element.tag in _INLINE_TEXT
+    )
     return spaced if preserve or element.tag in _INLINE_TEXT else _block_end(spaced)
 
 
@@ -338,7 +340,7 @@ def _element(element: _TreeNode, parent: str, *, preserve: bool) -> tuple[_Meani
     if _breaks_content_model(element, parent):
         msg = f"HTML content model violated at {element.tag}"
         raise MarkdownProfileError(msg)
-    children: Final = _children(element, preserve=preserve or element.tag == "pre")
+    children: Final[tuple[_Meaning, ...]] = _children(element, preserve=preserve or element.tag == "pre")
     if element.tag == "div":
         return (_BOUNDARY, *children, _BOUNDARY)  # a block ends the paragraph around it even when it holds no text
     if (
@@ -397,7 +399,7 @@ def _code_text(element: _TreeNode, *, block: bool) -> tuple[_Meaning, ...]:
     # a block keeps its line breaks and drops the newline fenced content always ends in, which a browser does not
     # draw; a span reads its line breaks as spaces (CommonMark 6.1) and collapses spaces as the normal flow does
     # (CSS Text 3, 4.1.1)
-    text: Final = _literal(element).removesuffix("\n") if block else _CODE_TEXT_PATTERN.sub(" ", _literal(element))
+    text: Final[str] = _literal(element).removesuffix("\n") if block else _CODE_TEXT_PATTERN.sub(" ", _literal(element))
     return (_Meaning("#text", (("value", text),), ()),) if text else ()
 
 
@@ -442,7 +444,7 @@ def _attributes(tag: str, attributes: dict[str, str]) -> tuple[tuple[str, str], 
         "ol": frozenset({"start"}),
         "td": frozenset({"align"}),
     }
-    semantic: Final = {
+    semantic: Final[dict[str, str]] = {
         name: _ATTRIBUTES_PATTERN.sub("", value) if name in {"href", "src"} else value
         for name, value in attributes.items()
         if name in semantic_attributes.get(tag, ()) and (value or name != "title")
@@ -559,7 +561,7 @@ class _FaithfulAltRenderer(RendererHTML):
 
 
 def _raw_grammar() -> Grammar:
-    productions: Final = [
+    productions: Final[list[Production]] = [
         Production(
             name="markdown:root",
             symbol="root",
@@ -685,7 +687,7 @@ def _html_grammar() -> Grammar:
         ("break", "<p>x<br>y</p>", 4, 1),
         ("special", "<p>*x* [y] &amp; é漢</p>", 2, 1),
     )
-    productions: Final = [
+    productions: Final[list[Production]] = [
         Production(
             name="markdown-html:root",
             symbol="root",

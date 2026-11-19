@@ -35,7 +35,7 @@ XmlRecord = tuple[str, str, str, tuple[tuple[str, str], ...], int]
 
 def main(argv: Sequence[str] | None = None) -> int:
     # Keep corpus files independent of parser acceptance.
-    parser: Final = argparse.ArgumentParser()
+    parser: Final[argparse.ArgumentParser] = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--budget", type=int, default=30)
     parser.add_argument("--steps", type=int, default=120)
@@ -43,11 +43,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--count", type=int, default=0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--byte-budget", type=int, default=64, help="maximum random raw input length")
-    args: Final = parser.parse_args(argv)
+    args: Final[argparse.Namespace] = parser.parse_args(argv)
     if args.count < 0:
         parser.error("count must be nonnegative")
     try:
-        cases: Final = (
+        cases: Final[tuple[Generated, ...]] = (
             tuple(xml_raw_generate(random.Random(args.seed + index), args.byte_budget) for index in range(args.count))
             if args.raw and args.count
             else xml_raw_inputs()
@@ -82,11 +82,11 @@ def xml_structure_check(
     serialize: Callable[[Node], str] | None = None,
 ) -> str | None:
     # Require literal names, content, parents and bindings before comparing serialization.
-    expected: Final = xml_expected(case)
-    root: Final = read(case.data.decode("utf-8"))
+    expected: Final[tuple[tuple[str, str, str, tuple[tuple[str, str], ...], int], ...]] = xml_expected(case)
+    root: Final[Document] = read(case.data.decode("utf-8"))
     if xml_snapshot(root) != expected:
         return "parsed XML differs from production literals"
-    printed: Final = root.serialize(Html(xml=True)) if serialize is None else serialize(root)
+    printed: Final[str] = root.serialize(Html(xml=True)) if serialize is None else serialize(root)
     if xml_snapshot(read(printed)) != expected:
         return "serialized XML differs from production literals"
     return None
@@ -102,7 +102,7 @@ def xml_expected(case: Generated) -> tuple[XmlRecord, ...]:
 def _expect(trace: Iterator[str], parent: int, records: list[XmlRecord]) -> None:
     positions: Final[dict[str, int]] = {}
     for item in _RULES[next(trace)].expected:
-        owner: Final = parent if not item.parent else positions[item.parent]
+        owner: Final[int] = parent if not item.parent else positions[item.parent]
         if isinstance(item, _Child):
             _expect(trace, owner, records)
         else:
@@ -112,10 +112,10 @@ def _expect(trace: Iterator[str], parent: int, records: list[XmlRecord]) -> None
 
 def xml_snapshot(root: Document) -> tuple[XmlRecord, ...]:
     # Keep parent ordinals stable when wrapper identities differ.
-    nodes: Final = [root, *root.descendants]
+    nodes: Final[list[Node]] = [root, *root.descendants]
     records: Final[list[XmlRecord]] = []
     for node in nodes:
-        parent: Final = -1 if node.parent is None else nodes.index(node.parent)
+        parent: Final[int] = -1 if node.parent is None else nodes.index(node.parent)
         if isinstance(node, Element):
             records.append((
                 f"element:{node.namespace.value}",
@@ -175,9 +175,9 @@ def xml_source_controls() -> dict[str, bool]:
 
 def xml_document_check(markup: str, serialize: Callable[[Node], str] | None = None) -> str | None:
     # Compare XML input semantics rather than reparsing an HTML interpretation.
-    root: Final = parse_xml(markup)
-    expected: Final = xml_snapshot(root)
-    printed: Final = root.serialize(Html(xml=True)) if serialize is None else serialize(root)
+    root: Final[Document] = parse_xml(markup)
+    expected: Final[tuple[tuple[str, str, str, tuple[tuple[str, str], ...], int], ...]] = xml_snapshot(root)
+    printed: Final[str] = root.serialize(Html(xml=True)) if serialize is None else serialize(root)
     return None if xml_snapshot(parse_xml(printed)) == expected else "XML serialization changes the document"
 
 
@@ -234,7 +234,7 @@ class _Rule:
 
 def _rules() -> dict[str, _Rule]:
     standard = "https://www.w3.org/TR/2008/REC-xml-20081126/"
-    rules: Final = [
+    rules: Final[list[_Rule]] = [
         _Rule(
             production=Production(
                 name="xml:document",

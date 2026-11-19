@@ -12,9 +12,9 @@ from typing import TYPE_CHECKING, Final, NoReturn, assert_type, cast
 import pytest
 from bench.ci import benchmarks
 from bench.core import OPERATIONS
-from bench.operations import INPUTS
+from bench.operations import INPUTS, Case
 
-from turbohtml import Comment, Document, Element, Namespace, Node, Text, parse, parse_xml
+from turbohtml import Comment, Document, Element, Namespace, Node, ShadowRoot, Text, parse, parse_xml
 from turbohtml.mutations import MutationObserver
 
 if TYPE_CHECKING:
@@ -1040,15 +1040,15 @@ def test_select_reads_each_option_against_its_own_optgroup_when_groups_nest(
     outer: str, inner: str, expected: list[str]
 ) -> None:
     # the second optgroup sits inside the first one through a div, so its option comes between two of the first's
-    form: Final = _form(
+    form: Final[Element] = _form(
         f"<form><select name=t multiple><optgroup{outer}><option value=a selected></option><div><optgroup{inner}>"
         "<option value=b selected></optgroup></div><option value=c selected></optgroup><option value=d selected>"
         "</select></form>"
     )
-    select: Final = form.find("select")
+    select: Final[Element | None] = form.find("select")
     assert select is not None
-    options: Final = form.find_all("option")
-    groups: Final = form.find_all("optgroup")
+    options: Final[list[Element]] = form.find_all("option")
+    groups: Final[list[Element]] = form.find_all("optgroup")
     assert [option.parent for option in options] == [groups[0], groups[1], groups[0], select]
     assert form.form_data() == [("t", value) for value in expected]
     del select.attrs["multiple"]
@@ -1060,7 +1060,7 @@ def test_select_reads_each_option_against_its_own_optgroup_when_groups_nest(
 
 def test_select_reads_optgroups_nested_deeper_than_the_parser_builds() -> None:
     # each group holds an option, the next group, and another option; every third group is disabled
-    depth: Final = 600
+    depth: Final[int] = 600
     group: Element = Element("optgroup", {}, [])
     for level in reversed(range(depth)):
         children: list[Node] = [
@@ -1069,8 +1069,8 @@ def test_select_reads_optgroups_nested_deeper_than_the_parser_builds() -> None:
             Element("option", {"value": f"after{level}", "selected": None}),
         ]
         group = Element("optgroup", {"disabled": None} if level % 3 == 0 else {}, children)
-    form: Final = Element("form", {}, [Element("select", {"name": "t", "multiple": None}, [group])])
-    enabled: Final = [level for level in range(depth) if level % 3]
+    form: Final[Element] = Element("form", {}, [Element("select", {"name": "t", "multiple": None}, [group])])
+    enabled: Final[list[int]] = [level for level in range(depth) if level % 3]
     assert form.form_data() == [
         *(("t", f"before{level}") for level in enabled),
         *(("t", f"after{level}") for level in reversed(enabled)),
@@ -1096,9 +1096,11 @@ def test_select_with_many_optgroup_attributes_is_read_in_linear_time(
 
 
 def _disabled_group_select(count: int, options: str, *, multiple: bool) -> Callable[[], object]:
-    attributes: Final = " ".join(f"a{index}" for index in range(count))
-    form: Final = _form(f"<form><select multiple name=s><optgroup {attributes} disabled>{options * count}</select>")
-    select: Final = form.find("select")
+    attributes: Final[str] = " ".join(f"a{index}" for index in range(count))
+    form: Final[Element] = _form(
+        f"<form><select multiple name=s><optgroup {attributes} disabled>{options * count}</select>"
+    )
+    select: Final[Element | None] = form.find("select")
     assert select is not None
     if not multiple:  # parsed as a multiple select either way, which the tree builder resolves no default option for
         del select.attrs["multiple"]
@@ -1111,13 +1113,15 @@ def test_form_data_with_many_fieldset_attributes_and_legends_is_linear_time(work
 
 
 def _fieldset_with_legends(count: int) -> Callable[[], object]:
-    attributes: Final = " ".join(f"a{index}" for index in range(count))
-    form: Final = _form(f"<form><fieldset {attributes}>{'<legend></legend>' * count}<input name=a value=1></form>")
+    attributes: Final[str] = " ".join(f"a{index}" for index in range(count))
+    form: Final[Element] = _form(
+        f"<form><fieldset {attributes}>{'<legend></legend>' * count}<input name=a value=1></form>"
+    )
     return form.form_data
 
 
 def test_form_data_skips_a_disabled_fieldset_after_its_first_legend_only() -> None:
-    form: Final = _form(
+    form: Final[Element] = _form(
         "<form><fieldset disabled><input name=a><legend><input name=b></legend><input name=c>"
         "<legend><input name=d></legend><input name=e></fieldset>"
         "<fieldset><legend><input name=f></legend><input name=g><legend><input name=h></legend><input name=i>"
@@ -1359,7 +1363,7 @@ def test_attrs_set_on_a_parsed_element_with_many_attributes() -> None:
 def test_attrs_set_names_interned_a_table_apart() -> None:
     # attribute names are numbered as the tree first meets them, and the index buckets them by that number: with 128
     # buckets for the 40 attributes, the first and the 129th name share one
-    names: Final = [f"data-n{index}" for index in range(129)]
+    names: Final[list[str]] = [f"data-n{index}" for index in range(129)]
     element = _div(f"<p {' '.join(names)}></p><div {' '.join(names[:40])}></div>")
     element.attrs[names[128]] = "far"
     element.attrs[names[0]] = "near"
@@ -1378,7 +1382,14 @@ def test_attrs_set_on_an_xml_element_with_many_attributes() -> None:
 
 
 def test_attrs_set_on_a_foreign_element_with_many_attributes(find: Callable[[str, str], Element]) -> None:
-    cased: Final = ["viewBox", "attributeName", "baseFrequency", "clipPathUnits", "textLength", "tableValues"]
+    cased: Final[list[str]] = [
+        "viewBox",
+        "attributeName",
+        "baseFrequency",
+        "clipPathUnits",
+        "textLength",
+        "tableValues",
+    ]
     svg = find(f"<svg {' '.join(f'{name}=old' for name in cased)} {_MANY_ATTRS}></svg>", "svg")
     for name in cased:
         svg.attrs[name.lower()] = "new"  # updates the cased slot, no duplicate
@@ -1392,7 +1403,7 @@ def test_attrs_set_on_a_foreign_element_looks_into_every_bucket(find: Callable[[
     # fresh names are numbered in sequence, so 128 in a row look into each of the 128 buckets the index of a
     # 40-attribute element has, the ones that hold the case-adjusted names among them
     svg = find(f"<svg viewBox=old attributeName=old {' '.join(_MANY_NAMES[:38])}></svg>", "svg")
-    before: Final = list(svg.attrs.items())
+    before: Final[list[tuple[str, str | list[str] | None]]] = list(svg.attrs.items())
     for index in range(128):
         svg.attrs[f"data-probe{index}"] = "new"
         del svg.attrs[f"data-probe{index}"]
@@ -1951,9 +1962,9 @@ def test_append_preserves_descendant_references() -> None:
 
 @pytest.mark.parametrize("count", [pytest.param(32, id="small"), pytest.param(65_570, id="large")])
 def test_append_preserves_many_descendant_views(count: int) -> None:
-    source: Final = _found(parse(f"<section>{'<b>x</b>' * count}</section>"), "section")
-    held: Final = source.select("b")
-    destination: Final = Element("main")
+    source: Final[Element] = _found(parse(f"<section>{'<b>x</b>' * count}</section>"), "section")
+    held: Final[list[Element]] = source.select("b")
+    destination: Final[Element] = Element("main")
     destination.append(source)
     for node in held[::31]:
         node.attrs["held"] = "yes"
@@ -1961,11 +1972,11 @@ def test_append_preserves_many_descendant_views(count: int) -> None:
 
 
 def test_append_preserves_views_after_partial_release() -> None:
-    source: Final = _found(parse(f"<section>{'<b>x</b>' * 65_570}</section>"), "section")
-    held: Final = source.select("b")
+    source: Final[Element] = _found(parse(f"<section>{'<b>x</b>' * 65_570}</section>"), "section")
+    held: Final[list[Element]] = source.select("b")
     del held[65_530:]
     held.extend(source.select("b")[65_530:])
-    destination: Final = Element("main")
+    destination: Final[Element] = Element("main")
     destination.append(source)
     held[-1].attrs["held"] = "yes"
     assert destination.select("b[held]") == [held[-1]]
@@ -2534,7 +2545,7 @@ def test_normalize_recurses_into_child_elements() -> None:
 
 @pytest.mark.parametrize("count", [pytest.param(3, id="small"), pytest.param(100, id="wide")])
 def test_attribute_growth_preserves_values_and_order(count: int) -> None:
-    root: Final = Element("p")
+    root: Final[Element] = Element("p")
     for index in range(count):
         root.attrs[f"data-{index}"] = str(index)
     root.attrs["data-0"] = "changed"
@@ -2548,17 +2559,17 @@ def test_attribute_growth_preserves_values_and_order(count: int) -> None:
 
 
 def test_attribute_growth_keeps_copies_independent() -> None:
-    root: Final = Element("p")
+    root: Final[Element] = Element("p")
     for name in ("a", "b", "c"):
         root.attrs[f"data-{name}"] = name
-    copied: Final = deepcopy(root)
+    copied: Final[Element] = deepcopy(root)
     root.attrs["data-d"] = "original"
     copied.attrs["data-d"] = "copy"
     assert (root.attrs["data-d"], copied.attrs["data-d"]) == ("original", "copy")
 
 
 def test_attribute_growth_preserves_parsed_attributes() -> None:
-    root: Final = parse('<p title="original" hidden></p>').find("p")
+    root: Final[Element | None] = parse('<p title="original" hidden></p>').find("p")
     assert root is not None
     for index in range(100):
         root.attrs[f"data-{index}"] = str(index)
@@ -2570,8 +2581,8 @@ def test_attribute_growth_preserves_parsed_attributes() -> None:
 
 
 def test_attribute_growth_records_changes_across_capacity_boundaries() -> None:
-    root: Final = Element("p")
-    observer: Final = MutationObserver()
+    root: Final[Element] = Element("p")
+    observer: Final[MutationObserver] = MutationObserver()
     observer.observe(root, attributes=True, attribute_old_value=True)
     for index in range(17):
         root.attrs[f"data-{index}"] = str(index)
@@ -2588,8 +2599,8 @@ def test_attribute_growth_records_changes_across_capacity_boundaries() -> None:
 
 @pytest.mark.parametrize("count", [pytest.param(3, id="small"), pytest.param(100, id="wide")])
 def test_attribute_growth_preserves_xml_names_and_values(count: int) -> None:
-    attributes: Final = " ".join(f'名{index}="é😀{index}"' for index in range(count))
-    root: Final = parse_xml(f"<root {attributes}/>").find("root")
+    attributes: Final[str] = " ".join(f'名{index}="é😀{index}"' for index in range(count))
+    root: Final[Element | None] = parse_xml(f"<root {attributes}/>").find("root")
     assert root is not None
     root.attrs["追加"] = "追加値"
     assert list(root.attrs.items()) == [
@@ -2601,9 +2612,9 @@ def test_attribute_growth_preserves_xml_names_and_values(count: int) -> None:
 @pytest.mark.parametrize("count", [pytest.param(2, id="pair"), pytest.param(100, id="long-run")])
 @pytest.mark.parametrize("text", [pytest.param("word", id="ascii"), pytest.param("é水😀", id="unicode")])
 def test_normalize_keeps_first_text_and_detaches_merged_nodes(count: int, text: str) -> None:
-    root: Final = Element("p")
+    root: Final[Element] = Element("p")
     root.extend(Text(text) for _ in range(count))
-    children: Final = tuple(root)
+    children: Final[tuple[Node, ...]] = tuple(root)
     root.normalize()
     assert (tuple(root), children[0].text, [(child.parent, child.text) for child in children[1:]]) == (
         (children[0],),
@@ -2622,14 +2633,14 @@ def test_normalize_keeps_first_text_and_detaches_merged_nodes(count: int, text: 
     ],
 )
 def test_normalize_removes_empty_nodes(texts: tuple[str, ...], expected: list[str]) -> None:
-    root: Final = Element("p")
+    root: Final[Element] = Element("p")
     root.extend(Text(text) for text in texts)
     root.normalize()
     assert [child.text for child in root] == expected
 
 
 def test_normalize_preserves_separate_runs() -> None:
-    root: Final = Element("p")
+    root: Final[Element] = Element("p")
     root.extend([Text("a"), Text("b"), Comment("boundary"), Text("c"), Text("d")])
     root.normalize()
     assert [(type(child), child.html) for child in root] == [(Text, "ab"), (Comment, "<!--boundary-->"), (Text, "cd")]
@@ -2643,9 +2654,13 @@ def test_normalize_preserves_separate_runs() -> None:
     ],
 )
 def test_attribute_benchmark_rebuilds_input(*, existing: bool, expected_untouched: dict[str, str]) -> None:
-    operation: Final = cast("Mutating", OPERATIONS["attribute-grow"][0])
-    case: Final = cast("tuple[Element, tuple[str, ...]]", operation.setup((3, existing)))
-    untouched: Final = cast("tuple[Element, tuple[str, ...]]", operation.setup((3, existing)))
+    operation = cast("Mutating", OPERATIONS["attribute-grow"][0])
+    case: Final[tuple[Element, tuple[str, ...]]] = cast(
+        "tuple[Element, tuple[str, ...]]", operation.setup((3, existing))
+    )
+    untouched: Final[tuple[Element, tuple[str, ...]]] = cast(
+        "tuple[Element, tuple[str, ...]]", operation.setup((3, existing))
+    )
     operation.run(case)
     assert (dict(case[0].attrs), dict(untouched[0].attrs)) == (
         {f"data-{index}": "after" for index in range(3)},
@@ -2655,18 +2670,18 @@ def test_attribute_benchmark_rebuilds_input(*, existing: bool, expected_untouche
 
 @pytest.mark.parametrize("count", [pytest.param(2, id="pair"), pytest.param(10, id="run")])
 def test_normalize_benchmark_rebuilds_input(count: int) -> None:
-    operation: Final = cast("Mutating", OPERATIONS["normalize-dom"][0])
-    root: Final = cast("Element", operation.setup((count, "é😀")))
-    untouched: Final = cast("Element", operation.setup((count, "é😀")))
+    operation = cast("Mutating", OPERATIONS["normalize-dom"][0])
+    root: Final[Element] = cast("Element", operation.setup((count, "é😀")))
+    untouched: Final[Element] = cast("Element", operation.setup((count, "é😀")))
     operation.run(root)
     assert ([child.text for child in root], [child.text for child in untouched]) == (["é😀" * count], ["é😀"] * count)
 
 
 def test_empty_tail_benchmark_preserves_first_node() -> None:
     _, run, load = next(benchmark for benchmark in benchmarks() if benchmark[0] == "normalize-dom-empty-tail")
-    operation: Final = cast("Mutating", run)
-    root: Final = cast("Element", operation.setup(load()))
-    before: Final = tuple(root)
+    operation = cast("Mutating", run)
+    root: Final[Element] = cast("Element", operation.setup(load()))
+    before: Final[tuple[Node, ...]] = tuple(root)
     operation.run(root)
     assert (tuple(root), tuple(node.text for node in before), [node.parent for node in before[1:]]) == (
         (before[0],),
@@ -2726,7 +2741,7 @@ def test_empty_tail_benchmark_preserves_first_node() -> None:
     ],
 )
 def test_form_data_fieldset_boundaries(markup: str, expected: list[tuple[str, str]]) -> None:
-    form: Final = parse(f'<form>{markup}<input name="tail" value="ok"></form>').select("form")[0]
+    form: Final[Element] = parse(f'<form>{markup}<input name="tail" value="ok"></form>').select("form")[0]
     assert form.form_data() == [*expected, ("tail", "ok")]
 
 
@@ -2740,38 +2755,40 @@ def test_form_data_fieldset_boundaries(markup: str, expected: list[tuple[str, st
     ],
 )
 def test_form_data_fieldset_shared_inputs(case_index: int, expected: list[tuple[str, str]]) -> None:
-    source: Final = cast("str", INPUTS["form-data-fieldsets"]()[case_index][1])
-    operation: Final = cast("Callable[[str], list[tuple[str, str]]]", OPERATIONS["form-data-fieldsets"][0])
+    source: Final[str] = cast("str", INPUTS["form-data-fieldsets"]()[case_index][1])
+    operation: Final[Callable[[str], list[tuple[str, str]]]] = cast(
+        "Callable[[str], list[tuple[str, str]]]", OPERATIONS["form-data-fieldsets"][0]
+    )
     assert operation(source) == [*expected, ("tail", "ok")]
 
 
 @pytest.mark.parametrize("count", [0, 1, 15, 16, 17, 32, 33, 2_049])
 def test_form_data_preserves_many_values_after_detaching_inputs(count: int) -> None:
-    expected: Final = [("field", f"é水😀{index}") for index in range(count)]
-    markup: Final = "".join(
+    expected: Final[list[tuple[str, str]]] = [("field", f"é水😀{index}") for index in range(count)]
+    markup: Final[str] = "".join(
         f'<input name="field" value="{value}"><input disabled name="skip">' for _, value in expected
     )
-    form: Final = parse(f"<form>{markup}</form>").select("form")[0]
-    result: Final = form.form_data()
+    form: Final[Element] = parse(f"<form>{markup}</form>").select("form")[0]
+    result: Final[list[tuple[str, str]]] = form.form_data()
     form.clear()
     assert result == expected
 
 
 @pytest.mark.parametrize("count", [0, 1, 15, 16, 17, 32, 33, 2_049])
 def test_form_data_preserves_many_values_after_detaching_options(count: int) -> None:
-    expected: Final = [("field", f"é水😀{index}") for index in range(count)]
-    markup: Final = "".join(
+    expected: Final[list[tuple[str, str]]] = [("field", f"é水😀{index}") for index in range(count)]
+    markup: Final[str] = "".join(
         f'<option selected value="{value}"></option><option selected disabled value="skip"></option>'
         for _, value in expected
     )
-    form: Final = parse(f'<form><select multiple name="field">{markup}</select></form>').select("form")[0]
-    result: Final = form.form_data()
+    form: Final[Element] = parse(f'<form><select multiple name="field">{markup}</select></form>').select("form")[0]
+    result: Final[list[tuple[str, str]]] = form.form_data()
     form.clear()
     assert result == expected
 
 
 def test_form_data_fieldset_refreshes_after_enabling() -> None:
-    form: Final = parse(
+    form: Final[Element] = parse(
         '<form><fieldset disabled><legend><input name="first"></legend><input name="second"></fieldset></form>'
     ).select("form")[0]
     form.form_data()
@@ -2848,12 +2865,12 @@ def test_form_data_fieldset_refreshes_after_enabling() -> None:
 def test_form_data_handles_legend_changes_during_collection(
     mutation: str, markup: str, suffix: list[tuple[str, str]], counts: range, *, replaced: bool
 ) -> None:
-    controls: Final = "".join(f'<input name="n{index}" value="v{index}">' for index in range(256))
-    form: Final = parse(markup.format(controls=controls)).select("form")[0]
-    fieldset: Final = form.select("fieldset")[0]
-    legend: Final = form.select("legend")[0]
-    collect: Final = form.form_data
-    thresholds: Final = gc.get_threshold()
+    controls: Final[str] = "".join(f'<input name="n{index}" value="v{index}">' for index in range(256))
+    form: Final[Element] = parse(markup.format(controls=controls)).select("form")[0]
+    fieldset: Final[Element] = form.select("fieldset")[0]
+    legend: Final[Element] = form.select("legend")[0]
+    collect: Final[Callable[[], list[tuple[str, str]]]] = form.form_data
+    thresholds: Final[tuple[int, int, int]] = gc.get_threshold()
     assert gc.isenabled()
     changed = False
 
@@ -2874,15 +2891,15 @@ def test_form_data_handles_legend_changes_during_collection(
     try:
         gc.set_threshold(gc.get_count()[0] + 64, thresholds[1], thresholds[2])
         gc.enable()
-        pairs: Final = collect()
+        pairs: Final[list[tuple[str, str]]] = collect()
         gc.collect()
     finally:
         gc.disable()
         gc.callbacks.remove(change_legend)
         gc.set_threshold(*thresholds)
         gc.enable()
-    count: Final = sum(name.startswith("n") for name, _value in pairs)
-    expected: Final = [(f"n{index}", f"v{index}") for index in range(count)]
+    count: Final[int] = sum(name.startswith("n") for name, _value in pairs)
+    expected: Final[list[tuple[str, str]]] = [(f"n{index}", f"v{index}") for index in range(count)]
     assert count in counts
     assert (changed, legend.parent == fieldset, legend.parent is None) == (True, replaced, not replaced)
     assert pairs == [*expected, *suffix]
@@ -2890,14 +2907,14 @@ def test_form_data_handles_legend_changes_during_collection(
 
 @pytest.mark.skipif(sys.implementation.name != "cpython", reason="CPython allocation-triggered collection")
 def test_form_data_rereads_an_optgroup_disabled_during_collection() -> None:
-    options: Final = "".join(f'<option selected value="v{index}">' for index in range(256))
-    form: Final = parse(
+    options: Final[str] = "".join(f'<option selected value="v{index}">' for index in range(256))
+    form: Final[Element] = parse(
         f'<form><select multiple name="s"><optgroup>{options}</optgroup></select><input name="tail" value="ok"></form>'
     ).select("form")[0]
-    group: Final = form.select("optgroup")[0]
-    collect: Final = form.form_data
-    thresholds: Final = gc.get_threshold()
-    restore_gc: Final = {True: gc.enable, False: gc.disable}[gc.isenabled()]
+    group: Final[Element] = form.select("optgroup")[0]
+    collect: Final[Callable[[], list[tuple[str, str]]]] = form.form_data
+    thresholds: Final[tuple[int, int, int]] = gc.get_threshold()
+    restore_gc: Final[Callable[[], None]] = {True: gc.enable, False: gc.disable}[gc.isenabled()]
     changed = False
 
     def disable_group(phase: str, _info: dict[str, int]) -> None:
@@ -2912,14 +2929,14 @@ def test_form_data_rereads_an_optgroup_disabled_during_collection() -> None:
     try:
         gc.set_threshold(gc.get_count()[0] + 64, thresholds[1], thresholds[2])
         gc.enable()
-        pairs: Final = collect()
+        pairs: Final[list[tuple[str, str]]] = collect()
         gc.collect()
     finally:
         gc.disable()
         gc.callbacks.remove(disable_group)
         gc.set_threshold(*thresholds)
         restore_gc()
-    count: Final = sum(name == "s" for name, _value in pairs)
+    count: Final[int] = sum(name == "s" for name, _value in pairs)
     assert count == 256 if sys.version_info >= (3, 12) else 0 < count < 256
     assert (changed, pairs) == (True, [*(("s", f"v{index}") for index in range(count)), ("tail", "ok")])
 
@@ -2933,7 +2950,7 @@ def radio_scope_document() -> Document:
 
 
 def test_radio_group_index_keeps_unedited_scope(radio_scope_document: Document) -> None:
-    form: Final = radio_scope_document.select("form")[0]
+    form: Final[Element] = radio_scope_document.select("form")[0]
     _first, selected, outside = radio_scope_document.select("input")
     selected.checked = True
     assert ([node.checked for node in form.children if isinstance(node, Element)], outside.checked) == (
@@ -2943,7 +2960,7 @@ def test_radio_group_index_keeps_unedited_scope(radio_scope_document: Document) 
 
 
 def test_radio_group_index_follows_renamed_radio(radio_scope_document: Document) -> None:
-    form: Final = radio_scope_document.select("form")[0]
+    form: Final[Element] = radio_scope_document.select("form")[0]
     first, selected, outside = radio_scope_document.select("input")
     first.attrs["name"] = "other"
     selected.checked = True
@@ -2954,7 +2971,7 @@ def test_radio_group_index_follows_renamed_radio(radio_scope_document: Document)
 
 
 def test_radio_group_index_follows_retyped_radio(radio_scope_document: Document) -> None:
-    form: Final = radio_scope_document.select("form")[0]
+    form: Final[Element] = radio_scope_document.select("form")[0]
     first, selected, outside = radio_scope_document.select("input")
     first.attrs["type"] = "checkbox"
     selected.checked = True
@@ -2965,7 +2982,7 @@ def test_radio_group_index_follows_retyped_radio(radio_scope_document: Document)
 
 
 def test_radio_group_index_follows_appended_radio(radio_scope_document: Document) -> None:
-    form: Final = radio_scope_document.select("form")[0]
+    form: Final[Element] = radio_scope_document.select("form")[0]
     _first, selected, outside = radio_scope_document.select("input")
     form.append(Element("input", {"type": "radio", "name": "é水😀", "checked": ""}))
     radio_scope_document.select("input")
@@ -2977,7 +2994,7 @@ def test_radio_group_index_follows_appended_radio(radio_scope_document: Document
 
 
 def test_radio_group_index_follows_detached_form(radio_scope_document: Document) -> None:
-    form: Final = radio_scope_document.select("form")[0]
+    form: Final[Element] = radio_scope_document.select("form")[0]
     _first, selected, outside = radio_scope_document.select("input")
     form.extract()
     radio_scope_document.select("input")
@@ -2989,10 +3006,10 @@ def test_radio_group_index_follows_detached_form(radio_scope_document: Document)
 
 
 def test_radio_group_index_preserves_attribute_observer_order() -> None:
-    document: Final = parse("<form><input type=radio name=a checked><input type=radio name=a></form>")
-    form: Final = document.select("form")[0]
+    document: Final[Document] = parse("<form><input type=radio name=a checked><input type=radio name=a></form>")
+    form: Final[Element] = document.select("form")[0]
     first, selected = document.select("input")
-    observer: Final = MutationObserver()
+    observer: Final[MutationObserver] = MutationObserver()
     observer.observe(form, attributes=True, subtree=True, attribute_old_value=True)
     selected.checked = True
     assert [(record.target, record.attribute_name, record.old_value) for record in observer.take_records()] == [
@@ -3011,8 +3028,8 @@ def test_radio_group_index_preserves_attribute_observer_order() -> None:
     ],
 )
 def test_radio_group_benchmark_output(case: int, selected: int) -> None:
-    operation: Final = cast("Mutating", OPERATIONS["radio-group"][0])
-    data: Final = INPUTS["radio-group"]()[case][1]
+    operation = cast("Mutating", OPERATIONS["radio-group"][0])
+    data: Final[Case] = INPUTS["radio-group"]()[case][1]
     assert operation.run(operation.setup(data)) == tuple(index == selected for index in range(16))
 
 
@@ -3025,7 +3042,7 @@ def document_scope_radios() -> Document:
 
 
 def test_radio_group_document_scope_keeps_other_names_and_types(document_scope_radios: Document) -> None:
-    radios: Final = [
+    radios: Final[list[Element]] = [
         node for node in document_scope_radios.children[0].children[-1].children if isinstance(node, Element)
     ]
     radios[1].checked = True
@@ -3033,7 +3050,7 @@ def test_radio_group_document_scope_keeps_other_names_and_types(document_scope_r
 
 
 def test_radio_group_document_scope_after_index_keeps_other_names_and_types(document_scope_radios: Document) -> None:
-    radios: Final = [
+    radios: Final[list[Element]] = [
         node for node in document_scope_radios.children[0].children[-1].children if isinstance(node, Element)
     ]
     document_scope_radios.select("input")
@@ -3056,12 +3073,12 @@ def test_attrs_snapshot_during_collection(
     expected: list[str | list[str] | tuple[str, str | list[str]]] | dict[str, str | list[str]],
     offset: int,
 ) -> None:
-    thresholds: Final = gc.get_threshold()
+    thresholds: Final[tuple[int, int, int]] = gc.get_threshold()
     assert gc.isenabled()
     gc.disable()
     gc.collect()
-    attrs: Final = Element("a", {"id": "old", "class": "before value", "title": "tail"}).attrs
-    collect: Final = getattr(attrs, method)
+    attrs = Element("a", {"id": "old", "class": "before value", "title": "tail"}).attrs
+    collect = getattr(attrs, method)
     changed = False
 
     def replace_values(phase: str, _info: dict[str, int]) -> None:
@@ -3074,12 +3091,12 @@ def test_attrs_snapshot_during_collection(
 
     # Exhaust freelists so list and tuple allocations can trigger collection.
     lists: Final[list[list[None]]] = [[] for _ in range(512)]
-    tuples: Final = [(index, None) for index in range(4096)]
+    tuples: Final[list[tuple[int, None]]] = [(index, None) for index in range(4096)]
     gc.callbacks.append(replace_values)
     try:
         gc.set_threshold(gc.get_count()[0] + offset, thresholds[1], thresholds[2])
         gc.enable()
-        result: Final = collect()
+        result = collect()
         gc.collect()
     finally:
         gc.disable()
@@ -3105,20 +3122,20 @@ def test_attrs_snapshot_during_collection(
     ],
 )
 def test_attrs_empty_snapshot(method: str, expected: list[str] | list[tuple[str, str]] | dict[str, str]) -> None:
-    attrs: Final = Element("div").attrs
+    attrs = Element("div").attrs
     assert getattr(attrs, method)() == expected
 
 
 def test_attrs_names_iterator_snapshot() -> None:
-    attrs: Final = Element("div", {"id": "first", "data-name": "second"}).attrs
-    snapshot: Final = iter(attrs)
+    attrs = Element("div", {"id": "first", "data-name": "second"}).attrs
+    snapshot: Final[Iterator[str]] = iter(attrs)
     attrs["later"] = "third"
     assert list(snapshot) == ["id", "data-name"]
 
 
 def test_attrs_names_keys_snapshot() -> None:
-    attrs: Final = Element("div", {"id": "first", "data-name": "second"}).attrs
-    snapshot: Final = attrs.keys()
+    attrs = Element("div", {"id": "first", "data-name": "second"}).attrs
+    snapshot = attrs.keys()
     attrs["later"] = "third"
     assert list(snapshot) == ["id", "data-name"]
 
@@ -3703,8 +3720,10 @@ _RADIO_FORM_OWNER_CASES: Final[list[pytest.ParameterSet]] = [
 @pytest.mark.parametrize(("markup", "same_owner"), _RADIO_FORM_OWNER_CASES)
 @pytest.mark.parametrize("selected", [pytest.param(0, id="first"), pytest.param(1, id="second")])
 def test_radio_group_form_owner_walks_descendants(markup: str, selected: int, *, same_owner: bool) -> None:
-    document: Final = parse(markup)
-    radios: Final = [node for node in document.descendants if isinstance(node, Element) and node.tag == "input"]
+    document: Final[Document] = parse(markup)
+    radios: Final[list[Element]] = [
+        node for node in document.descendants if isinstance(node, Element) and node.tag == "input"
+    ]
     for radio in radios:
         radio.attrs.update(type="radio", name="group", checked="")
     radios[selected].checked = True
@@ -3714,8 +3733,10 @@ def test_radio_group_form_owner_walks_descendants(markup: str, selected: int, *,
 @pytest.mark.parametrize(("markup", "same_owner"), _RADIO_FORM_OWNER_CASES)
 @pytest.mark.parametrize("selected", [pytest.param(0, id="first"), pytest.param(1, id="second")])
 def test_radio_group_form_owner_uses_index(markup: str, selected: int, *, same_owner: bool) -> None:
-    document: Final = parse(markup)
-    radios: Final = [node for node in document.descendants if isinstance(node, Element) and node.tag == "input"]
+    document: Final[Document] = parse(markup)
+    radios: Final[list[Element]] = [
+        node for node in document.descendants if isinstance(node, Element) and node.tag == "input"
+    ]
     for radio in radios:
         radio.attrs.update(type="radio", name="group", checked="")
     document.select("input")
@@ -3725,36 +3746,36 @@ def test_radio_group_form_owner_uses_index(markup: str, selected: int, *, same_o
 
 @pytest.mark.parametrize("selected", [pytest.param(0, id="outer"), pytest.param(1, id="inner")])
 def test_radio_group_nested_forms(selected: int) -> None:
-    outer: Final = Element("form")
-    inner: Final = Element("form")
+    outer: Final[Element] = Element("form")
+    inner: Final[Element] = Element("form")
     outer.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
     inner.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
     outer.append(Element("div", children=[inner]))
-    radios: Final = list(outer.find_all("input"))
+    radios: Final[list[Element]] = list(outer.find_all("input"))
     radios[selected].checked = True
     assert [radio.checked for radio in radios] == [True, True]
 
 
 @pytest.mark.parametrize("selected", [pytest.param(0, id="outer"), pytest.param(1, id="inner")])
 def test_radio_group_nested_forms_followed(selected: int) -> None:
-    outer: Final = Element("form")
-    inner: Final = Element("form")
+    outer: Final[Element] = Element("form")
+    inner: Final[Element] = Element("form")
     outer.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
     inner.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
     outer.append(Element("div", children=[inner]))
     outer.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
-    radios: Final = list(outer.find_all("input"))
+    radios: Final[list[Element]] = list(outer.find_all("input"))
     radios[selected].checked = True
     assert [radio.checked for radio in radios] == [True, True, selected == 1]
 
 
 @pytest.mark.parametrize("selected", [pytest.param(0, id="first"), pytest.param(1, id="second")])
 def test_radio_group_explicit_owner_detached(selected: int) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         "<form><input type=radio name=x checked><input type=radio name=x form=missing checked></form>"
     )
-    form: Final = document.select("form")[0]
-    radios: Final = list(form.find_all("input"))
+    form: Final[Element] = document.select("form")[0]
+    radios: Final[list[Element]] = list(form.find_all("input"))
     form.extract()
     radios[selected].checked = True
     assert [radio.checked for radio in radios] == [index == selected for index in range(2)]
@@ -3762,20 +3783,20 @@ def test_radio_group_explicit_owner_detached(selected: int) -> None:
 
 @pytest.mark.parametrize("selected", [pytest.param(0, id="first"), pytest.param(1, id="second")])
 def test_radio_group_explicit_owner_connected(selected: int) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         "<form><input type=radio name=x checked><input type=radio name=x form=missing checked></form>"
     )
-    radios: Final = list(document.select("form")[0].find_all("input"))
+    radios: Final[list[Element]] = list(document.select("form")[0].find_all("input"))
     radios[selected].checked = True
     assert [radio.checked for radio in radios] == [True, True]
 
 
 def test_radio_group_shadow_form_owner_detached() -> None:
-    document: Final = parse("<form id=f><input type=radio name=x checked></form><div></div>")
-    host: Final = document.select("div")[0]
+    document: Final[Document] = parse("<form id=f><input type=radio name=x checked></form><div></div>")
+    host: Final[Element] = document.select("div")[0]
     host.extract()
-    shadow: Final = host.attach_shadow()
-    form: Final = Element("form", {"id": "f"})
+    shadow: Final[ShadowRoot] = host.attach_shadow()
+    form: Final[Element] = Element("form", {"id": "f"})
     form.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
     shadow.append(form)
     shadow.append(Element("input", {"type": "radio", "name": "x", "form": "f"}))
@@ -3785,10 +3806,10 @@ def test_radio_group_shadow_form_owner_detached() -> None:
 
 
 def test_radio_group_shadow_form_owner_connected() -> None:
-    document: Final = parse("<form id=f><input type=radio name=x checked></form><div></div>")
-    host: Final = document.select("div")[0]
-    shadow: Final = host.attach_shadow()
-    form: Final = Element("form", {"id": "f"})
+    document: Final[Document] = parse("<form id=f><input type=radio name=x checked></form><div></div>")
+    host: Final[Element] = document.select("div")[0]
+    shadow: Final[ShadowRoot] = host.attach_shadow()
+    form: Final[Element] = Element("form", {"id": "f"})
     form.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
     shadow.append(form)
     shadow.append(Element("input", {"type": "radio", "name": "x", "form": "f"}))
@@ -3799,19 +3820,19 @@ def test_radio_group_shadow_form_owner_connected() -> None:
 
 @pytest.mark.parametrize("selected", [pytest.param(0, id="inside"), pytest.param(1, id="outside")])
 def test_radio_group_ignores_foreign_form_ancestor(selected: int) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         "<svg><form><foreignObject><input type=radio name=x checked></foreignObject></form></svg>"
         "<input type=radio name=x checked>"
     )
-    radios: Final = list(document.find_all("input"))
+    radios: Final[list[Element]] = list(document.find_all("input"))
     radios[selected].checked = True
     assert [radio.checked for radio in radios] == [index == selected for index in range(2)]
 
 
 def test_radio_group_includes_radio_root() -> None:
-    root: Final = Element("input", {"type": "radio", "name": "x", "checked": ""})
+    root: Final[Element] = Element("input", {"type": "radio", "name": "x", "checked": ""})
     root.append(Element("input", {"type": "radio", "name": "x"}))
-    child: Final = root.children[0]
+    child: Final[Node] = root.children[0]
     assert isinstance(child, Element)
     child.checked = True
     assert (root.checked, child.checked) == (False, True)
@@ -3827,12 +3848,12 @@ def test_radio_group_includes_radio_root() -> None:
     ],
 )
 def test_radio_group_many_explicit_owners(count: int, selected_index: int) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         f"""{"<div></div>" * count}<form id="target"><input type=radio name=x checked></form>"""
         f"""{"".join(f'<input type=radio name=x form=target checked id="field{index}">' for index in range(count))}"""
         "<input type=radio name=x form=target>"
     )
-    radios: Final = list(document.find_all("input"))
+    radios: Final[list[Element]] = list(document.find_all("input"))
     radios[selected_index].checked = True
     assert [radio.checked for radio in radios] == [index == selected_index for index in range(len(radios))]
 
@@ -3840,11 +3861,11 @@ def test_radio_group_many_explicit_owners(count: int, selected_index: int) -> No
 def test_radio_group_ownerless_radio_among_many_form_ids() -> None:
     # The checked radio has no owner, so every other radio looks its form id up: one owned radio per form and one
     # unowned radio per absent id are enough ids that lookups walk past other ids under any hash key.
-    count: Final = 64
-    forms: Final = "".join(f"<form id=f{index}></form>" for index in range(count))
-    owned: Final = "".join(f"<input type=radio name=x form=f{index} checked>" for index in range(count))
-    absent: Final = "".join(f"<input type=radio name=x form=g{index} checked>" for index in range(count))
-    radios: Final = list(parse(forms + owned + absent).find_all("input"))
+    count: Final[int] = 64
+    forms: Final[str] = "".join(f"<form id=f{index}></form>" for index in range(count))
+    owned: Final[str] = "".join(f"<input type=radio name=x form=f{index} checked>" for index in range(count))
+    absent: Final[str] = "".join(f"<input type=radio name=x form=g{index} checked>" for index in range(count))
+    radios: Final[list[Element]] = list(parse(forms + owned + absent).find_all("input"))
     radios[-1].checked = True
     assert [radio.checked for radio in radios] == [
         index < count or index == 2 * count - 1 for index in range(2 * count)
@@ -3861,7 +3882,7 @@ def test_radio_group_ownerless_radio_among_many_form_ids() -> None:
     ],
 )
 def test_radio_group_deep_ancestor_ownership(container: str, inside: str, outside: str, *, checked: bool) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         f"<{container}>{'<div>' * 32}"
         f"<input type=radio name=x checked><span><input type=radio name=x checked></span>{'</div>' * 32}{inside}"
         f"</{container}>{outside}"

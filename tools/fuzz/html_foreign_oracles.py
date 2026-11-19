@@ -64,24 +64,24 @@ def html_foreign_check(
         raise UnsupportedHtmlForeignCaseError(case)
     boundary, identifier, quote, leaf = match.groups()
     encoded, decoded = _LEAVES[leaf]
-    sibling: Final = "y" if identifier == "x" else "x"
-    delimiter: Final = _QUOTES[quote]
-    source: Final = (
+    sibling: Final[str] = "y" if identifier == "x" else "x"
+    delimiter: Final[str] = _QUOTES[quote]
+    source: Final[str] = (
         f"<svg><{boundary}><a id={delimiter}{identifier}{delimiter}>{encoded}</a></{boundary}>"
         f"<g id={delimiter}{sibling}{delimiter}></g></svg>"
     )
-    expected: Final = json.dumps([
+    expected: Final[str] = json.dumps([
         ("element", "svg", "svg", (), "html", "div"),
         ("element", "svg", boundary, (), "svg", "svg"),
         ("element", "html", "a", (("id", identifier),), "svg", boundary),
         ("text", "", decoded, (), "html", "a"),
         ("element", "svg", "g", (("id", sibling),), "svg", "svg"),
     ])
-    root: Final = read(source)
+    root: Final[Element] = read(source)
     if _snapshot(root) != expected:
         return "parsed SVG integration tree differs from literals"
-    printed: Final = "".join(serialize(node) for node in root.children)
-    reparsed: Final = read(printed)
+    printed: Final[str] = "".join(serialize(node) for node in root.children)
+    reparsed: Final[Element] = read(printed)
     if _snapshot(reparsed) != expected:
         return "serialized SVG integration tree differs from literals"
     return (
@@ -99,7 +99,7 @@ class UnsupportedHtmlForeignCaseError(ValueError):
 def _snapshot(root: Element) -> str:
     records: Final[list[tuple[str, str, str, tuple[tuple[str, str | list[str] | None], ...], str, str]]] = []
     for node in root.descendants:
-        parent: Final = cast("Element", node.parent)
+        parent: Final[Element] = cast("Element", node.parent)
         if isinstance(node, Element):
             records.append((
                 "element",

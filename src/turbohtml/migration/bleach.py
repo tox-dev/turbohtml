@@ -21,10 +21,8 @@ from typing import Final, TypeAlias
 from turbohtml.clean import DEFAULT_ATTRIBUTES, DEFAULT_SCHEMES, DEFAULT_TAGS, OnDisallowed, Policy, sanitize
 
 from ._native import (
-    bleach_allow_relative as _bleach_allow_relative,
-)
-from ._native import (
-    bleach_attributes as _bleach_attributes,
+    bleach_allow_relative,
+    bleach_attributes,
 )
 
 #: bleach's default allowed tags, attributes, and protocols, under their bleach names.
@@ -81,7 +79,7 @@ def clean(  # ruff:ignore[too-many-arguments, too-many-positional-arguments]  # 
             tags=ALLOWED_TAGS if tags is None else frozenset(tags),
             attributes=names,
             url_schemes=schemes,
-            allow_relative_urls=_bleach_allow_relative(schemes),
+            allow_relative_urls=bleach_allow_relative(schemes),
             allow_fragment_urls=True,
             on_disallowed_tag=OnDisallowed.STRIP if strip else OnDisallowed.ESCAPE,
             strip_comments=strip_comments,
@@ -100,7 +98,7 @@ def attribute_policy(
     :param attributes: the bleach attribute rules, a mapping, a list, or a callable.
     :returns: the allowed attributes per tag and the attribute callable, or ``None`` when there is none.
     """
-    return _bleach_attributes(attributes, Mapping)
+    return bleach_attributes(attributes, Mapping)
 
 
 __all__ = [

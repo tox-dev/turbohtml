@@ -79,7 +79,7 @@ def _serialize_inner(text: str) -> str:
 
 
 def _inner_chunks(text: str) -> Iterator[str]:
-    tokens: Final = iter(_WALKER(_body(text)))
+    tokens = iter(_WALKER(_body(text)))
     next(tokens)
     yield from _SERIALIZER.serialize(
         token for token in tokens if not (token["type"] == "EndTag" and token["name"] == "body")
@@ -100,7 +100,7 @@ def _iterate_inner(text: str) -> None:
 
 
 def _serialize_inner_minify(text: str) -> str:
-    tokens: Final = iter(_WALKER(_body(text)))
+    tokens = iter(_WALKER(_body(text)))
     next(tokens)
     return "".join(
         _MINIFIER.serialize(

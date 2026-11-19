@@ -21,12 +21,12 @@ if TYPE_CHECKING:
 
 def main(argv: Sequence[str] | None = None) -> int:
     # Build one ELF so libFuzzer and Atheris share coverage symbols.
-    parser: Final = argparse.ArgumentParser(description=__doc__)
+    parser: Final[argparse.ArgumentParser] = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--archive", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--coverage", action="store_true")
     parser.add_argument("--sanitizer", type=Path, help="a static sanitizer runtime to merge in, as atheris does")
-    arguments: Final = parser.parse_args(argv)
+    arguments: Final[argparse.Namespace] = parser.parse_args(argv)
     build_runtime(arguments.archive, arguments.output, coverage=arguments.coverage, sanitizer=arguments.sanitizer)
     return 0
 
@@ -34,7 +34,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 def build_runtime(archive: Path, output: Path, *, coverage: bool = False, sanitizer: Path | None = None) -> Path:
     # Keep the original wheel archive intact for provenance checks.
     output.mkdir(parents=True, exist_ok=True)
-    runtime: Final = output / "runtime.a"
+    runtime: Final[Path] = output / "runtime.a"
     shutil.copyfile(archive, runtime)
     subprocess.run(
         [
@@ -45,7 +45,7 @@ def build_runtime(archive: Path, output: Path, *, coverage: bool = False, saniti
         ],
         check=True,
     )
-    bridge: Final = output / "bridge.o"
+    bridge: Final[Path] = output / "bridge.o"
     subprocess.run(
         [
             os.environ.get("CC", "gcc"),
@@ -62,7 +62,7 @@ def build_runtime(archive: Path, output: Path, *, coverage: bool = False, saniti
         ],
         check=True,
     )
-    library: Final = output / "libatheris_fuzzer.so"
+    library: Final[Path] = output / "libatheris_fuzzer.so"
     subprocess.run(
         [
             os.environ.get("CXX", "g++"),
@@ -86,10 +86,12 @@ def build_runtime(archive: Path, output: Path, *, coverage: bool = False, saniti
 def _shared_sanitizer(sanitizer: Path, output: Path) -> Path:
     # a preinit object registers the runtime through .preinit_array, which a shared object cannot carry; atheris drops
     # it the same way when it merges libFuzzer with a sanitizer (setup_utils/merge_libfuzzer_sanitizer.sh)
-    merged: Final = output / "sanitizer.a"
+    merged: Final[Path] = output / "sanitizer.a"
     shutil.copyfile(sanitizer, merged)
-    archiver: Final = os.environ.get("AR", "ar")
-    members: Final = subprocess.run([archiver, "t", str(merged)], check=True, capture_output=True, text=True).stdout
+    archiver: Final[str] = os.environ.get("AR", "ar")
+    members: Final[str] = subprocess.run(
+        [archiver, "t", str(merged)], check=True, capture_output=True, text=True
+    ).stdout
     if preinit := [member for member in members.split() if "preinit" in member]:
         subprocess.run([archiver, "d", str(merged), *preinit], check=True)
     return merged
@@ -150,8 +152,7 @@ def rejection_hook() -> Callable[[], None]:
 def failure_hook() -> Callable[[int], tuple[int, bool]]:
     # Resolve the PyMem failure hook, which only the fuzz-only build (``meson -Dfuzzing=true``) defines. Import at call
     # time: loading _html needs the sanitizer symbols that LD_PRELOAD supplies, and build_runtime runs before that.
-    module: Final = importlib.import_module("turbohtml._html")
-    return module._fuzz_inject_failure  # ruff:ignore[private-member-access]  # the fuzz-only hook is absent from production builds
+    return importlib.import_module("turbohtml._html")._fuzz_inject_failure  # ruff:ignore[private-member-access]  # the fuzz-only hook is absent from production builds
 
 
 __all__ = [

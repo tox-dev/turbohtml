@@ -109,7 +109,7 @@ _OVERFLOW_LABELS: Final[tuple[str, ...]] = ("\u3400" * 16000 + "\U000323af", "\u
 )
 def test_punycode_delta_overflow_is_rejected(label: str) -> None:
     # A label whose encoding would overflow the punycode accumulator keeps its Unicode form, never a wrong host.
-    url: Final = f"http://{label}.example/"
+    url: Final[str] = f"http://{label}.example/"
     assert normalize_url(url) == url
 
 
@@ -120,7 +120,7 @@ def test_host_at_the_input_cap_still_encodes() -> None:
 def test_oversize_host_keeps_its_unicode_form() -> None:
     # past the 16384-code-point cap the host skips the O(n^2) reorder and punycode passes and keeps its Unicode form;
     # U+0316 then U+0301 alternate combining classes 220 and 230, the input an insertion-sort reorder is O(n^2) on
-    url: Final = "http://" + "\u0316\u0301" * 60000 + "/"
+    url: Final[str] = "http://" + "\u0316\u0301" * 60000 + "/"
     assert normalize_url(url) == url
 
 
@@ -136,7 +136,7 @@ def test_oversize_host_keeps_its_unicode_form() -> None:
 )
 def test_disallowed_code_point_host_is_not_punycode_encoded(code_point: int) -> None:
     # UTS #46 validity criterion 6 rejects a disallowed code point, so the host keeps its Unicode form.
-    url: Final = f"http://a{chr(code_point)}b.example/"
+    url: Final[str] = f"http://a{chr(code_point)}b.example/"
     assert normalize_url(url) == url
 
 
@@ -151,7 +151,7 @@ _FFI_PREFIX: Final[str] = "\u4e00\u4e8c\u4e09\u56db"
 
 def test_host_mapped_to_the_input_cap_still_encodes() -> None:
     # U+FB03 maps to "ffi", so the host is exactly at the cap after the mapping
-    host: Final = f"{_FFI_PREFIX}{_FFI * ((_INPUT_CAP - len(_FFI_PREFIX)) // 3)}"
+    host: Final[str] = f"{_FFI_PREFIX}{_FFI * ((_INPUT_CAP - len(_FFI_PREFIX)) // 3)}"
     assert normalize_url(f"http://{host}/").startswith("http://xn--ffiffi")
 
 
@@ -165,9 +165,9 @@ def test_punycode_matches_the_rfc_3492_sample_codec_on_both_sides_of_the_sorted_
     # is the RFC 3492 sample, so both paths must agree with it, and decoding then re-encoding must give the ACE label
     # back. The trailing non-ASCII label sends the host through ToASCII, which an all-ASCII host skips. The label mixes
     # out-of-order and repeated code points from three scripts with letters, digits and hyphens.
-    pool: Final = "ab7-\u03b1\u03c3\u03c2\u03c9\uac00\ud7a3\u4e00\u9fa5\u5c71"
-    label: Final = f"{''.join(pool[(index * 7 + index // 3) % len(pool)] for index in range(length - 1))}\u03b2"
-    ace: Final = f"xn--{label.encode('punycode').decode('ascii')}"
+    pool: Final[str] = "ab7-\u03b1\u03c3\u03c2\u03c9\uac00\ud7a3\u4e00\u9fa5\u5c71"
+    label: Final[str] = f"{''.join(pool[(index * 7 + index // 3) % len(pool)] for index in range(length - 1))}\u03b2"
+    ace: Final[str] = f"xn--{label.encode('punycode').decode('ascii')}"
     assert normalize_url(f"http://{label}.\u00e9/") == f"http://{ace}.xn--9ca/"
     assert normalize_url(f"http://{ace}.\u00e9/") == f"http://{ace}.xn--9ca/"
 
@@ -219,5 +219,5 @@ def test_long_mark_runs_reorder_like_short_ones(host: str, ordered: str) -> None
     ],
 )
 def test_host_lengthened_past_the_input_cap_keeps_its_unicode_form(host: str) -> None:
-    url: Final = f"http://{host}/"
+    url: Final[str] = f"http://{host}/"
     assert normalize_url(url) == url

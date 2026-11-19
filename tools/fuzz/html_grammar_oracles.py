@@ -57,9 +57,9 @@ def html_sibling_check(
         raise UnsupportedHtmlSiblingCaseError(case)
     tag, attribute, quote, count, leaf = match.groups()
     encoded, decoded, encoded_attribute, decoded_attribute = _LEAVES[leaf]
-    delimiter: Final = _QUOTES[quote]
-    source: Final = f"<{tag} {attribute}={delimiter}{encoded_attribute}{delimiter}>{encoded}</{tag}>" * int(count)
-    expected: Final = json.dumps([
+    delimiter: Final[str] = _QUOTES[quote]
+    source: Final[str] = f"<{tag} {attribute}={delimiter}{encoded_attribute}{delimiter}>{encoded}</{tag}>" * int(count)
+    expected: Final[str] = json.dumps([
         record
         for _ in range(int(count))
         for record in [
@@ -67,11 +67,11 @@ def html_sibling_check(
             *([("text", decoded, tag)] if decoded else []),
         ]
     ])
-    root: Final = read(source)
+    root: Final[Element] = read(source)
     if _snapshot(root) != expected:
         return "parsed sibling tree differs from literals"
-    printed: Final = "".join(serialize(node) for node in root.children)
-    reparsed: Final = read(printed)
+    printed: Final[str] = "".join(serialize(node) for node in root.children)
+    reparsed: Final[Element] = read(printed)
     if _snapshot(reparsed) != expected:
         return "serialized sibling tree differs from literals"
     return (

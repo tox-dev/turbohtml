@@ -48,10 +48,6 @@ _XML: Final[Policy] = Policy(
     xml=True,
 )  # fmt: skip
 
-# The ASCII tab/newline a browser removes from a URL before scheme detection, and the leading C0-control-or-space it
-# then trims: only after both does a scheme resolve, so a leading U+00A0/U+2028 (neither) leaves a URL relative, hence
-# safe. Mirroring that trim is what keeps the check from flagging the exact vectors DOMPurify and turbohtml both keep.
-_URL_STRIP_ANY: Final[str] = "\t\n\r"
 _URL_TRIM_LEADING: Final[str] = "".join(chr(code) for code in range(0x21))
 
 
@@ -85,7 +81,9 @@ def _survivors(xml: str) -> list[str]:
 
 
 def _scheme_is_scripting(value: str) -> bool:
-    for character in _URL_STRIP_ANY:
+    # Browsers remove ASCII tabs and newlines before trimming leading C0 controls and spaces. U+00A0 and U+2028
+    # survive both steps, leaving the URL relative.
+    for character in "\t\n\r":
         value = value.replace(character, "")
     return value.lstrip(_URL_TRIM_LEADING).lower().startswith(("javascript:", "vbscript:", "data:text/html"))
 

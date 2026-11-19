@@ -41,7 +41,7 @@ def _tag(walk: _Walk) -> Element:
 
 
 def _deepen(walk: _Walk) -> None:
-    child: Final = _tag(walk)
+    child: Final[Element] = _tag(walk)
     walk.last.append(child)
     walk.last = child
 
@@ -51,7 +51,7 @@ def _append(walk: _Walk) -> None:
 
 
 def _insert(walk: _Walk) -> None:
-    target: Final = _pick(walk)
+    target: Final[Element] = _pick(walk)
     target.insert(walk.rng.randrange(len(target.children) + 1), _tag(walk))
 
 
@@ -104,7 +104,7 @@ def _range_surround(walk: _Walk) -> None:
 
 
 def _view_mutate(walk: _Walk) -> None:
-    view: Final = ElementView(_pick(walk))
+    view: Final[ElementView] = ElementView(_pick(walk))
     view.append(ElementView(_tag(walk)))
     view.insert(0, ElementView(_tag(walk)))
     view.remove(view[-1])
@@ -164,10 +164,10 @@ def test_has_memo_results_match_reparse_after_every_mutation(seed: int) -> None:
 
 def _mismatches(seed: int) -> list[str]:
     rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed mutation corpus
-    doc: Final = parse("<body><div><span>x</span></div></body>")
-    first: Final = doc.select_one("body div")
+    doc: Final[Document] = parse("<body><div><span>x</span></div></body>")
+    first: Final[Element | None] = doc.select_one("body div")
     assert first is not None
-    walk: Final = _Walk(rng=rng, doc=doc, last=first)
+    walk: Final[_Walk] = _Walk(rng=rng, doc=doc, last=first)
     found: list[str] = []
     for step in range(_STEPS):
         if not list(doc.select(_CANDIDATES)):
@@ -194,12 +194,12 @@ class _Walk:
 
 
 def _comparisons(walk: _Walk) -> list[tuple[str, list[str], list[str]]]:
-    reparsed: Final = parse(walk.doc.html)
-    body: Final = walk.doc.select_one("body")
-    reparsed_body: Final = reparsed.select_one("body")
+    reparsed: Final[Document] = parse(walk.doc.html)
+    body: Final[Element | None] = walk.doc.select_one("body")
+    reparsed_body: Final[Element | None] = reparsed.select_one("body")
     assert body is not None
     assert reparsed_body is not None
-    detached: Final = walk.detached
+    detached: Final[Element | None] = walk.detached
     pairs: list[tuple[str, list[str], list[str]]] = []
     for query in _QUERIES:
         pairs.extend((
@@ -232,7 +232,7 @@ def _comparisons(walk: _Walk) -> list[tuple[str, list[str], list[str]]]:
 def test_has_memo_after_mutator_that_changes_depth_matches_fresh_copy(
     chain: int, bottom: Callable[[], Element | Text | Comment], mutate: Callable[[Element], object]
 ) -> None:
-    origin: Final = parse("<body><div id=o></div></body>").select_one("#o")
+    origin: Final[Element | None] = parse("<body><div id=o></div></body>").select_one("#o")
     assert isinstance(origin, Element)
     links: Final[list[Element]] = []
     innermost: Element = origin
@@ -249,9 +249,9 @@ def test_has_memo_after_mutator_that_changes_depth_matches_fresh_copy(
 
 
 def test_has_memo_chain_grown_under_an_extracted_subtree_leaves_the_document_answer() -> None:
-    document: Final = parse("<body><div><b>x</b></div><p>y</p></body>")
+    document: Final[Document] = parse("<body><div><b>x</b></div><p>y</p></body>")
     assert len(document.select("div:has(b)")) == 1
-    div: Final = document.select_one("div")
+    div: Final[Element | None] = document.select_one("div")
     assert isinstance(div, Element)
     cursor: Element = div.extract()
     links: Final[list[Element]] = []
@@ -267,10 +267,10 @@ def test_has_memo_chain_grown_under_an_extracted_subtree_leaves_the_document_ans
 
 
 def test_computed_style_two_has_rules_on_one_element_later_wins() -> None:
-    doc: Final = parse(
+    doc: Final[Document] = parse(
         "<html><head><style>div:has(b){color:red}div:has(i){color:blue}</style></head>"
         "<body><div><b></b><i></i></div></body></html>"
     )
-    element: Final = doc.select_one("div")
+    element: Final[Element | None] = doc.select_one("div")
     assert isinstance(element, Element)
     assert computed_style(element)["color"] == "blue"

@@ -50,14 +50,14 @@ def test_feed_prefixed_atom_root_is_recognized() -> None:
     ],
 )
 def test_feed_atom_foreign_default_field_is_skipped(field: str, wrong: str, right: str) -> None:
-    xml: Final = f'<feed xmlns="{_ATOM}">{wrong}{right}</feed>'
+    xml: Final[str] = f'<feed xmlns="{_ATOM}">{wrong}{right}</feed>'
     result = parse_xml(xml).feed()
     assert result is not None
     assert getattr(result, field) == "right"
 
 
 def test_feed_atom_same_length_foreign_field_is_skipped() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         f'<feed xmlns="{_ATOM}"><title xmlns="http://www.w3.org/2005/Xtom">Wrong</title><title>Right</title></feed>'
     )
     result = parse_xml(xml).feed()
@@ -66,7 +66,7 @@ def test_feed_atom_same_length_foreign_field_is_skipped() -> None:
 
 
 def test_feed_atom_foreign_default_entry_is_skipped() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         f'<feed xmlns="{_ATOM}"><entry xmlns="urn:other"><title>Wrong</title></entry>'
         "<entry><title>Right</title></entry></feed>"
     )
@@ -76,7 +76,7 @@ def test_feed_atom_foreign_default_entry_is_skipped() -> None:
 
 
 def test_feed_atom_child_restores_default_namespace() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         f'<feed xmlns="{_ATOM}" xmlns:a="{_ATOM}">'
         f'<a:entry xmlns="urn:other"><title xmlns="{_ATOM}">Right</title></a:entry></feed>'
     )
@@ -86,7 +86,7 @@ def test_feed_atom_child_restores_default_namespace() -> None:
 
 
 def test_feed_atom_field_restores_default_namespace() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         f'<a:feed xmlns:a="{_ATOM}" xmlns="urn:other"><title>wrong</title><title xmlns="{_ATOM}">Right</title></a:feed>'
     )
     result = parse_xml(xml).feed()
@@ -106,7 +106,7 @@ def test_feed_atom_field_restores_default_namespace() -> None:
     ],
 )
 def test_feed_atom_foreign_default_entry_field_is_skipped(field: str, tag: str) -> None:
-    xml: Final = (
+    xml: Final[str] = (
         f'<feed xmlns="{_ATOM}"><entry><{tag} xmlns="urn:other">wrong</{tag}><{tag}>right</{tag}></entry></feed>'
     )
     result = parse_xml(xml).feed()
@@ -115,7 +115,7 @@ def test_feed_atom_foreign_default_entry_field_is_skipped(field: str, tag: str) 
 
 
 def test_feed_atom_foreign_default_author_name_is_skipped() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         f'<feed xmlns="{_ATOM}"><entry><author><name xmlns="urn:other">wrong</name>'
         "<name>right</name></author></entry></feed>"
     )
@@ -137,7 +137,7 @@ def test_feed_html_fallback_keeps_unprefixed_fields() -> None:
 
 
 def test_feed_rdf_foreign_default_channel_is_skipped() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         f'<rdf:RDF xmlns:rdf="{_RDF}" xmlns="{_RSS}">'
         '<channel xmlns="urn:other"><title>Wrong</title></channel>'
         "<channel><title>Right</title></channel></rdf:RDF>"
@@ -148,7 +148,7 @@ def test_feed_rdf_foreign_default_channel_is_skipped() -> None:
 
 
 def test_feed_rdf_foreign_default_item_is_skipped() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         f'<rdf:RDF xmlns:rdf="{_RDF}" xmlns="{_RSS}">'
         '<item xmlns="urn:other"><title>Wrong</title></item>'
         "<item><title>Right</title></item></rdf:RDF>"
@@ -159,7 +159,7 @@ def test_feed_rdf_foreign_default_item_is_skipped() -> None:
 
 
 def test_feed_rdf_foreign_default_item_field_is_skipped() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         f'<rdf:RDF xmlns:rdf="{_RDF}" xmlns="{_RSS}"><item>'
         '<title xmlns="urn:other">wrong</title><title>right</title>'
         "</item></rdf:RDF>"
@@ -170,8 +170,8 @@ def test_feed_rdf_foreign_default_item_field_is_skipped() -> None:
 
 
 def test_feed_first_dublin_core_date_wins() -> None:
-    dc: Final = "http://purl.org/dc/elements/1.1/"
-    xml: Final = (
+    dc: Final[str] = "http://purl.org/dc/elements/1.1/"
+    xml: Final[str] = (
         f'<rss version="2.0" xmlns:dc="{dc}"><channel><item>'
         "<dc:date>first</dc:date><dc:date>second</dc:date></item></channel></rss>"
     )

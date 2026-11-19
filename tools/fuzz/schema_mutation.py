@@ -22,9 +22,9 @@ _PREFIXES: Final[MappingProxyType[str, str]] = MappingProxyType({
 
 def mutate(source: str, pool: tuple[str, ...], seed: int, *, broken: bool) -> str:
     # Repair donor references against declarations in the recipient tree.
-    root: Final = _parse(source)
-    donors: Final = tuple(_parse(source) for source in pool)
-    donor: Final = random.Random(seed).choice(
+    root: Final[lxml.etree._Element] = _parse(source)
+    donors: Final[tuple[lxml.etree._Element, ...]] = tuple(_parse(source) for source in pool)
+    donor: Final[lxml.etree._Element] = random.Random(seed).choice(
         tuple(candidate for candidate in donors if candidate.tag == root.tag and _method(candidate) == _method(root))
     )
     if root.tag == f"{_XSL}stylesheet":
@@ -36,13 +36,15 @@ def mutate(source: str, pool: tuple[str, ...], seed: int, *, broken: bool) -> st
     else:
         message = "only inline XSLT, XSD and RELAX NG seed trees are supported"
         raise ValueError(message)
-    bound: Final = lxml.etree.Element(str(root.tag), dict(root.attrib), nsmap={**root.nsmap, **_PREFIXES})
+    bound: Final[lxml.etree._Element] = lxml.etree.Element(
+        str(root.tag), dict(root.attrib), nsmap={**root.nsmap, **_PREFIXES}
+    )
     bound[:] = list(root)
     return lxml.etree.tostring(bound, encoding="unicode")
 
 
 def _parse(source: str) -> lxml.etree._Element:
-    wrapper: Final = lxml.etree.fromstring(
+    wrapper: Final[lxml.etree._Element] = lxml.etree.fromstring(
         (
             f'<seed xmlns:x="http://www.w3.org/1999/XSL/Transform" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:rng="http://relaxng.org/ns/structure/1.0">{source}</seed>'
         ).encode(),
@@ -55,22 +57,24 @@ def _parse(source: str) -> lxml.etree._Element:
 
 
 def _method(root: lxml.etree._Element) -> str:
-    output: Final = root.find(f"{_XSL}output")
+    output: Final[lxml.etree._Element | None] = root.find(f"{_XSL}output")
     return "xml" if output is None else output.get("method", "xml")
 
 
 def _stylesheet(root: lxml.etree._Element, donor: lxml.etree._Element, *, broken: bool) -> None:
-    target: Final = root.find(f"{_XSL}template[@match='/']")
-    replacement: Final = donor.find(f"{_XSL}template[@match='/']")
+    target: Final[lxml.etree._Element | None] = root.find(f"{_XSL}template[@match='/']")
+    replacement: Final[lxml.etree._Element | None] = donor.find(f"{_XSL}template[@match='/']")
     if target is None or replacement is None:
         message = "stylesheet seeds require a root template"
         raise ValueError(message)
     target[:] = [copy.deepcopy(child) for child in replacement]
-    variables: Final = [
+    variables: Final[list[str]] = [
         name for node in root if node.tag in {f"{_XSL}variable", f"{_XSL}param"} and (name := node.get("name"))
     ]
-    templates: Final = [name for node in root if node.tag == f"{_XSL}template" and (name := node.get("name"))]
-    keys: Final = [name for node in root if node.tag == f"{_XSL}key" and (name := node.get("name"))]
+    templates: Final[list[str]] = [
+        name for node in root if node.tag == f"{_XSL}template" and (name := node.get("name"))
+    ]
+    keys: Final[list[str]] = [name for node in root if node.tag == f"{_XSL}key" and (name := node.get("name"))]
     for node in target.iter():
         if node.tag == f"{_XSL}call-template" and templates:
             node.set("name", templates[0])
@@ -91,16 +95,16 @@ def _reference(match: re.Match[str], variables: list[str], keys: list[str]) -> s
 
 
 def _schema(root: lxml.etree._Element, donor: lxml.etree._Element, *, broken: bool) -> None:
-    target: Final = root.find(f"{_XS}element")
-    replacement: Final = donor.find(f"{_XS}element")
+    target: Final[lxml.etree._Element | None] = root.find(f"{_XS}element")
+    replacement: Final[lxml.etree._Element | None] = donor.find(f"{_XS}element")
     if target is None or replacement is None:
         message = "schema seeds require a global element"
         raise ValueError(message)
     root.remove(target)
-    inserted: Final = copy.deepcopy(replacement)
+    inserted: Final[lxml.etree._Element] = copy.deepcopy(replacement)
     inserted.set("name", target.get("name", "v"))
     root.append(inserted)
-    types: Final = [
+    types: Final[list[str]] = [
         name for node in root if node.tag in {f"{_XS}simpleType", f"{_XS}complexType"} and (name := node.get("name"))
     ]
     for node in inserted.iter():
@@ -112,13 +116,15 @@ def _schema(root: lxml.etree._Element, donor: lxml.etree._Element, *, broken: bo
 
 
 def _rng(root: lxml.etree._Element, donor: lxml.etree._Element, *, broken: bool) -> None:
-    target: Final = root.find(f"{_RNG}start")
-    replacement: Final = donor.find(f"{_RNG}start")
+    target: Final[lxml.etree._Element | None] = root.find(f"{_RNG}start")
+    replacement: Final[lxml.etree._Element | None] = donor.find(f"{_RNG}start")
     if target is None or replacement is None:
         message = "RELAX NG seeds require a start pattern"
         raise ValueError(message)
     target[:] = [copy.deepcopy(child) for child in replacement]
-    definitions: Final = [name for node in root if node.tag == f"{_RNG}define" and (name := node.get("name"))]
+    definitions: Final[list[str]] = [
+        name for node in root if node.tag == f"{_RNG}define" and (name := node.get("name"))
+    ]
     for node in target.iter(f"{_RNG}ref"):
         if definitions:
             node.set("name", definitions[0])

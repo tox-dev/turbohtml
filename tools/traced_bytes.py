@@ -22,8 +22,8 @@ class RetainedBytes:
         # Full collection first, then the live blocks whose innermost Python frame matches the pattern: allocations
         # made by other threads have frames elsewhere, so they stay out of the count.
         gc.collect()
-        pattern: Final = self.package if filename_pattern is None else filename_pattern
-        snapshot: Final = self.tracing.take_snapshot().filter_traces([
+        pattern: Final[str] = self.package if filename_pattern is None else filename_pattern
+        snapshot = self.tracing.take_snapshot().filter_traces([
             self.tracing.Filter(inclusive=True, filename_pattern=pattern)
         ])
         return sum(stat.size for stat in snapshot.statistics("filename"))

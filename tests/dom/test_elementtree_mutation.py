@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Final, cast
 
 import pytest
 
-from turbohtml import Element, Text, etree, parse, parse_xml
+from turbohtml import Document, DocumentFragment, Element, Node, Text, etree, parse, parse_xml
 from turbohtml.etree import document_fromstring, fragment_fromstring, fromstring, strip_elements, strip_tags, tostring
 
 if TYPE_CHECKING:
@@ -32,7 +32,7 @@ def test_element_tree_insert(tree: ElementView, incoming: ElementView, index: in
 
 @pytest.mark.parametrize("index", [pytest.param(-1, id="from-end"), pytest.param(0, id="first")])
 def test_element_tree_insert_into_childless(incoming: ElementView, index: int) -> None:
-    empty: Final = etree.fromstring("<div>start</div>")
+    empty: Final[ElementView] = etree.fromstring("<div>start</div>")
     empty.insert(index, incoming)
     assert etree.tostring(empty, encoding="unicode") == "<div>start<strong>N</strong>tail</div>"
 
@@ -138,13 +138,13 @@ def test_element_tree_unwrap_requires_parent() -> None:
 
 
 def test_element_tree_itertext_joins_adjacent_text_nodes() -> None:
-    view: Final = etree.ElementView(Element("p", children=[Text("one"), Text("two")]))
+    view: Final[ElementView] = etree.ElementView(Element("p", children=[Text("one"), Text("two")]))
     assert list(view.itertext()) == ["onetwo"]
 
 
 def test_element_tree_text_setter_replaces_adjacent_nodes() -> None:
-    node: Final = Element("p", children=[Text("one"), Text("two"), Element("b")])
-    view: Final = etree.ElementView(node)
+    node: Final[Element] = Element("p", children=[Text("one"), Text("two"), Element("b")])
+    view: Final[ElementView] = etree.ElementView(node)
     view.text = "new"
     assert tostring(view, encoding="unicode") == "<p>new<b/></p>"
 
@@ -155,8 +155,8 @@ def test_element_tree_text_setter_removes_leading_text(tree: ElementView) -> Non
 
 
 def test_element_tree_tail_setter_replaces_adjacent_nodes() -> None:
-    node: Final = Element("p", children=[Element("b"), Text("one"), Text("two")])
-    view: Final = etree.ElementView(node)
+    node: Final[Element] = Element("p", children=[Element("b"), Text("one"), Text("two")])
+    view: Final[ElementView] = etree.ElementView(node)
     view[0].tail = "new"
     assert tostring(view, encoding="unicode") == "<p><b/>new</p>"
 
@@ -169,16 +169,16 @@ def test_element_tree_tail_setter_replaces_adjacent_nodes() -> None:
     ],
 )
 def test_element_tree_document_root_ignores_outside_content(operation: Callable[[ElementView], None]) -> None:
-    tree: Final = document_fromstring("<p>text</p>")
+    tree: Final[ElementView] = document_fromstring("<p>text</p>")
     operation(tree)
     assert tostring(tree, encoding="unicode") == "<html><body><p>text</p></body></html>"
 
 
 def test_element_tree_detaches_document_root() -> None:
-    document: Final = parse("<p>text</p>")
-    root: Final = document.root
+    document: Final[Document] = parse("<p>text</p>")
+    root: Final[Element | None] = document.root
     assert root is not None
-    tree: Final = etree.ElementView(root)
+    tree: Final[ElementView] = etree.ElementView(root)
     tree.drop_tree()
     assert (document.root, tree.getparent(), tostring(tree, encoding="unicode")) == (
         None,
@@ -196,8 +196,8 @@ def test_element_tree_empty_strip_filter_retains_content(
 
 
 def test_element_tree_strip_elements_leaves_nested_match_in_removed_subtree() -> None:
-    tree: Final = etree.fromstring("<div><b>one<i>two</i>three</b>four<i>five</i>six</div>")
-    outer: Final = tree[0]
+    tree: Final[ElementView] = etree.fromstring("<div><b>one<i>two</i>three</b>four<i>five</i>six</div>")
+    outer: Final[ElementView] = tree[0]
     etree.strip_elements(tree, "b", "i")
     assert (etree.tostring(tree, encoding="unicode"), etree.tostring(outer, encoding="unicode")) == (
         "<div/>",
@@ -206,28 +206,28 @@ def test_element_tree_strip_elements_leaves_nested_match_in_removed_subtree() ->
 
 
 def test_element_tree_strip_elements_leaves_template_content() -> None:
-    tree: Final = etree.fromstring("<div><template><b>kept</b></template><b>gone</b></div>")
+    tree: Final[ElementView] = etree.fromstring("<div><template><b>kept</b></template><b>gone</b></div>")
     etree.strip_elements(tree, "b")
     assert etree.tostring(tree, encoding="unicode") == "<div><template><b>kept</b></template></div>"
 
 
 def test_element_tree_strip_elements_stops_at_tail_holder() -> None:
-    tree: Final = etree.fromstring("<div><p><b>bold</b></p>tail</div>")
-    removed: Final = tree[0]
+    tree: Final[ElementView] = etree.fromstring("<div><p><b>bold</b></p>tail</div>")
+    removed: Final[ElementView] = tree[0]
     tree.remove(removed)  # parks the element and its tail under a holder that getparent() does not climb past
-    holder: Final = removed.node.parent
+    holder: Final[Element | Document | DocumentFragment | None] = removed.node.parent
     assert isinstance(holder, Element)
     etree.strip_elements(etree.ElementView(holder), "b")
     assert etree.tostring(removed, encoding="unicode") == "<p><b>bold</b></p>tail"
 
 
 def test_element_tree_strip_elements_stops_at_tail_holder_below_root() -> None:
-    tree: Final = etree.fromstring("<div><p><b>bold</b></p>tail</div>")
-    removed: Final = tree[0]
+    tree: Final[ElementView] = etree.fromstring("<div><p><b>bold</b></p>tail</div>")
+    removed: Final[ElementView] = tree[0]
     tree.remove(removed)
-    holder: Final = removed.node.parent
+    holder: Final[Element | Document | DocumentFragment | None] = removed.node.parent
     assert isinstance(holder, Element)
-    outer: Final = etree.fromstring("<main><i>z</i></main>")
+    outer: Final[ElementView] = etree.fromstring("<main><i>z</i></main>")
     outer.append(etree.ElementView(holder))
     etree.strip_elements(outer, "b")
     assert etree.tostring(removed, encoding="unicode") == "<p><b>bold</b></p>tail"
@@ -238,7 +238,7 @@ def test_element_tree_getparent_of_a_detached_element_is_none() -> None:
 
 
 def test_element_tree_strip_elements_star_removes_every_element() -> None:
-    tree: Final = etree.fromstring("<div>a<b>x</b>c<i>y</i></div>")
+    tree: Final[ElementView] = etree.fromstring("<div>a<b>x</b>c<i>y</i></div>")
     etree.strip_elements(tree, "*")
     assert etree.tostring(tree, encoding="unicode") == "<div>a</div>"
 
@@ -248,9 +248,9 @@ def test_element_tree_strip_elements_stays_linear(work_steps: WorkSteps) -> None
 
 
 def _match_per_level(depth: int) -> Callable[[], None]:
-    root: Final = parse_xml(f"<r>{'<s><m/>' * depth}{'</s>' * depth}</r>").root
+    root: Final[Element | None] = parse_xml(f"<r>{'<s><m/>' * depth}{'</s>' * depth}</r>").root
     assert root is not None
-    tree: Final = etree.ElementView(root)
+    tree: Final[ElementView] = etree.ElementView(root)
 
     def strip() -> None:
         etree.strip_elements(tree, "m")
@@ -300,8 +300,8 @@ def test_element_tree_rejects_non_element(
     ],
 )
 def test_element_tree_drop_tree_leaves_each_tail_in_parent(markup: str, expected: str) -> None:
-    tree: Final = etree.fromstring(markup)
-    dropped: Final = list(tree)
+    tree: Final[ElementView] = etree.fromstring(markup)
+    dropped: Final[list[ElementView]] = list(tree)
     for element in reversed(dropped):
         element.drop_tree()
     assert ([element.tail for element in dropped], etree.tostring(tree, encoding="unicode")) == ([None] * 3, expected)
@@ -312,8 +312,8 @@ def test_element_tree_repeated_drop_tree_stays_linear(work_steps: WorkSteps) -> 
 
 
 def _repeated_drops(count: int) -> Callable[[], None]:
-    tree: Final = etree.fromstring(f"<div>{'<i>a</i>t' * count}</div>")
-    elements: Final = tree.findall(".//i")
+    tree: Final[ElementView] = etree.fromstring(f"<div>{'<i>a</i>t' * count}</div>")
+    elements: Final[list[ElementView]] = tree.findall(".//i")
 
     def drop() -> None:
         for element in reversed(elements):
@@ -340,17 +340,17 @@ def incoming() -> ElementView:
     ],
 )
 def test_element_tree_text_setter_keeps_one_text_node(attribute: str, path: str, expected: str) -> None:
-    tree: Final = fragment_fromstring("<div><p>price: </p>after: </div>")
+    tree: Final[ElementView] = fragment_fromstring("<div><p>price: </p>after: </div>")
     for more in ("1", "0", " EUR"):
         setattr(tree[0], attribute, getattr(tree[0], attribute) + more)
-    texts: Final = tree.xpath(path)
+    texts: Final[str | float | list[ElementView | Node | str]] = tree.xpath(path)
     assert isinstance(texts, list)
     assert [str(value) for value in texts] == [expected]  # XPath sees one text node, as lxml does
 
 
 def test_element_tree_text_setter_writes_into_the_held_text_node() -> None:
-    tree: Final = fragment_fromstring("<div>one<b></b></div>")
-    held: Final = tree.node.children[0]
+    tree: Final[ElementView] = fragment_fromstring("<div>one<b></b></div>")
+    held: Final[Node] = tree.node.children[0]
     assert isinstance(held, Text)
     tree.text = "two"
     assert (held.data, held.parent) == ("two", tree.node)

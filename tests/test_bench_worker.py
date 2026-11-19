@@ -52,8 +52,8 @@ worker.main()
     ("case", "expected"), [pytest.param(0, f"{__version__}\n", id="import"), pytest.param(1, "<p>a b", id="cli")]
 )
 def test_worker_startup_public_output(case: int, expected: str) -> None:
-    operation: Final = cast("Callable[[object], str]", OPERATIONS["startup"][0])
-    assert operation(INPUTS["startup"]()[case][1]) == expected
+    operation: Final[Callable[[str], str]] = cast("Callable[[str], str]", OPERATIONS["startup"][0])
+    assert operation(cast("str", INPUTS["startup"]()[case][1])) == expected
 
 
 def test_worker_startup_uses_elapsed_time() -> None:
@@ -61,7 +61,7 @@ def test_worker_startup_uses_elapsed_time() -> None:
 
 
 def test_ci_gates_dispatch_only_on_staged_cases() -> None:
-    gated: Final = {name for name, _, _ in benchmarks() if name.startswith("transform-dispatch")}
+    gated: Final[set[str]] = {name for name, _, _ in benchmarks() if name.startswith("transform-dispatch")}
     assert gated == {"transform-dispatch-1", "transform-dispatch-4", "transform-dispatch-16"}
 
 
@@ -88,18 +88,18 @@ def test_worker_explicit_case_registered_once(name: str) -> None:
 )
 @pytest.mark.parametrize("error_index", [pytest.param(0, id="error-first"), pytest.param(1, id="error-middle")])
 def test_worker_skips_unselected_inputs(tmp_path: Path, error_index: int, *, operation: str) -> None:
-    first: Final = tmp_path / "first.txt"
+    first: Final[Path] = tmp_path / "first.txt"
     first.write_text("first input", encoding="utf-8")
-    second: Final = tmp_path / "second.txt"
+    second: Final[Path] = tmp_path / "second.txt"
     second.write_text("second input", encoding="utf-8")
-    cases: Final = [str(first), str(second)]
+    cases: Final[list[str]] = [str(first), str(second)]
     cases.insert(error_index, str(tmp_path / "missing.txt"))
-    script: Final = tmp_path / "worker_case.py"
+    script: Final[Path] = tmp_path / "worker_case.py"
     script.write_text(
         _SCRIPT.format(cases=cases, operation=operation),
         encoding="utf-8",
     )
-    output: Final = tmp_path / "stats.json"
+    output: Final[Path] = tmp_path / "stats.json"
     subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, generated fixture script
         [sys.executable, str(script), "--copy-env", "--processes=1", "--values=2", "--warmups=0", "--loops=1"],
         check=True,
@@ -135,7 +135,7 @@ def test_worker_skips_unselected_inputs(tmp_path: Path, error_index: int, *, ope
 
 
 def test_worker_propagates_selected_input_error(tmp_path: Path) -> None:
-    script: Final = tmp_path / "worker_case.py"
+    script: Final[Path] = tmp_path / "worker_case.py"
     script.write_text(_SCRIPT.format(cases=[str(tmp_path / "missing.txt")], operation="read_file"), encoding="utf-8")
     with pytest.raises(subprocess.CalledProcessError) as failure:
         subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv and generated fixture script
@@ -180,13 +180,13 @@ def test_worker_refuses_a_case_name_repeated_within_an_operation(monkeypatch: py
 
 
 def test_worker_measures_only_the_case_named_by_bench_case(tmp_path: Path) -> None:
-    first: Final = tmp_path / "first.txt"
+    first: Final[Path] = tmp_path / "first.txt"
     first.write_text("first input", encoding="utf-8")
-    second: Final = tmp_path / "second.txt"
+    second: Final[Path] = tmp_path / "second.txt"
     second.write_text("second input", encoding="utf-8")
-    script: Final = tmp_path / "worker_case.py"
+    script: Final[Path] = tmp_path / "worker_case.py"
     script.write_text(_SCRIPT.format(cases=[str(first), str(second)], operation="read_file"), encoding="utf-8")
-    output: Final = tmp_path / "stats.json"
+    output: Final[Path] = tmp_path / "stats.json"
     subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, generated fixture script
         [sys.executable, str(script), "--copy-env", "--processes=1", "--values=2", "--warmups=0", "--loops=1"],
         check=True,

@@ -5,9 +5,9 @@ from typing import TYPE_CHECKING, Final, TypeAlias
 
 import pytest
 
-from turbohtml import Comment, Element, Range, Text, parse
+from turbohtml import Comment, Document, Element, Node, Range, Text, parse
 from turbohtml.clean import Policy, collapse_whitespace_node, sanitize
-from turbohtml.etree import fragment_fromstring, tostring
+from turbohtml.etree import ElementView, fragment_fromstring, tostring
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -23,15 +23,15 @@ def _chunk(index: int) -> str:
 
 
 def _texts(markup: str) -> list[Text]:
-    paragraph: Final = parse(markup).find("p")
+    paragraph: Final[Element | None] = parse(markup).find("p")
     assert paragraph is not None
-    texts: Final = [child for child in paragraph.children if isinstance(child, Text)]
+    texts: Final[list[Text]] = [child for child in paragraph.children if isinstance(child, Text)]
     assert texts
     return texts
 
 
 def _append(count: int) -> Run:
-    text: Final = _texts("<p>s</p>")[0]
+    text: Final[Text] = _texts("<p>s</p>")[0]
 
     def run() -> None:
         for index in range(count):
@@ -41,7 +41,7 @@ def _append(count: int) -> Run:
 
 
 def _prepend(count: int) -> Run:
-    text: Final = _texts("<p>s</p>")[0]
+    text: Final[Text] = _texts("<p>s</p>")[0]
 
     def run() -> None:
         for index in range(count):
@@ -51,7 +51,7 @@ def _prepend(count: int) -> Run:
 
 
 def _insert_middle(count: int) -> Run:
-    text: Final = _texts("<p>s</p>")[0]
+    text: Final[Text] = _texts("<p>s</p>")[0]
 
     def run() -> None:
         for index in range(count):
@@ -62,7 +62,7 @@ def _insert_middle(count: int) -> Run:
 
 
 def _clear_and_refill(count: int) -> Run:
-    text: Final = _texts("<p>s</p>")[0]
+    text: Final[Text] = _texts("<p>s</p>")[0]
 
     def run() -> None:
         for index in range(count):
@@ -74,9 +74,9 @@ def _clear_and_refill(count: int) -> Run:
 
 
 def _comment_append(count: int) -> Run:
-    paragraph: Final = parse("<p><!--s--></p>").find("p")
+    paragraph: Final[Element | None] = parse("<p><!--s--></p>").find("p")
     assert paragraph is not None
-    comment: Final = paragraph.children[0]
+    comment: Final[Node] = paragraph.children[0]
     assert isinstance(comment, Comment)
 
     def run() -> None:
@@ -87,7 +87,7 @@ def _comment_append(count: int) -> Run:
 
 
 def _rotation(count: int) -> Run:
-    texts: Final = _texts(f"<p>{'<br>'.join('abcdefgh')}</p>")
+    texts: Final[list[Text]] = _texts(f"<p>{'<br>'.join('abcdefgh')}</p>")
 
     def run() -> None:
         for index in range(count):
@@ -97,7 +97,7 @@ def _rotation(count: int) -> Run:
 
 
 def _normalize(count: int) -> Run:
-    paragraph: Final = parse("<p>s</p>").find("p")
+    paragraph: Final[Element | None] = parse("<p>s</p>").find("p")
     assert paragraph is not None
 
     def run() -> None:
@@ -109,7 +109,7 @@ def _normalize(count: int) -> Run:
 
 
 def _etree_tail_append(count: int) -> Run:
-    tree: Final = fragment_fromstring("<div><hr>s</div>")
+    tree: Final[ElementView] = fragment_fromstring("<div><hr>s</div>")
 
     def run() -> None:
         for index in range(count):
@@ -119,7 +119,7 @@ def _etree_tail_append(count: int) -> Run:
 
 
 def _etree_text_prepend(count: int) -> Run:
-    tree: Final = fragment_fromstring("<div>s</div>")
+    tree: Final[ElementView] = fragment_fromstring("<div>s</div>")
 
     def run() -> None:
         for index in range(count):
@@ -129,7 +129,7 @@ def _etree_text_prepend(count: int) -> Run:
 
 
 def _etree_tail_rotation(count: int) -> Run:
-    tree: Final = fragment_fromstring(f"<div>{''.join(f'<hr>{letter}' for letter in 'abcdefgh')}</div>")
+    tree: Final[ElementView] = fragment_fromstring(f"<div>{''.join(f'<hr>{letter}' for letter in 'abcdefgh')}</div>")
 
     def run() -> None:
         for index in range(count):
@@ -140,7 +140,9 @@ def _etree_tail_rotation(count: int) -> Run:
 
 
 def _etree_drop_keeping_tail(count: int) -> Run:
-    tree: Final = fragment_fromstring(f"<div>{''.join(f'<em></em>{_chunk(index)}' for index in range(count))}</div>")
+    tree: Final[ElementView] = fragment_fromstring(
+        f"<div>{''.join(f'<em></em>{_chunk(index)}' for index in range(count))}</div>"
+    )
 
     def run() -> None:
         for element in tree.findall("em"):  # each removed element hands its tail to the text before it, as in lxml
@@ -198,18 +200,18 @@ def test_repeated_text_writes_allocate_linearly(work_steps: WorkSteps, shape: st
 
 @pytest.mark.parametrize("shape", list(_SHAPES))
 def test_repeated_text_writes_retain_memory_of_the_final_text(retained_bytes: RetainedBytes, shape: str) -> None:
-    count: Final = 2_000
+    count: Final[int] = 2_000
     run, _ = _SHAPES[shape](count)
-    before: Final = retained_bytes(__file__)
+    before: Final[int] = retained_bytes(__file__)
     run()
-    retained: Final = retained_bytes(__file__) - before
+    retained: Final[int] = retained_bytes(__file__) - before
     # the nodes an edit creates and a buffer at most twice the final text stay in the arena, a few hundred bytes per
     # write; a copy kept per write grows with the square of the count instead
     assert retained < 512 * count
 
 
 def _delete(text: Text, start: int, end: int) -> None:
-    boundary: Final = Range(text, start)
+    boundary: Final[Range] = Range(text, start)
     boundary.set_end(text, end)
     boundary.delete_contents()
 
@@ -231,7 +233,7 @@ def _delete(text: Text, start: int, end: int) -> None:
 def test_range_edited_text_grows_without_overrunning_its_buffer(
     edit: Callable[[Text], None], more: str, expected: list[str]
 ) -> None:
-    paragraph: Final = parse("<p>abcdefgh<br>one<br>two</p>").find("p")
+    paragraph: Final[Element | None] = parse("<p>abcdefgh<br>one<br>two</p>").find("p")
     assert paragraph is not None
     text, before, after = (child for child in paragraph.children if isinstance(child, Text))
     before.data, after.data = "x", "y"  # their parsed text is copied out first, so the writes below allocate only once
@@ -246,21 +248,23 @@ def test_range_edited_text_grows_without_overrunning_its_buffer(
 
 def test_selectedcontent_keeps_its_text_when_the_option_text_is_rewritten() -> None:
     # the ignored end tag splits the option text, which the parser merges into a buffer with room
-    document: Final = parse("<select><button><selectedcontent></selectedcontent></button><option>ab</x>cd</select>")
-    option: Final = document.find("option")
+    document: Final[Document] = parse(
+        "<select><button><selectedcontent></selectedcontent></button><option>ab</x>cd</select>"
+    )
+    option: Final[Element | None] = document.find("option")
     assert option is not None
-    text: Final = option.children[0]
+    text: Final[Node] = option.children[0]
     assert isinstance(text, Text)
     text.data = "wxyz"
-    selected: Final = document.find("selectedcontent")
+    selected: Final[Element | None] = document.find("selectedcontent")
     assert selected is not None
     assert (selected.html, option.html) == ("<selectedcontent>abcd</selectedcontent>", "<option>wxyz</option>")
 
 
 def test_collapsed_text_grows_again_without_overrunning_its_buffer() -> None:
-    paragraph: Final = parse("<p>a<br>tail</p>").find("p")
+    paragraph: Final[Element | None] = parse("<p>a<br>tail</p>").find("p")
     assert paragraph is not None
-    texts: Final = [child for child in paragraph.children if isinstance(child, Text)]
+    texts: Final[list[Text]] = [child for child in paragraph.children if isinstance(child, Text)]
     texts[0].data += "b" * 6
     texts[0].data += "c" * 6  # a buffer with room for 16
     texts[0].data = "x   y"
@@ -271,5 +275,5 @@ def test_collapsed_text_grows_again_without_overrunning_its_buffer() -> None:
 
 
 def test_renamed_element_keeps_the_name_its_clone_shares() -> None:
-    policy: Final = Policy(tags=frozenset({"i", "p"}), transform_tags={"b": "i"})
+    policy: Final[Policy] = Policy(tags=frozenset({"i", "p"}), transform_tags={"b": "i"})
     assert sanitize("<b>1<p>2</b>3</p>", policy) == "<i>1</i><p><i>2</i>3</p>"

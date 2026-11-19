@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import contextlib
 from functools import partial
-from types import MappingProxyType
+from types import MappingProxyType, ModuleType
 from typing import TYPE_CHECKING, Final, TypeAlias
 
 import pytest
@@ -824,8 +824,8 @@ _ORACLE_SELECTORS: Final[tuple[str, ...]] = (
 @pytest.mark.parametrize("selector", [pytest.param(selector, id=selector) for selector in _ORACLE_SELECTORS])
 @pytest.mark.oracle
 def test_matches_the_cssselect_oracle(selector: str) -> None:
-    lxml_html: Final = pytest.importorskip("lxml.html")
-    cssselect: Final = pytest.importorskip("cssselect")
+    lxml_html: Final[ModuleType] = pytest.importorskip("lxml.html")
+    cssselect: Final[ModuleType] = pytest.importorskip("cssselect")
     ours = turbohtml.parse(_ORACLE_DOC)
     theirs = lxml_html.document_fromstring(_ORACLE_DOC)
     our_expression = css_to_xpath(selector)
@@ -848,8 +848,8 @@ def test_documented_divergences_from_cssselect(
     ours_only: list[str],
     theirs_only: list[str],
 ) -> None:
-    lxml_html: Final = pytest.importorskip("lxml.html")
-    cssselect: Final = pytest.importorskip("cssselect")
+    lxml_html: Final[ModuleType] = pytest.importorskip("lxml.html")
+    cssselect: Final[ModuleType] = pytest.importorskip("cssselect")
     ours = turbohtml.parse(_ORACLE_DOC)
     our_ids = set(_ids(ours.xpath(css_to_xpath(selector))))
     oracle_expression = cssselect.HTMLTranslator().css_to_xpath(selector)

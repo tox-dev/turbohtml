@@ -404,8 +404,8 @@ _VNU_CASES: Final[list[pytest.ParameterSet]] = [
     reason="a JRE and vnu.jar are required",
 )
 def test_conformance_verdict_matches_vnu(markup: str) -> None:
-    java: Final = cast("str", shutil.which("java"))
-    completed: Final = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true] - fixed Java arguments and in-repository markup
+    java: Final[str] = cast("str", shutil.which("java"))
+    completed: Final[subprocess.CompletedProcess[bytes]] = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true] - fixed Java arguments and in-repository markup
         [java, "-jar", str(_VNU_JAR), "--format", "json", "--stdin", "-"],
         input=markup.encode(),
         capture_output=True,
@@ -455,6 +455,6 @@ def test_conformance_section_scan_boundaries(inner: str, expected: list[str]) ->
 
 
 def test_conformance_section_subtree_excludes_outer_heading() -> None:
-    root: Final = parse("<section><article></article></section><h2>Outside</h2>").find("section")
+    root: Final[Element | None] = parse("<section><article></article></section><h2>Outside</h2>").find("section")
     assert isinstance(root, Element)
     assert [message.code for message in check(root).messages] == ["section-no-heading", "section-no-heading"]

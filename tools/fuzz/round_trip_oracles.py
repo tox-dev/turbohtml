@@ -185,14 +185,10 @@ from turbohtml.query import compile as compile_selector
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
+    from urllib.parse import SplitResult
 
 _ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _NODE_DIR: Final[Path] = _ROOT / "tools" / "bench" / "node"
-# TH_MAX_TREE_DEPTH (src/turbohtml/_c/dom/tree.h): past 512 open elements a start tag is inserted but not pushed, so
-# further tags become siblings and reparsing the flattened output nests them differently
-_MAX_TREE_DEPTH: Final[int] = 512
-# the CSS minifier caps nesting at 100 levels and drops a deeper block (docs/changelog.rst, 1.13.0)
-_CSS_MAX_NESTING: Final[int] = 100
 # tree.h raises this RecursionError for a walk past its depth budget; the one documented depth error
 _DEPTH_ERROR: Final[re.Pattern[str]] = re.compile(r"does not support trees nested \d+ levels or deeper")
 # Script text where "<!--" opens and "<script" plus a tag end follows before any "-->" breaks the script content
@@ -561,7 +557,7 @@ def idna_host_check(case: str, normalize: Callable[[str], str] = normalize_url) 
         raise OutOfScopeError(case)
     source, mapped = mapping
     mapped = affix + mapped
-    expected: Final = (
+    expected: Final[str] = (
         "https://"
         f"""{
             ".".join(
@@ -619,12 +615,12 @@ def normalize_url_check(text: str, normalize: Callable[[str], str] = normalize_u
 def url_reparse_check(text: str, normalize: Callable[[str], str] = normalize_url) -> str | None:
     # Preserve delimiter presence when checking serialization through a reference split.
     try:
-        normalized: Final = normalize(text)
-        parts: Final = urlsplit(normalized)
+        normalized: Final[str] = normalize(text)
+        parts: Final[SplitResult[str]] = urlsplit(normalized)
     except ValueError as error:
         raise OutOfScopeError(str(error)) from error
-    body: Final = normalized[len(parts.scheme) + 1 :] if parts.scheme else normalized
-    recomposed: Final = "".join((
+    body: Final[str] = normalized[len(parts.scheme) + 1 :] if parts.scheme else normalized
+    recomposed: Final[str] = "".join((
         f"{parts.scheme}:" if parts.scheme else "",
         f"//{parts.netloc}" if body.startswith("//") else "",
         parts.path,
@@ -634,7 +630,7 @@ def url_reparse_check(text: str, normalize: Callable[[str], str] = normalize_url
     if recomposed != normalized:
         return f"split/recompose changes normalized URL: {_divergence(normalized, recomposed)}"
     try:
-        reparsed: Final = normalize(recomposed)
+        reparsed: Final[str] = normalize(recomposed)
     except ValueError:
         return "rejects recomposed output"
     return None if reparsed == normalized else f"reparse changes normalized URL: {_divergence(normalized, reparsed)}"
@@ -695,7 +691,7 @@ def encoding_stream_check(
     stream: Callable[[bytes, int], EncodingMatch] | None = None,
 ) -> str | None:
     # Pin expected detection independently of the chunk-boundary comparison.
-    expected: Final = _encoding_case(case)
+    expected: Final[_EncodingCase] = _encoding_case(case)
     if one_shot(expected.data) != expected.match:
         return "one-shot detection differs from expected match"
     for width in range(1, 6):
@@ -711,7 +707,7 @@ def encoding_decode_check(
     parse_text: Callable[[bytes], str | None] | None = None,
 ) -> str | None:
     # Require the codec and byte parser to preserve fixture text.
-    expected: Final = _encoding_case(case)
+    expected: Final[_EncodingCase] = _encoding_case(case)
     if expected.match.codec is None:
         raise OutOfScopeError(case)
     if detect_bytes(expected.data) != expected.match:
@@ -734,12 +730,12 @@ def _encoding_case(case: str) -> _EncodingCase:
     if (formatting := _ENCODING_FORMATS.get(variant)) is None:
         raise OutOfScopeError(case)
     codec, prefix, label, meta = formatting
-    markup: Final = f"{meta}<p>{text}</p>"
+    markup: Final[str] = f"{meta}<p>{text}</p>"
     try:
-        data: Final = prefix + markup.encode(codec)
+        data: Final[bytes] = prefix + markup.encode(codec)
     except UnicodeEncodeError as error:
         raise OutOfScopeError from error
-    decoded: Final = ("\ufeff" if label in {"UTF-16LE", "UTF-16BE"} else "") + markup
+    decoded: Final[str] = ("\ufeff" if label in {"UTF-16LE", "UTF-16BE"} else "") + markup
     return _EncodingCase(
         data=data,
         match=EncodingMatch(
@@ -759,7 +755,7 @@ class _EncodingCase:
 
 
 def _encoding_stream(data: bytes, width: int) -> EncodingMatch:
-    detector: Final = EncodingDetector()
+    detector: Final[EncodingDetector] = EncodingDetector()
     detector.feed(b"")
     for start in range(0, len(data), width):
         detector.feed(data[start : start + width])
@@ -826,8 +822,11 @@ def _print(tree: Node, serialize: Callable[[Node], str]) -> str:
 
 def _reparse_may_differ(root: Node) -> bool:
     # the root node plus 512 ancestors is the deepest placement the tree builder allows, reached only on a full stack
+    # TH_MAX_TREE_DEPTH (src/turbohtml/_c/dom/tree.h): past 512 open elements a start tag is inserted but not pushed, so
+    # further tags become siblings and reparsing the flattened output nests them differently
+    max_tree_depth: int = 512
     return (
-        any(sum(1 for _ in element.ancestors) > _MAX_TREE_DEPTH for element in root.iter_elements())
+        any(sum(1 for _ in element.ancestors) > max_tree_depth for element in root.iter_elements())
         or any(_SCRIPT_DOUBLE_ESCAPE.search(script.text) for script in root.iter_elements("script"))
         or any(element.namespace is Namespace.HTML for element in root.iter_elements("plaintext"))
         or any(isinstance(node, Text) and "\r" in node.data for node in root.descendants)
@@ -1030,11 +1029,13 @@ def resolve_links_check(text: str, resolve: Callable[[Node, str], None] = Node.r
     reference, target = _RESOLUTION_CASES[case]
     document = parse_fragment('<a href="">link</a>')
     document.select("a")[0].attrs["href"] = reference.format(leaf=leaf)
-    resolve(document, _RESOLUTION_BASE)
-    expected: Final = target.format(leaf=leaf)
+    # RFC 3986 section 5.4 supplies independent targets; safe HTTP leaves avoid scheme-specific edge policies.
+    resolution_base: str = "http://example.test/b/c/d;p?q"
+    resolve(document, resolution_base)
+    expected: Final[str] = target.format(leaf=leaf)
     if document.links()[0].url != expected:
         return "resolution differs from RFC target"
-    resolve(document, _RESOLUTION_BASE)
+    resolve(document, resolution_base)
     return None if document.links()[0].url == expected else "resolved link changes on repeat"
 
 
@@ -1701,7 +1702,9 @@ def _shift(location: SourceLocation | None, prefix: str) -> SourceLocation | Non
 
 
 def _css_fixpoint(text: str, printer: Callable[[str], str] = minify_css) -> str | None:
-    if _nesting(text) > _CSS_MAX_NESTING:
+    # the CSS minifier caps nesting at 100 levels and drops a deeper block (docs/changelog.rst, 1.13.0)
+    css_max_nesting: int = 100
+    if _nesting(text) > css_max_nesting:
         raise OutOfScopeError
     return fixpoint_check(text, printer, numeric=True)
 
@@ -1847,18 +1850,17 @@ def _mutate(rng: random.Random, text: str, tokens: Sequence[str]) -> str:
 _IDS: Final[tuple[str, ...]] = ("x", "y", "z")
 
 
-_HTML_TOKENS: Final[tuple[str, ...]] = (
-    "<p>", "</p>", "<b>", "</b>", "<table>", "<td>", "<svg>", "<math>", "<template>", "<script>", "</script>", "<!--",
-    "-->", "<![CDATA[", "]]>", "<a href=x>", "</a>", "<select>", "<option>", "<br>", "</br>", "<image>", "&amp;",
-    "&#x0;", "\r", "\n", "<!DOCTYPE html>", "<frameset>", "<plaintext>", "<textarea>", "<style>", "<noscript>",
-    "<foreignObject>", "<desc>", "<mi>", "<annotation-xml encoding=text/html>", "<li>", "<dd>", "<form>", "</form>",
-    "<?x?>", "<x:y>", 'a="b"', "\x00", "<head>", "<body>", "</html>", "<col>", "<tr>", "<caption>",
-)  # fmt: skip
-
-
 def _generate_html(rng: random.Random) -> str:
     if rng.random() < 0.5:
-        return _mutate(rng, rng.choice(_corpus().html), _HTML_TOKENS)
+        html_tokens = (
+            "<p>", "</p>", "<b>", "</b>", "<table>", "<td>", "<svg>", "<math>", "<template>", "<script>",
+            "</script>", "<!--", "-->", "<![CDATA[", "]]>", "<a href=x>", "</a>", "<select>", "<option>", "<br>",
+            "</br>", "<image>", "&amp;", "&#x0;", "\r", "\n", "<!DOCTYPE html>", "<frameset>", "<plaintext>",
+            "<textarea>", "<style>", "<noscript>", "<foreignObject>", "<desc>", "<mi>",
+            "<annotation-xml encoding=text/html>", "<li>", "<dd>", "<form>", "</form>", "<?x?>", "<x:y>",
+            'a="b"', "\x00", "<head>", "<body>", "</html>", "<col>", "<tr>", "<caption>",
+        )  # fmt: skip
+        return _mutate(rng, rng.choice(_corpus().html), html_tokens)
     return html_generate(rng).data.decode("utf-8")
 
 
@@ -2148,7 +2150,7 @@ def _root(rng: random.Random) -> str:
 
 
 def _generate_xpath_case(rng: random.Random) -> str:
-    html: Final = _root(rng) + _vocabulary_tree(rng)
+    html: Final[str] = _root(rng) + _vocabulary_tree(rng)
     # Draw an XPath 1.0 expression: a location path, a union, or a function or arithmetic over paths.
     path = _path(rng)
     xpath = rng.choice((
@@ -2178,10 +2180,6 @@ def _generate_selector_case(rng: random.Random) -> str:
     return json.dumps({"html": _root(rng) + _vocabulary_tree(rng), "css": _selector(rng)})
 
 
-_AXES: Final[tuple[str, ...]] = (
-    "child", "descendant", "descendant-or-self", "parent", "ancestor", "ancestor-or-self", "following-sibling",
-    "preceding-sibling", "following", "preceding", "self", "attribute",
-)  # fmt: skip
 _NODE_TESTS: Final[tuple[str, ...]] = (
     "*",
     "node()",
@@ -2198,12 +2196,16 @@ _PREDICATES: Final[tuple[str, ...]] = (
 
 
 def _path(rng: random.Random) -> str:
+    axes = (
+        "child", "descendant", "descendant-or-self", "parent", "ancestor", "ancestor-or-self", "following-sibling",
+        "preceding-sibling", "following", "preceding", "self", "attribute",
+    )  # fmt: skip
     steps = []
     for _ in range(rng.randint(1, 3)):
         step = (
             rng.choice(("..", ".", "@*", "@id", "@class"))
             if (draw := rng.random()) < 0.15
-            else (f"{rng.choice(_AXES)}::" if draw < 0.55 else "") + rng.choice(_NODE_TESTS)
+            else (f"{rng.choice(axes)}::" if draw < 0.55 else "") + rng.choice(_NODE_TESTS)
         )
         steps.append(step + "".join(f"[{rng.choice(_PREDICATES)}]" for _ in range(rng.choice((0, 0, 1, 2)))))
     separators = [rng.choice(("/", "//")) for _ in steps]
@@ -2342,6 +2344,10 @@ def _expression(script: _Script, depth: int) -> str:
     def target() -> str:
         return rng.choice(script.declared[:7])
 
+    js_binary = (
+        "+", "-", "*", "/", "%", "**", "==", "===", "!=", "<", ">=", "&&", "||", "??", "&", "|", "^", "<<", ">>>", "in",
+        "instanceof", ",",
+    )  # fmt: skip
     js_properties = ("a", "b", "if", "class", "length", "constructor", "1", "'q'", '"r s"', "0x10", "[c]", "1.5")
     return rng.choice((
         lambda: f"{sub()}.{rng.choice(('a', 'if', 'class', 'length'))}",
@@ -2352,7 +2358,7 @@ def _expression(script: _Script, depth: int) -> str:
         lambda: f"new {rng.choice(_JS_FREE[:3])}({sub()})",
         lambda: f"({rng.choice(('typeof ', 'void ', '!', '-', '+', '~'))}{sub()})",
         lambda: f"delete {sub()}.a",
-        lambda: f"({sub()} {rng.choice(_JS_BINARY)} {sub()})",
+        lambda: f"({sub()} {rng.choice(js_binary)} {sub()})",
         lambda: f"{target()} {rng.choice(('+ +', '- -', '+ ++', '- --', '/ /x/ /'))}{target()}",
         lambda: f"({sub()} ? {sub()} : {sub()})",
         lambda: f"(({', '.join(rng.sample(_JS_BOUND[:5], rng.randint(0, 2)))}) => {sub()})",
@@ -2367,12 +2373,6 @@ def _expression(script: _Script, depth: int) -> str:
         lambda: f"({{a: {target()}, b = 1}} = {sub()})",
         lambda: f"{target()}++",
     ))()
-
-
-_JS_BINARY: Final[tuple[str, ...]] = (
-    "+", "-", "*", "/", "%", "**", "==", "===", "!=", "<", ">=", "&&", "||", "??", "&", "|", "^", "<<", ">>>", "in",
-    "instanceof", ",",
-)  # fmt: skip
 
 
 def _generate_js(rng: random.Random) -> str:
@@ -2396,8 +2396,6 @@ def _generate_url(rng: random.Random) -> str:
     return rng.choice((url, f" <{url}> ", url.replace("&", "&amp;")))
 
 
-# RFC 3986 section 5.4 supplies independent targets; safe HTTP leaves avoid scheme-specific edge policies.
-_RESOLUTION_BASE: Final[str] = "http://example.test/b/c/d;p?q"
 _RESOLUTION_CASES: Final[MappingProxyType[str, tuple[str, str]]] = MappingProxyType({
     "child": ("{leaf}", "http://example.test/b/c/{leaf}"),
     "current": ("./{leaf}", "http://example.test/b/c/{leaf}"),
@@ -2434,13 +2432,13 @@ def _resolve_changed_repeat(node: Node, base: str) -> None:
 
 
 def _generate_encoding(rng: random.Random) -> str:
-    variant: Final = rng.choice(tuple(_ENCODING_FORMATS))
-    alphabet: Final = "abc 123café€" if _ENCODING_FORMATS[variant][0] == "cp1252" else "abc 123café€中文𐐀"
+    variant: Final[str] = rng.choice(tuple(_ENCODING_FORMATS))
+    alphabet: Final[str] = "abc 123café€" if _ENCODING_FORMATS[variant][0] == "cp1252" else "abc 123café€中文𐐀"
     return f"{variant}\n{''.join(rng.choices(alphabet, k=rng.randint(0, 64)))}"
 
 
 def _encoding_stream_controls() -> dict[str, bool]:
-    missing: Final = EncodingMatch(encoding=None, confidence=0.0, language=None)
+    missing: Final[EncodingMatch] = EncodingMatch(encoding=None, confidence=0.0, language=None)
     return {
         "wrong one-shot label": encoding_stream_check("utf-8-bom\ncafé", lambda _data: missing) is not None,
         "wrong chunked label": encoding_stream_check("utf-8-bom\ncafé", stream=lambda _data, _width: missing)

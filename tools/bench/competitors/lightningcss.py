@@ -15,7 +15,7 @@ _REQUIREMENTS: Final[tuple[str, ...]] = ("lightningcss>=0.3",)
 def minify_css(css: str) -> str:
     # Minify a stylesheet with lightningcss; its parser raises on input the WHATWG rules would recover.
     if "e10000px" in css:
-        unsupported: Final = "lightningcss changes zero or clamps nonzero values with exponent 10000"
+        unsupported: Final[str] = "lightningcss changes zero or clamps nonzero values with exponent 10000"
         raise NotImplementedError(unsupported)
     return lightningcss.process_stylesheet(css, minify=True)
 

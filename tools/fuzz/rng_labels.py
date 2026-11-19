@@ -23,11 +23,13 @@ if TYPE_CHECKING:
 
 def main(argv: Sequence[str] | None = None) -> int:
     # Distinguish findings from invalid corpora for automated runs.
-    parser: Final = argparse.ArgumentParser(description="Compare Jing RELAX NG labels with turbohtml and libxml2.")
+    parser: Final[argparse.ArgumentParser] = argparse.ArgumentParser(
+        description="Compare Jing RELAX NG labels with turbohtml and libxml2."
+    )
     parser.add_argument("--corpus", required=True)
-    arguments: Final = parser.parse_args(argv)
+    arguments: Final[argparse.Namespace] = parser.parse_args(argv)
     try:
-        counts: Final = _report(arguments.corpus)
+        counts: Final[Counter[str]] = _report(arguments.corpus)
     except (OSError, _CorpusError, lxml.etree.XMLSyntaxError):
         print("Corpus preparation failed", file=sys.stderr)
         return 2
@@ -56,17 +58,17 @@ def compare(suite: lxml.etree._Element) -> Iterator[Verdict]:
 
 
 def _compare_case(case_id: str, case: lxml.etree._Element, directory: Path) -> Iterator[Verdict]:
-    schema_labels: Final = [child for child in case if child.tag in {"correct", "incorrect"}]
+    schema_labels: Final[list[lxml.etree._Element]] = [child for child in case if child.tag in {"correct", "incorrect"}]
     if len(schema_labels) != 1:
-        message: Final = "A testCase must contain one schema label"
+        message: Final[str] = "A testCase must contain one schema label"
         raise _CorpusError(message)
-    expected: Final = schema_labels[0].tag == "correct"
-    schema_text: Final = _payload(schema_labels[0])
+    expected: Final[bool] = schema_labels[0].tag == "correct"
+    schema_text: Final[bytes] = _payload(schema_labels[0])
     # the file names and layout follow Jing's own test preparation (test/prep.xsl), so hrefs resolve as Jing ran them
-    schema_path: Final = directory / ("c.rng" if expected else "i.rng")
+    schema_path: Final[Path] = directory / ("c.rng" if expected else "i.rng")
     schema_path.write_bytes(schema_text)
     _write_resources(case, directory)
-    schema_hash: Final = hashlib.sha256(lxml.etree.tostring(case)).hexdigest()
+    schema_hash: Final[str] = hashlib.sha256(lxml.etree.tostring(case)).hexdigest()
     try:
         ours: RelaxNG | None = RelaxNG(schema_text.decode(), base_url=str(schema_path), include_root=directory)
     except (ValueError, OSError):
@@ -93,7 +95,7 @@ def _compare_case(case_id: str, case: lxml.etree._Element, directory: Path) -> I
     )
     if not expected:
         return
-    documents: Final = [child for child in case if child.tag in {"valid", "invalid"}]
+    documents: Final[list[lxml.etree._Element]] = [child for child in case if child.tag in {"valid", "invalid"}]
     for document_position, document in enumerate(documents, 1):
         document_text = _payload(document)
         document_hash = hashlib.sha256(schema_text + b"\0" + document_text).hexdigest()
@@ -139,20 +141,20 @@ def _write_resources(container: lxml.etree._Element, directory: Path) -> None:
 
 
 def _resource_name(element: lxml.etree._Element) -> str:
-    name: Final = element.get("name", "")
+    name: Final[str] = element.get("name", "")
     if not name or Path(name).name != name or name in {".", ".."}:
-        message: Final = "A resource or dir name must be one path component"
+        message: Final[str] = "A resource or dir name must be one path component"
         raise _CorpusError(message)
     return name
 
 
 def _payload(label: lxml.etree._Element) -> bytes:
-    elements: Final = [child for child in label if isinstance(child.tag, str)]
+    elements: Final[list[lxml.etree._Element]] = [child for child in label if isinstance(child.tag, str)]
     if len(elements) != 1 or "dtd" in label.attrib or (label.text or "").strip():
-        message: Final = "Only single-root payloads without DTD declarations are supported"
+        message: Final[str] = "Only single-root payloads without DTD declarations are supported"
         raise _CorpusError(message)
     if any((child.tail or "").strip() for child in label):
-        tail_error: Final = "Payload text outside the root element is unsupported"
+        tail_error: Final[str] = "Payload text outside the root element is unsupported"
         raise _CorpusError(tail_error)
     return lxml.etree.tostring(elements[0], encoding="utf-8", with_tail=False)
 

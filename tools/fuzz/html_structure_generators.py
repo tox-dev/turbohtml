@@ -49,9 +49,16 @@ def html_generate(rng: random.Random, budget: int = 30) -> Generated:
 def html_grammar_complete(vocabulary: HtmlVocabulary | None = None) -> Grammar:
     # Retain table alternatives separately so finite sweeps expose omitted rows.
     vocabulary = _VOCABULARY if vocabulary is None else vocabulary
-    productions: Final = list(html_grammar().productions)
-    values: Final = _Values((*vocabulary.common, *vocabulary.html, *vocabulary.values, *vocabulary.tag_attributes))
-    attributes: Final = tuple(rule for rule in vocabulary.html if _ATTRIBUTE.fullmatch(rule[2]))
+    productions: Final[list[Production]] = list(html_grammar().productions)
+    values: Final[_Values] = _Values((
+        *vocabulary.common,
+        *vocabulary.html,
+        *vocabulary.values,
+        *vocabulary.tag_attributes,
+    ))
+    attributes: Final[tuple[tuple[int, str, str], ...]] = tuple(
+        rule for rule in vocabulary.html if _ATTRIBUTE.fullmatch(rule[2])
+    )
     for tag in vocabulary.tags:
         productions.append(
             _element_production(
@@ -81,7 +88,7 @@ def html_grammar_complete(vocabulary: HtmlVocabulary | None = None) -> Grammar:
             )
         )
     for rule in vocabulary.tag_attributes:
-        tag: Final = rule[1].removesuffix("_attributes").removesuffix("_attribute")
+        tag: Final[str] = rule[1].removesuffix("_attributes").removesuffix("_attribute")
         if tag not in vocabulary.tags:
             msg = f"tag attribute has no tag materialization: {tag}"
             raise GrammarError(msg)
@@ -137,7 +144,7 @@ def html_document(case: Generated) -> bool:
 
 def _element_production(name: str, tag: str, attributes: Parts, origin: str) -> Production:
     if tag in {"html", "head", "body"}:
-        parts: Final = (
+        parts: Final[tuple[bytes | Identifier, ...]] = (
             b'<html id="',
             Identifier(name="target", definition=True),
             b'"',
@@ -258,9 +265,9 @@ class _Values:
                 if symbol in _PRIMITIVES:
                     continue
                 for rule in alternatives:
-                    children: Final = [item for item in _symbols(rule[2]) if item not in _PRIMITIVES]
+                    children: Final[list[str]] = [item for item in _symbols(rule[2]) if item not in _PRIMITIVES]
                     if all(child in costs for child in children):
-                        cost: Final = 1 + sum(costs[child] for child in children)
+                        cost: Final[int] = 1 + sum(costs[child] for child in children)
                         if symbol not in costs or cost < costs[symbol]:
                             costs[symbol] = cost
                             self.minimum[symbol] = rule
@@ -302,7 +309,7 @@ class _Values:
             if symbol in _PRIMITIVES:
                 parts.extend(_primitive(symbol, parameters))
             else:
-                forced: Final = bool(route and route[0][1] == symbol)
+                forced: Final[bool] = bool(route and route[0][1] == symbol)
                 if (chosen := route[0] if forced else self.minimum.get(symbol)) is None:
                     msg = f"unproductive value symbol: {symbol}"
                     raise GrammarError(msg)

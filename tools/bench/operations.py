@@ -680,11 +680,11 @@ def _readpath_cases() -> tuple[tuple[str, Case], ...]:
 
 
 def _stream_cases() -> tuple[tuple[str, Case], ...]:
-    wide_paragraph: Final = f"<p>{'名' * 4089}</p>"
-    wide_body: Final = wide_paragraph * 64
-    prefix: Final = "<html><head></head><body>"
-    suffix: Final = "</body></html>"
-    nul_element: Final = "<p data-x='\x00'></p>"
+    wide_paragraph: Final[str] = f"<p>{'名' * 4089}</p>"
+    wide_body: Final[str] = wide_paragraph * 64
+    prefix: Final[str] = "<html><head></head><body>"
+    suffix: Final[str] = "</body></html>"
+    nul_element: Final[str] = "<p data-x='\x00'></p>"
     return (
         *_readpath_cases(),
         ("64 BMP paragraphs, early NUL", prefix + nul_element + wide_body + suffix),
@@ -1217,7 +1217,7 @@ _XSLT_SOURCE: Final[str] = (
 
 def _transform_text_cases() -> tuple[tuple[str, Case], ...]:
     cases: Final[list[tuple[str, Case]]] = []
-    payload: Final = "payload " * 8
+    payload: Final[str] = "payload " * 8
     for kind in ("builtin", "literal", "xsl:text"):
         for count in (4096, 1_400):
             if kind == "builtin":
@@ -1261,8 +1261,10 @@ def _transform_key_cases() -> tuple[tuple[str, Case], ...]:
 def _transform_scope_cases() -> tuple[tuple[str, Case], ...]:
     cases: Final[list[tuple[str, Case]]] = []
     for scope, count in (("local", 1024), ("local", 2_000), ("global", 1024), ("global", 2_000)):
-        declarations: Final = "".join(f'<xsl:variable name="v{index}" select="{index}"/>' for index in range(count))
-        sheet: Final = (
+        declarations: Final[str] = "".join(
+            f'<xsl:variable name="v{index}" select="{index}"/>' for index in range(count)
+        )
+        sheet: Final[str] = (
             '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
             '<xsl:output method="text"/>'
             f'{declarations if scope == "global" else ""}<xsl:template match="/">'
@@ -1282,16 +1284,16 @@ def _transform_namespace_cases() -> tuple[tuple[str, Case], ...]:
         ("shallow leaf run", 1, 400, True, False),
         ("namespace-free repeated leaf", 32, 512, False, False),
     ):
-        prefix: Final = f"p{(depth - 1) % 8}:" if namespaced else ""
-        ancestors: Final = "".join(
+        prefix: Final[str] = f"p{(depth - 1) % 8}:" if namespaced else ""
+        ancestors: Final[str] = "".join(
             f'<xsl:if test="1" xmlns:p{index % 8}="urn:{index}">' if namespaced else '<xsl:if test="1">'
             for index in range(depth)
         )
         # Use each binding so competitors retain the same namespace declarations.
-        attributes: Final = (
+        attributes: Final[str] = (
             "".join(f' p{index}:a=""' for index in range(min(depth - 1, 7) - 1, -1, -1)) if namespaced else ""
         )
-        sheet: Final = (
+        sheet: Final[str] = (
             '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
             '<xsl:output method="xml" omit-xml-declaration="yes"/><xsl:template match="/">'
             f'<out><xsl:for-each select="r/n">{ancestors}<{prefix}leaf{attributes}/>'
@@ -1965,7 +1967,7 @@ def _validate_facet_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
 
 
 def _compile_facet_schema() -> str:
-    derived: Final = "".join(
+    derived: Final[str] = "".join(
         f'<xs:simpleType name="derived{index}"><xs:restriction base="item">'
         f'<xs:maxLength value="{index % 6 + 3}"/></xs:restriction></xs:simpleType>'
         for index in range(256)
@@ -1974,7 +1976,7 @@ def _compile_facet_schema() -> str:
 
 
 def _compile_pattern_schema() -> str:
-    patterns: Final = "".join(f'<xs:pattern value="[a-z]+{index}[0-9]+"/>' for index in range(210))
+    patterns: Final[str] = "".join(f'<xs:pattern value="[a-z]+{index}[0-9]+"/>' for index in range(210))
     return (
         '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:simpleType name="item">'
         f'<xs:restriction base="xs:string">{patterns}</xs:restriction></xs:simpleType>'
@@ -1984,9 +1986,9 @@ def _compile_pattern_schema() -> str:
 
 
 def _encoding_chunks_cases() -> tuple[tuple[str, tuple[int, bytes]], ...]:
-    ascii_body: Final = (_ENCODING_ASCII * 900).encode()[:65536]
-    japanese: Final = _ENCODING_JAPANESE.encode("shift_jis")
-    mixed: Final = japanese + ascii_body
+    ascii_body: Final[bytes] = (_ENCODING_ASCII * 900).encode()[:65536]
+    japanese: Final[bytes] = _ENCODING_JAPANESE.encode("shift_jis")
+    mixed: Final[bytes] = japanese + ascii_body
     return (
         ("Japanese prefix, 64 KiB ASCII suffix, 4 KiB chunks", (4096, mixed)),
         ("Japanese prefix, 2,088-byte ASCII suffix, 16-byte chunks", (16, japanese + b"plain ASCII suffix" * 116)),

@@ -35,7 +35,7 @@ from turbohtml.extract import feed
     ],
 )
 def test_feed_atom_base64_content(media_type: str, body: str, expected: bytes | str) -> None:
-    xml: Final = (
+    xml: Final[str] = (
         f'<feed xmlns="http://www.w3.org/2005/Atom"><entry><content type="{media_type}">{body}</content></entry></feed>'
     )
     result = feed(xml)

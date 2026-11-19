@@ -42,7 +42,7 @@ from turbohtml.extract import feed
     ],
 )
 def test_feed_rss_item_dc_title(item_fields: str, expected: str | None) -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"><channel><title>Feed</title>'
         f"<item><description>Body</description>{item_fields}</item></channel></rss>"
     )
@@ -86,7 +86,7 @@ def test_feed_rss_item_dc_title(item_fields: str, expected: str | None) -> None:
     ],
 )
 def test_feed_rss_channel_dc_title(channel_fields: str, expected: str) -> None:
-    xml: Final = (
+    xml: Final[str] = (
         f'<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"><channel>{channel_fields}</channel></rss>'
     )
     result = feed(xml)
@@ -102,7 +102,7 @@ def test_feed_rss_channel_dc_title(channel_fields: str, expected: str) -> None:
     ],
 )
 def test_feed_atom_title_does_not_use_dublin_core_fallback(read_title: Callable[[Feed], str | None]) -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/">'
         "<dc:title>DC title</dc:title><entry><dc:title>Entry title</dc:title></entry></feed>"
     )
@@ -112,7 +112,7 @@ def test_feed_atom_title_does_not_use_dublin_core_fallback(read_title: Callable[
 
 
 def test_feed_rdf_item_dc_title() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" '
         'xmlns="http://purl.org/rss/1.0/" xmlns:dc="http://purl.org/dc/elements/1.1/">'
         '<channel><title>Feed</title></channel><item rdf:about="urn:item">'

@@ -35,5 +35,5 @@ def _load_case(load: Callable[[], Case]) -> Case:
     [pytest.param(run, load, id=name) for name, run, load in benchmarks() if isinstance(run, Mutating)],
 )
 def test_mutating_feature(benchmark: BenchmarkFixture, operation: Mutating, load: Callable[[], Case]) -> None:
-    case: Final = _load_case(load)
+    case: Final[Case] = _load_case(load)
     benchmark.pedantic(operation.run, setup=lambda: ((operation.setup(case),), {}))

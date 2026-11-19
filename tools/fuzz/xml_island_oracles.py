@@ -13,6 +13,8 @@ if TYPE_CHECKING:
     import random
     from collections.abc import Callable
 
+    from turbohtml import DocumentFragment
+
 
 def xml_island_generate(rng: random.Random) -> str:
     return f"{rng.choice(_MODES)}:{rng.choice(tuple(_COMMENTS))}:{rng.choice(tuple(_CDATA))}:{rng.randint(1, 3)}"
@@ -54,11 +56,11 @@ def xml_island_check(
     if (match := _CASE.fullmatch(case)) is None:
         raise UnsupportedXmlIslandCaseError(case)
     source, expected = _document(*match.groups())
-    root: Final = read(source)
+    root: Final[Document] = read(source)
     if _snapshot(root) != expected:
         return "parsed XML islands differ from literals"
-    printed: Final = _serialize(root, serialize)
-    reparsed: Final = read(printed)
+    printed: Final[str] = _serialize(root, serialize)
+    reparsed: Final[Document] = read(printed)
     if _snapshot(reparsed) != expected:
         return "serialized XML islands differ from literals"
     return None if _serialize(reparsed, serialize) == printed else "XML island serialization changes on repeat"
@@ -72,9 +74,9 @@ class UnsupportedXmlIslandCaseError(ValueError):
 def _document(mode: str, comment: str, cdata: str, count: str) -> tuple[str, tuple[tuple[str, str, str], ...]]:
     encoded_comment, decoded_comment = _COMMENTS[comment]
     encoded_cdata, decoded_cdata = _CDATA[cdata]
-    group: Final = f"<!--{encoded_comment}--><![CDATA[{encoded_cdata}]]>&lt;&amp;"
-    prefix: Final = "<!--lead &amp;-->" if mode == "outside" else ""
-    suffix: Final = "<!--tail-->" if mode == "outside" else ""
+    group: Final[str] = f"<!--{encoded_comment}--><![CDATA[{encoded_cdata}]]>&lt;&amp;"
+    prefix: Final[str] = "<!--lead &amp;-->" if mode == "outside" else ""
+    suffix: Final[str] = "<!--tail-->" if mode == "outside" else ""
     return f"{prefix}<Root>{group * int(count)}</Root>{suffix}", (
         *([("Comment", "lead &amp;", "Document")] if mode == "outside" else []),
         ("Element", "Root", "Document"),
@@ -94,8 +96,8 @@ def _document(mode: str, comment: str, cdata: str, count: str) -> tuple[str, tup
 def _snapshot(root: Document) -> tuple[tuple[str, str, str], ...]:
     records: Final[list[tuple[str, str, str]]] = []
     for node in root.descendants:
-        parent: Final = node.parent
-        parent_tag: Final = parent.tag if isinstance(parent, Element) else "Document"
+        parent: Final[Element | Document | DocumentFragment | None] = node.parent
+        parent_tag: Final[str] = parent.tag if isinstance(parent, Element) else "Document"
         if isinstance(node, Element):
             records.append(("Element", node.tag, parent_tag))
         elif isinstance(node, (Comment, CData, Text)):

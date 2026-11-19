@@ -43,7 +43,6 @@ if TYPE_CHECKING:
 
 # an empty cell shows this glyph and a superscript keyed to the reason the legend spells out; a bare ``null`` in a feed
 # predates recorded reasons, so it falls back to this generic note rather than rendering an unexplained blank
-_GAP_MARK: Final[str] = "—"
 _MISSING_REASON: Final[str] = "no measurement recorded"
 
 # The row's best ratio takes the green end and the rest log-interpolate toward red, but the scale never compresses
@@ -56,12 +55,6 @@ _MIN_SPAN: Final[MappingProxyType[str, float]] = MappingProxyType({
     "time": _TIME_SPAN,
     "memory": _TIME_SPAN,
 })
-
-# microseconds carry the micro sign the docs use throughout; the escape keeps the literal unambiguous
-_TIME_UNITS: Final[tuple[tuple[str, float], ...]] = (("s", 1.0), ("ms", 1e-3), ("\u00b5s", 1e-6), ("ns", 1e-9))
-
-# below this the uncertainty rounds to nothing at the shown precision, so printing it only adds noise to the table
-_RATIO_SPREAD_FLOOR: Final[float] = 0.005
 
 # every competitor header links to the project's home; a party absent here (the turbohtml columns) stays plain text
 _HOMEPAGES: Final[MappingProxyType[str, str]] = MappingProxyType({
@@ -434,7 +427,9 @@ def _format_memory(size: float) -> str:
 
 def _format_time(seconds: float) -> str:
     # Scale a duration to the largest unit it fills; never exponent notation, which reads as a defect in a table.
-    for unit, factor in _TIME_UNITS:
+    # microseconds carry the micro sign the docs use throughout; the escape keeps the literal unambiguous
+    time_units: tuple[tuple[str, float], ...] = (("s", 1.0), ("ms", 1e-3), ("\u00b5s", 1e-6), ("ns", 1e-9))
+    for unit, factor in time_units:
         if seconds >= factor:
             return _fixed(seconds / factor, unit)
     return _fixed(seconds / 1e-9, "ns")
@@ -446,7 +441,9 @@ def _format_ratio(ratio: float, metric: str, spread: float | None) -> str:
         return f"({ratio:.{(2 if abs(ratio - 1) >= 0.005 else 3)}f}x)"
     # time ratios round up at the displayed precision, so a 0.04x never collapses to a flat 0.0x
     shown = f"{math.ceil(ratio)}x" if ratio >= 100 else f"{math.ceil(ratio * 10) / 10:.1f}x"
-    if spread is None or spread < _RATIO_SPREAD_FLOOR:
+    # below this the uncertainty rounds to nothing at the shown precision, so printing it only adds noise to the table
+    ratio_spread_floor: float = 0.005
+    if spread is None or spread < ratio_spread_floor:
         return f"({shown})"
     return f"({shown} ±{spread * 100:.0f}%)"
 
@@ -476,7 +473,7 @@ def _mark_entry(ordinal: int) -> nodes.entry:
     # Render an empty cell as the gap glyph plus the superscript keying it to the legend.
     entry = nodes.entry(classes=["bench-na"])
     paragraph = nodes.paragraph()
-    paragraph += nodes.Text(_GAP_MARK)
+    paragraph += nodes.Text("—")
     superscript = nodes.superscript()
     superscript += nodes.Text(str(ordinal))
     paragraph += superscript

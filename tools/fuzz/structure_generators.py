@@ -21,13 +21,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def corpus_main(grammar: Grammar, argv: Sequence[str] | None) -> int:
-    parser: Final = argparse.ArgumentParser()
+    parser: Final[argparse.ArgumentParser] = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--count", type=int, default=64)
     parser.add_argument("--budget", type=int, default=30)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--sweep", action="store_true")
-    args: Final = parser.parse_args(argv)
+    args: Final[argparse.Namespace] = parser.parse_args(argv)
     if args.count < 1:
         parser.error("count must be positive")
     try:
@@ -71,8 +71,8 @@ def compile_grammar(
     if root not in rules:
         msg = f"unknown root: {root}"
         raise GrammarError(msg)
-    symbols: Final = set(rules)
-    references: Final = {
+    symbols: Final[set[str]] = set(rules)
+    references: Final[set[str]] = {
         part.symbol for production in productions for part in production.parts if isinstance(part, Reference)
     }
     if unknown := references - symbols:
@@ -104,17 +104,17 @@ def _edges(
     # Price every reference once as its production's minimum cost less the referenced child's minimum.
     edges: Final[list[tuple[Production, int, str, int, int]]] = []
     for production in productions:
-        base: Final = _cost(production, minimum)
+        base: Final[tuple[int, int]] = _cost(production, minimum)
         for index, part in enumerate(production.parts):
             if isinstance(part, Reference):
-                child: Final = minimum[part.symbol]
+                child: Final[tuple[int, int]] = minimum[part.symbol]
                 edges.append((production, index, part.symbol, base[0] - child[0], base[1] - child[1]))
     return tuple(edges)
 
 
 def _reachable(root: str, rules: dict[str, list[Production]]) -> set[str]:
     found: Final[set[str]] = set()
-    pending: Final = [root]
+    pending: Final[list[str]] = [root]
     while pending:
         if (symbol := pending.pop()) not in found:
             found.add(symbol)
@@ -128,9 +128,9 @@ def _relax(rules: dict[str, list[Production]], minimum: dict[str, tuple[int, int
     changed = False
     for symbol, productions in rules.items():
         for production in productions:
-            references: Final = [part.symbol for part in production.parts if isinstance(part, Reference)]
+            references: Final[list[str]] = [part.symbol for part in production.parts if isinstance(part, Reference)]
             if all(part in minimum for part in references):
-                cost: Final = _cost(production, minimum)
+                cost: Final[tuple[int, int]] = _cost(production, minimum)
                 if symbol not in minimum or cost < minimum[symbol]:
                     minimum[symbol] = cost
                     changed = True
@@ -138,7 +138,9 @@ def _relax(rules: dict[str, list[Production]], minimum: dict[str, tuple[int, int
 
 
 def _cost(production: Production, minimum: dict[str, tuple[int, int]]) -> tuple[int, int]:
-    children: Final = [minimum[part.symbol] for part in production.parts if isinstance(part, Reference)]
+    children: Final[list[tuple[int, int]]] = [
+        minimum[part.symbol] for part in production.parts if isinstance(part, Reference)
+    ]
     return production.nodes + sum(cost[0] for cost in children), 1 + sum(cost[1] for cost in children)
 
 
@@ -146,14 +148,14 @@ def _route(grammar: Grammar, name: str) -> tuple[tuple[Production, int], ...]:
     if (target := next((production for production in grammar.productions if production.name == name), None)) is None:
         msg = f"unknown production: {name}"
         raise GrammarError(msg)
-    costs: Final = {target.symbol: _cost(target, grammar.minimum)}
+    costs: Final[dict[str, tuple[int, int]]] = {target.symbol: _cost(target, grammar.minimum)}
     paths: Final[dict[str, tuple[tuple[Production, int], ...]]] = {target.symbol: ((target, -1),)}
     changed = True
     while changed:
         changed = False
         for production, index, symbol, nodes, steps in grammar.edges:
             if symbol in costs:
-                cost: Final = nodes + costs[symbol][0], steps + costs[symbol][1]
+                cost = nodes + costs[symbol][0], steps + costs[symbol][1]
                 if production.symbol not in costs or cost < costs[production.symbol]:
                     costs[production.symbol] = cost
                     paths[production.symbol] = ((production, index), *paths[symbol])
@@ -164,11 +166,11 @@ def _route(grammar: Grammar, name: str) -> tuple[tuple[Production, int], ...]:
 def _route_cost(grammar: Grammar, route: tuple[tuple[Production, int], ...]) -> tuple[int, int]:
     cost = (0, 0)
     for production, index in reversed(route):
-        base: Final = _cost(production, grammar.minimum)
+        base: Final[tuple[int, int]] = _cost(production, grammar.minimum)
         if index < 0:
             cost = base
         else:
-            child: Final = grammar.minimum[cast("Reference", production.parts[index]).symbol]
+            child: Final[tuple[int, int]] = grammar.minimum[cast("Reference", production.parts[index]).symbol]
             cost = base[0] - child[0] + cost[0], base[1] - child[1] + cost[1]
     return cost
 
@@ -182,14 +184,14 @@ def generate(
     force: str | None = None,
 ) -> Generated:
     # Reserve the canonical minimum-node derivation and its expansion steps.
-    route: Final = _route(grammar, force) if force is not None else ()
+    route: Final[tuple[tuple[Production, int], ...]] = _route(grammar, force) if force is not None else ()
     remaining = _initial_budget(grammar, budget, route)
     pending: Final[list[tuple[bytes | Reference | Identifier, int, bool, tuple[tuple[Production, int], ...]]]] = [
         (Reference(symbol=grammar.root, depth=0), 0, leaf, route)
     ]
     output: Final[list[bytes]] = []
     fired: Final[list[str]] = []
-    bindings: Final = _Bindings(values={}, definitions=set(), references=set(), pool=grammar.identifiers)
+    bindings: Final[_Bindings] = _Bindings(values={}, definitions=set(), references=set(), pool=grammar.identifiers)
     depth = 0
     while pending:
         part, level, minimal, path = pending.pop()
@@ -217,7 +219,7 @@ def generate(
     if missing := bindings.references - bindings.definitions:
         msg = f"undefined identifiers: {sorted(missing)}"
         raise GrammarError(msg)
-    case: Final = Generated(
+    case: Final[Generated] = Generated(
         data=b"".join(output),
         nodes=(budget.nodes if isinstance(budget, GenerationBudget) else budget) - remaining[0],
         depth=depth,
@@ -230,12 +232,12 @@ def generate(
 def _initial_budget(
     grammar: Grammar, budget: int | GenerationBudget, route: tuple[tuple[Production, int], ...]
 ) -> tuple[int, int]:
-    remaining: Final = (
+    remaining: Final[tuple[int, int]] = (
         (budget.nodes, budget.steps)
         if isinstance(budget, GenerationBudget)
         else (budget, budget * max(cost[1] for cost in grammar.minimum.values()))
     )
-    required: Final = _route_cost(grammar, route) if route else grammar.minimum[grammar.root]
+    required: Final[tuple[int, int]] = _route_cost(grammar, route) if route else grammar.minimum[grammar.root]
     if any(available < needed for available, needed in zip(remaining, required, strict=True)):
         msg = "budget cannot complete the root"
         raise BudgetError(msg)
@@ -247,7 +249,7 @@ def _available(
     pending: list[tuple[bytes | Reference | Identifier, int, bool, tuple[tuple[Production, int], ...]]],
     remaining: tuple[int, int],
 ) -> tuple[int, int]:
-    reserved: Final = [
+    reserved: Final[list[tuple[int, int]]] = [
         _route_cost(grammar, route) if route else grammar.minimum[item.symbol]
         for item, _, _, route in pending
         if isinstance(item, Reference)
@@ -286,7 +288,7 @@ def _choose(
     part, level, minimal, path = frame
     if path:
         return _Choice(production=path[0][0], depth=path[0][1], minimal=True)
-    eligible: Final = [
+    eligible: Final[list[Production]] = [
         production
         for production in grammar.rules[part.symbol]
         if all(cost <= limit for cost, limit in zip(_cost(production, grammar.minimum), available, strict=True))
@@ -303,7 +305,7 @@ def generation_sweep(grammar: Grammar, minimum: int = 1, budget: int | Generatio
     if minimum < 1:
         msg = "production floors must be positive"
         raise ProductionFloorError(msg)
-    cases: Final = tuple(
+    cases: Final[tuple[Generated, ...]] = tuple(
         generate(grammar, random.Random(index), budget, force=production.name)
         for index, production in enumerate(production for production in grammar.productions for _ in range(minimum))
     )
@@ -316,7 +318,7 @@ def assert_production_floors(cases: Iterable[Generated], productions: Iterable[s
     if minimum < 1:
         msg = "production floors must be positive"
         raise ProductionFloorError(msg)
-    counts: Final = Counter(name for case in cases for name in case.productions)
+    counts: Final[Counter[str]] = Counter(name for case in cases for name in case.productions)
     if missing := {name: counts[name] for name in productions if counts[name] < minimum}:
         msg = f"production floors missed: {missing}"
         raise ProductionFloorError(msg)
@@ -328,7 +330,7 @@ def write_corpus(cases: Iterable[Generated], directory: Path) -> int:
     directory.mkdir(parents=True, exist_ok=True)
     paths: Final[set[Path]] = set()
     for case in cases:
-        path: Final = directory / hashlib.sha256(case.data).hexdigest()
+        path: Final[Path] = directory / hashlib.sha256(case.data).hexdigest()
         path.write_bytes(case.data)
         paths.add(path)
     return len(paths)
@@ -419,7 +421,7 @@ def html_generate(rng: random.Random, budget: int = 30) -> Generated:
 def html_grammar() -> Grammar:
     # Separate child containers so adjacent text nodes cannot merge.
     html_standard: str = "https://html.spec.whatwg.org/multipage/parsing.html"
-    productions: Final = [
+    productions: Final[list[Production]] = [
         Production(
             name="html:root",
             symbol="root",
@@ -545,10 +547,10 @@ class _Attribute(NamedTuple):
 
 
 def _attribute(name: str, value: str, index: int) -> _Attribute:
-    tag: Final = {"href": "a", "src": "img", "alt": "img", "name": "input", "type": "input", "value": "input"}.get(
+    tag: Final[str] = {"href": "a", "src": "img", "alt": "img", "name": "input", "type": "input", "value": "input"}.get(
         name, "span"
     )
-    encoded: Final = escape(
+    encoded: Final[bytes] = escape(
         ("x", "y", "z")[1 + index % 2] if name == "id" else ("a", "b", "c")[index % 3] if name == "class" else value,
         quote=True,
     ).encode("utf-8")
@@ -557,7 +559,7 @@ def _attribute(name: str, value: str, index: int) -> _Attribute:
         if value == "#f" and name not in {"id", "class"}
         else (encoded,)
     )
-    ending: Final = b">" if tag in _VOID else f">x</{tag}>".encode("ascii")
+    ending: Final[bytes] = b">" if tag in _VOID else f">x</{tag}>".encode("ascii")
     return _Attribute(
         (f'<{tag} {name}="'.encode("ascii"), *parts, b'"' + ending),
         1 if tag in _VOID else 2,

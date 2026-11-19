@@ -11,13 +11,15 @@ from typing import TYPE_CHECKING, Final, cast
 import pytest
 from bench.operations import INPUTS
 
-from turbohtml import parse_xml
+from turbohtml import Element, Node, parse_xml
 from turbohtml.validate import RelaxNG, SchemaValidationError, ValidationResult
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
+    from types import ModuleType
 
+    import lxml.etree
     from traced_bytes import PeakBytes
     from work_steps import WorkSteps
 
@@ -238,15 +240,15 @@ def test_data_param_patterns_share_the_state_budget() -> None:
 
 def test_data_param_class_of_many_ranges_matches_in_linear_steps(work_steps: WorkSteps) -> None:
     def build(members: int) -> Callable[[], object]:
-        pattern: Final = f"[{'a-c' * members}]*"
-        schema: Final = RelaxNG(
+        pattern: Final[str] = f"[{'a-c' * members}]*"
+        schema: Final[RelaxNG] = RelaxNG(
             grammar(
                 f'<start><element name="s"><data type="string"><param name="pattern">{pattern}</param></data>'
                 "</element></start>",
                 attrs=f'datatypeLibrary="{_DT}"',
             )
         )
-        document: Final = parse_xml(f"<s>{'b' * members}</s>")
+        document: Final[Document] = parse_xml(f"<s>{'b' * members}</s>")
         return partial(schema.is_valid, document)
 
     work_steps.assert_linear(build, (500, 2000))
@@ -509,18 +511,18 @@ def test_namespace_declarations_scope_to_their_element(schema: str, xml: str, *,
 
 def test_colon_attribute_is_no_declaration() -> None:
     # the parser rejects a bare "xmlns:", but the DOM stores one, and it must not bind the default namespace
-    document: Final = parse_xml("<root><c/></root>")
-    root: Final = document.root
+    document: Final[Document] = parse_xml("<root><c/></root>")
+    root: Final[Element | None] = document.root
     assert root is not None
     root.attrs["xmlns:"] = "urn:a"
-    schema: Final = grammar('<start><element name="root"><element name="c"><empty/></element></element></start>')
+    schema: Final[str] = grammar('<start><element name="root"><element name="c"><empty/></element></element></start>')
     assert RelaxNG(schema).validate(document).valid
 
 
 def test_element_below_the_root_sees_declarations_above_it() -> None:
     # validating an element on its own still resolves its name against the declaration on the document root
-    element: Final = parse_xml('<a xmlns="urn:x"><b>v</b></a>').children[0].children[0]
-    schema: Final = grammar('<start><element name="b" ns="urn:x"><text/></element></start>')
+    element: Final[Node] = parse_xml('<a xmlns="urn:x"><b>v</b></a>').children[0].children[0]
+    schema: Final[str] = grammar('<start><element name="b" ns="urn:x"><text/></element></start>')
     assert RelaxNG(schema).validate(element).valid
 
 
@@ -2797,10 +2799,10 @@ def test_rng_attribute_in_the_tail_decides(xml: str, *, valid: bool) -> None:
 
 def test_shared_closed_tail_schema_validates_distinct_documents() -> None:
     # a closed tail in the compiled schema is read by every validation, so the threads must not disagree on it
-    schema: Final = RelaxNG(_block_grammar(3, 40))
-    documents: Final = [parse_xml(_blocks(count, 40)) for count in (8, 9) * 8]
+    schema: Final[RelaxNG] = RelaxNG(_block_grammar(3, 40))
+    documents: Final[list[Document]] = [parse_xml(_blocks(count, 40)) for count in (8, 9) * 8]
     with ThreadPoolExecutor(max_workers=4) as executor:
-        results: Final = list(executor.map(schema.validate, documents))
+        results: Final[list[ValidationResult]] = list(executor.map(schema.validate, documents))
     assert [result.valid for result in results] == [True, False] * 8
 
 
@@ -3282,25 +3284,25 @@ def test_rng_define_dedup_finds_on_later_iteration() -> None:
 
 @pytest.mark.parametrize("name", [pytest.param("node", id="unqualified"), pytest.param("xml:node", id="xml-prefix")])
 def test_shared_schema_validates_distinct_documents(name: str) -> None:
-    schema: Final = RelaxNG(
+    schema: Final[RelaxNG] = RelaxNG(
         '<grammar xmlns="http://relaxng.org/ns/structure/1.0"><start><ref name="node"/></start>'
         f'<define name="node"><element><name>{name}</name><zeroOrMore><ref name="node"/></zeroOrMore>'
         "</element></define></grammar>"
     )
-    children: Final = (name, "other") * 16
-    documents: Final = [parse_xml(f"<{name}><{child}/></{name}>") for child in children]
+    children: Final[tuple[str, ...]] = (name, "other") * 16
+    documents: Final[list[Document]] = [parse_xml(f"<{name}><{child}/></{name}>") for child in children]
     with ThreadPoolExecutor(max_workers=4) as executor:
-        results: Final = list(executor.map(schema.validate, documents))
+        results: Final[list[ValidationResult]] = list(executor.map(schema.validate, documents))
     assert [result.valid for result in results] == [child == name for child in children]
 
 
 def test_rng_routing_leaves_the_compiled_schema_unchanged(work_steps: WorkSteps) -> None:
     # the first token takes enough steps to start routing, which adopts what it derived: the compiled <optional>
-    values: Final = "".join(f"<value>v{index}</value>" for index in range(100))
-    optional: Final = "<optional><value>a</value><value>b</value><empty/></optional>"
-    schema: Final = RelaxNG(wrap(f"<list><choice>{values}</choice>{optional}</list>"))
-    document: Final = parse_xml("<doc>v5 a b</doc>")
-    steps: Final = [work_steps(partial(schema.validate, document)) for _ in range(2)]
+    values: Final[str] = "".join(f"<value>v{index}</value>" for index in range(100))
+    optional: Final[str] = "<optional><value>a</value><value>b</value><empty/></optional>"
+    schema: Final[RelaxNG] = RelaxNG(wrap(f"<list><choice>{values}</choice>{optional}</list>"))
+    document: Final[Document] = parse_xml("<doc>v5 a b</doc>")
+    steps: Final[list[int]] = [work_steps(partial(schema.validate, document)) for _ in range(2)]
     assert steps[0] > 0
     assert steps[1] == steps[0]
     assert schema.is_valid(document)
@@ -3336,8 +3338,8 @@ def test_reuse_benchmark_output(index: int) -> None:
     ],
 )
 def test_repeated_validation_preserves_character_data(pattern: str, documents: tuple[str, str]) -> None:
-    schema: Final = RelaxNG(rwrap(pattern))
-    parsed: Final = tuple(map(parse_xml, documents))
+    schema: Final[RelaxNG] = RelaxNG(rwrap(pattern))
+    parsed: Final[tuple[Document, ...]] = tuple(map(parse_xml, documents))
     assert [schema.validate(document).valid for _ in range(3) for document in parsed] == [True, False] * 3
 
 
@@ -3400,8 +3402,8 @@ def test_repeated_validation_preserves_character_data(pattern: str, documents: t
     ],
 )
 def test_relaxng_matches_lxml(schema: str, doc: str) -> None:
-    etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
-    validator: Final = etree.RelaxNG(etree.fromstring(schema.encode()))
+    etree: Final[ModuleType] = pytest.importorskip("lxml.etree", exc_type=ImportError)
+    validator: Final[lxml.etree.RelaxNG] = etree.RelaxNG(etree.fromstring(schema.encode()))
     assert RelaxNG(schema).validate(parse_xml(doc)).valid == validator.validate(etree.fromstring(doc.encode()))
 
 
@@ -3416,9 +3418,9 @@ def test_relaxng_matches_lxml(schema: str, doc: str) -> None:
     ],
 )
 def test_lxml_rng_reuse_benchmark_output(index: int) -> None:
-    etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
+    etree: Final[ModuleType] = pytest.importorskip("lxml.etree", exc_type=ImportError)
     source, document = cast("tuple[str, str]", INPUTS["validate-rng-reuse"]()[index][1])
-    schema: Final = etree.RelaxNG(etree.fromstring(source.encode()))
+    schema: Final[lxml.etree.RelaxNG] = etree.RelaxNG(etree.fromstring(source.encode()))
     assert [
         schema.validate(etree.fromstring(text.encode()))
         for text in (document, document.replace("</", "<unexpected/></", 1))
@@ -3445,7 +3447,7 @@ def test_lxml_rng_reuse_benchmark_output(index: int) -> None:
     ],
 )
 def test_rng_reference_nullability(combinator: str, left: str, right: str, *, expected: bool) -> None:
-    schema: Final = RelaxNG(
+    schema: Final[RelaxNG] = RelaxNG(
         '<grammar xmlns="http://relaxng.org/ns/structure/1.0"><start><element name="r">'
         '<attribute name="a"><list>'
         f'<{combinator}><ref name="left"/><ref name="right"/></{combinator}>'
@@ -3529,7 +3531,7 @@ _RNG: Final[str] = "http://relaxng.org/ns/structure/1.0"
     ],
 )
 def test_relaxng_missing_href_rejects_compilation(schema: str, *, make_source: Callable[[str], str | Document]) -> None:
-    source: Final = make_source(schema)
+    source: Final[str | Document] = make_source(schema)
     for _ in range(2):
         with pytest.raises(ValueError, match="required href attribute"):
             RelaxNG(source)
@@ -3544,16 +3546,16 @@ def test_relaxng_missing_href_rejects_compilation(schema: str, *, make_source: C
     ],
 )
 def test_relaxng_missing_href_ignores_foreign_annotations(annotation: str) -> None:
-    schema: Final = (
+    schema: Final[str] = (
         f'<grammar xmlns="{_RNG}" xmlns:doc="urn:annotation">\n<!-- annotation -->'
         f'{annotation}<start><element name="foo"><empty/></element></start></grammar>'
     )
-    validator: Final = RelaxNG(schema)
+    validator: Final[RelaxNG] = RelaxNG(schema)
     assert [validator.validate(parse_xml(document)).valid for document in ("<foo/>", "<wrong/>")] == [True, False]
 
 
 def test_relaxng_missing_href_preserves_ordinary_patterns() -> None:
-    validator: Final = RelaxNG(f'<element xmlns="{_RNG}" name="foo"><text/></element>')
+    validator: Final[RelaxNG] = RelaxNG(f'<element xmlns="{_RNG}" name="foo"><text/></element>')
     assert [validator.validate(parse_xml(document)).valid for document in ("<foo>text</foo>", "<wrong/>")] == [
         True,
         False,
@@ -3574,8 +3576,8 @@ _NAMESPACE: Final[str] = 'xmlns="http://relaxng.org/ns/structure/1.0"'
     ],
 )
 def test_relaxng_undefined_reference_rejects_compilation(count: int, pattern: str) -> None:
-    definitions: Final = "".join(f'<define name="entry{index}"><empty/></define>' for index in range(count))
-    schema: Final = f"<grammar {_NAMESPACE}><start>{pattern}</start>{definitions}</grammar>"
+    definitions: Final[str] = "".join(f'<define name="entry{index}"><empty/></define>' for index in range(count))
+    schema: Final[str] = f"<grammar {_NAMESPACE}><start>{pattern}</start>{definitions}</grammar>"
     for _ in range(2):
         with pytest.raises(ValueError, match="has no matching define"):
             RelaxNG(schema)
@@ -3589,13 +3591,13 @@ def test_relaxng_undefined_short_reference_rejects_compilation() -> None:
 
 @pytest.mark.parametrize("count", [pytest.param(0, id="linear"), pytest.param(12, id="hashed")])
 def test_relaxng_forward_reference_preserves_recursive_validation(count: int) -> None:
-    definitions: Final = "".join(f'<define name="unused{index}"><empty/></define>' for index in range(count))
-    schema: Final = (
+    definitions: Final[str] = "".join(f'<define name="unused{index}"><empty/></define>' for index in range(count))
+    schema: Final[str] = (
         f'<grammar {_NAMESPACE}><start><ref name="entry"/></start>'
         '<define name="entry"><element name="root"><optional><ref name="entry"/></optional></element></define>'
         f"{definitions}</grammar>"
     )
-    validator: Final = RelaxNG(schema)
+    validator: Final[RelaxNG] = RelaxNG(schema)
     assert [
         [validator.is_valid(parse_xml(document)) for document in ("<root/>", "<root><root/></root>", "<wrong/>")]
         for _ in range(2)
@@ -3611,7 +3613,7 @@ def test_relaxng_forward_reference_preserves_recursive_validation(count: int) ->
     ],
 )
 def test_relaxng_undefined_unused_reference_rejects_compilation(pattern: str) -> None:
-    schema: Final = (
+    schema: Final[str] = (
         f'<grammar {_NAMESPACE}><start><element name="root"><empty/></element></start>'
         f'<define name="unused">{pattern}</define></grammar>'
     )
@@ -3634,15 +3636,15 @@ def test_relaxng_undefined_unused_reference_rejects_compilation(pattern: str) ->
     ],
 )
 def test_relaxng_unused_reference_cycle_preserves_reachable_validation(definitions: str) -> None:
-    schema: Final = (
+    schema: Final[str] = (
         f'<grammar {_NAMESPACE}><start><element name="root"><empty/></element></start>{definitions}</grammar>'
     )
-    validator: Final = RelaxNG(schema)
+    validator: Final[RelaxNG] = RelaxNG(schema)
     assert [validator.is_valid(parse_xml(document)) for document in ("<root/>", "<other/>")] == [True, False]
 
 
 def test_relaxng_undefined_combined_unused_reference_rejects_compilation() -> None:
-    schema: Final = (
+    schema: Final[str] = (
         f'<grammar {_NAMESPACE}><start><element name="root"><empty/></element></start>'
         '<define name="unused" combine="choice"><empty/></define>'
         '<define name="unused" combine="choice"><ref name="missing"/></define></grammar>'
@@ -3652,7 +3654,7 @@ def test_relaxng_undefined_combined_unused_reference_rejects_compilation() -> No
 
 
 def test_relaxng_unused_foreign_annotation_is_ignored() -> None:
-    schema: Final = (
+    schema: Final[str] = (
         f'<grammar {_NAMESPACE} xmlns:doc="urn:documentation">'
         '<start><element name="root"><empty/></element></start>'
         '<define name="unused"><doc:annotation><ref name="missing"/></doc:annotation><empty/></define></grammar>'
@@ -3661,12 +3663,12 @@ def test_relaxng_unused_foreign_annotation_is_ignored() -> None:
 
 
 def test_relaxng_annotation_normalization_preserves_public_source() -> None:
-    source: Final = parse_xml(
+    source: Final[Document] = parse_xml(
         f'<element {_NAMESPACE} xmlns:doc="urn:documentation" name="root">'
         '<empty/><doc:annotation><ref name="missing"/></doc:annotation></element>'
     )
-    serialized: Final = source.serialize()
-    validator: Final = RelaxNG(source)
+    serialized: Final[str] = source.serialize()
+    validator: Final[RelaxNG] = RelaxNG(source)
     assert (source.serialize(), validator.is_valid(parse_xml("<root/>"))) == (serialized, True)
 
 
@@ -3709,7 +3711,9 @@ _RELAXNG_EMPTY_CONTENT_NAMESPACE: Final[str] = "http://relaxng.org/ns/structure/
     ],
 )
 def test_rng_empty_content(pattern: str, content: str, *, expected: bool) -> None:
-    validator: Final = RelaxNG(f'<element xmlns="{_RELAXNG_EMPTY_CONTENT_NAMESPACE}" name="doc">{pattern}</element>')
+    validator: Final[RelaxNG] = RelaxNG(
+        f'<element xmlns="{_RELAXNG_EMPTY_CONTENT_NAMESPACE}" name="doc">{pattern}</element>'
+    )
     assert tuple(validator.validate(parse_xml(f"<doc>{content}</doc>")).valid for _ in range(2)) == (expected, expected)
 
 
@@ -3725,7 +3729,9 @@ def test_rng_empty_content(pattern: str, content: str, *, expected: bool) -> Non
     ],
 )
 def test_rng_empty_content_controls(pattern: str, content: str, *, expected: bool) -> None:
-    validator: Final = RelaxNG(f'<element xmlns="{_RELAXNG_EMPTY_CONTENT_NAMESPACE}" name="doc">{pattern}</element>')
+    validator: Final[RelaxNG] = RelaxNG(
+        f'<element xmlns="{_RELAXNG_EMPTY_CONTENT_NAMESPACE}" name="doc">{pattern}</element>'
+    )
     assert tuple(validator.validate(parse_xml(f"<doc>{content}</doc>")).valid for _ in range(2)) == (expected, expected)
 
 
@@ -3765,11 +3771,11 @@ def test_relaxng_value_default_token(
     *, form: tuple[str, str], attributes: tuple[str, str], literal: str, content: str, expected: bool
 ) -> None:
     wrap, document_template = form
-    value: Final = f"<value {attributes[0]}>{literal}</value>"
-    pattern: Final = wrap.format(value)
+    value: Final[str] = f"<value {attributes[0]}>{literal}</value>"
+    pattern: Final[str] = wrap.format(value)
     value_ns = "http://relaxng.org/ns/structure/1.0"
-    validator: Final = RelaxNG(f'<element xmlns="{value_ns}" name="doc" {attributes[1]}>{pattern}</element>')
-    document: Final = document_template.format(content)
+    validator: Final[RelaxNG] = RelaxNG(f'<element xmlns="{value_ns}" name="doc" {attributes[1]}>{pattern}</element>')
+    document: Final[str] = document_template.format(content)
     assert tuple(validator.validate(parse_xml(document)).valid for _ in range(2)) == (expected, expected)
 
 
@@ -3821,7 +3827,7 @@ def test_relaxng_rejects_foreign_root(schema: str) -> None:
     ],
 )
 def test_relaxng_structure_root_preserves_validation(schema: str) -> None:
-    validator: Final = RelaxNG(schema)
+    validator: Final[RelaxNG] = RelaxNG(schema)
     assert [
         (validator.validate(parse_xml("<doc/>")).valid, validator.validate(parse_xml("<other/>")).valid)
         for _ in range(2)
@@ -4004,9 +4010,11 @@ _RELAXNG_DATA_EXCEPT_XSD: Final[str] = "http://www.w3.org/2001/XMLSchema-datatyp
 )
 def test_relaxng_data_except(*, form: tuple[str, str], pattern: str, content: str, expected: bool) -> None:
     wrap, document_template = form
-    body: Final = wrap.format(pattern)
-    validator: Final = RelaxNG(f'<element xmlns="{"http://relaxng.org/ns/structure/1.0"}" name="doc">{body}</element>')
-    document: Final = document_template.format(content)
+    body: Final[str] = wrap.format(pattern)
+    validator: Final[RelaxNG] = RelaxNG(
+        f'<element xmlns="{"http://relaxng.org/ns/structure/1.0"}" name="doc">{body}</element>'
+    )
+    document: Final[str] = document_template.format(content)
     assert tuple(validator.validate(parse_xml(document)).valid for _ in range(2)) == (expected, expected)
 
 
@@ -4042,12 +4050,12 @@ _LIBRARY: Final[str] = "http://www.w3.org/2001/XMLSchema-datatypes"
 )
 def test_rng_numeric_bound(datatype: str, facet: str, value: str, *, form: tuple[str, str], expected: bool) -> None:
     wrap, document_template = form
-    pattern: Final = f'<data type="{datatype}"><param name="{facet}">1</param></data>'
-    validator: Final = RelaxNG(
+    pattern: Final[str] = f'<data type="{datatype}"><param name="{facet}">1</param></data>'
+    validator: Final[RelaxNG] = RelaxNG(
         f'<element xmlns="{_RELAXNG_NUMERIC_BOUNDS_NAMESPACE}" datatypeLibrary="{_LIBRARY}" name="doc">'
         f"{wrap.format(pattern)}</element>"
     )
-    document: Final = document_template.format(value)
+    document: Final[str] = document_template.format(value)
     assert tuple(validator.validate(parse_xml(document)).valid for _ in range(2)) == (expected, expected)
 
 
@@ -4072,7 +4080,7 @@ def test_rng_numeric_bound(datatype: str, facet: str, value: str, *, form: tuple
     ],
 )
 def test_rng_ordered_bound(datatype: str, values: tuple[str, str, str], facet: str, expected: tuple[bool, ...]) -> None:
-    validator: Final = RelaxNG(
+    validator: Final[RelaxNG] = RelaxNG(
         f'<element xmlns="{_RELAXNG_NUMERIC_BOUNDS_NAMESPACE}" datatypeLibrary="{_LIBRARY}" name="doc">'
         f'<data type="{datatype}"><param name="{facet}"> {values[1]} </param></data></element>'
     )
@@ -4090,7 +4098,7 @@ def test_rng_ordered_bound(datatype: str, values: tuple[str, str, str], facet: s
 )
 @pytest.mark.parametrize("facet", ["minInclusive", "maxInclusive", "minExclusive", "maxExclusive"])
 def test_rng_ordered_bound_unordered(datatype: str, bound: str, value: str, facet: str) -> None:
-    validator: Final = RelaxNG(
+    validator: Final[RelaxNG] = RelaxNG(
         f'<element xmlns="{_RELAXNG_NUMERIC_BOUNDS_NAMESPACE}" datatypeLibrary="{_LIBRARY}" name="doc">'
         f'<data type="{datatype}"><param name="{facet}">{bound}</param></data></element>'
     )
@@ -4099,7 +4107,7 @@ def test_rng_ordered_bound_unordered(datatype: str, bound: str, value: str, face
 
 @pytest.mark.parametrize("facet", ["minInclusive", "maxInclusive", "minExclusive", "maxExclusive"])
 def test_rng_numeric_bound_nan(facet: str) -> None:
-    validator: Final = RelaxNG(
+    validator: Final[RelaxNG] = RelaxNG(
         f'<element xmlns="{_RELAXNG_NUMERIC_BOUNDS_NAMESPACE}" datatypeLibrary="{_LIBRARY}" name="doc">'
         f'<data type="double"><param name="{facet}">1</param></data></element>'
     )
@@ -4185,7 +4193,7 @@ def test_rng_numeric_bound_nan(facet: str) -> None:
     ],
 )
 def test_rng_numeric_bound_controls(datatype: str, params: str, value: str, *, expected: bool) -> None:
-    validator: Final = RelaxNG(
+    validator: Final[RelaxNG] = RelaxNG(
         f'<element xmlns="{_RELAXNG_NUMERIC_BOUNDS_NAMESPACE}" datatypeLibrary="{_LIBRARY}" name="doc">'
         f'<data type="{datatype}">{params}</data></element>'
     )
@@ -4273,13 +4281,13 @@ def test_rng_wide_pattern_fits_a_small_thread_stack(schema: str, document: str, 
     # the patterns of one container join into a balanced tree, so the derivative recursion grows with the log of their
     # count; a subprocess turns a stack overflow into a failed assertion instead of a killed worker. A case whose
     # nesting needs more C stack than the thread has may instead raise RecursionError.
-    result: Final = _run_on_small_stack(schema, document)
+    result: Final[subprocess.CompletedProcess[str]] = _run_on_small_stack(schema, document)
     assert result.returncode == 0, result.stderr
     assert result.stdout in outcomes, result.stderr
 
 
 def _run_on_small_stack(schema: str, document: str, stack_kib: int = 128) -> subprocess.CompletedProcess[str]:
-    code: Final = (
+    code: Final[str] = (
         "import json, sys, threading\nfrom turbohtml import parse_xml\nfrom turbohtml.validate import RelaxNG\n"
         "data = json.load(sys.stdin)\n"
         f"for kib in range({stack_kib}, 129, 4):\n    try:\n        threading.stack_size(kib * 1024)\n"
@@ -4396,7 +4404,7 @@ def test_rng_deep_nesting_raises_or_validates_on_a_small_thread_stack(
 ) -> None:
     # a derivative level costs C stack, so on a small thread a deep enough nest raises RecursionError before the stack
     # ends; the outcome is a verdict or that error, never a crashed worker
-    result: Final = _run_on_small_stack(schema, document, stack_kib)
+    result: Final[subprocess.CompletedProcess[str]] = _run_on_small_stack(schema, document, stack_kib)
     assert result.returncode == 0, result.stderr
     assert result.stdout in {"True\n", "False\n", "RecursionError\n"}, result.stderr
 
@@ -4404,7 +4412,9 @@ def test_rng_deep_nesting_raises_or_validates_on_a_small_thread_stack(
 def test_rng_routed_chain_on_small_thread_stack_raises_or_validates() -> None:
     # the wide choice costs its event more than the free steps, so the next event builds the routes from the root, one
     # build per chained define; a 100-define chain overruns a 32 KiB thread, so the build reaches the stack floor
-    result: Final = _run_on_small_stack(_routed_chain(100), "<root><w5/><leaf/></root>", stack_kib=32)
+    result: Final[subprocess.CompletedProcess[str]] = _run_on_small_stack(
+        _routed_chain(100), "<root><w5/><leaf/></root>", stack_kib=32
+    )
     assert result.returncode == 0, result.stderr
     assert result.stdout in {"True\n", "RecursionError\n"}, result.stderr
 
@@ -4438,7 +4448,7 @@ def _open_walk_sweep() -> subprocess.CompletedProcess[str]:
     # platform accepts: shallow depths validate, deep ones raise RecursionError. The walk closes the nest before it
     # opens it, so the depth where the open walk alone runs out of stack lies between two depths, and the sweep crosses
     # it on any build.
-    code: Final = (
+    code: Final[str] = (
         "import json, sys, threading\nfrom turbohtml import parse_xml\nfrom turbohtml.validate import RelaxNG\n"
         "data = json.load(sys.stdin)\n"
         "for kib in range(16, 129, 4):\n    try:\n        threading.stack_size(kib * 1024)\n"
@@ -4469,7 +4479,7 @@ def _open_walk_sweep() -> subprocess.CompletedProcess[str]:
 
 def _open_walk_unreachable() -> bool:
     # a crash stays a failure of the test itself; only a sweep that completes without any RecursionError is skipped
-    sweep: Final = _open_walk_sweep()
+    sweep: Final[subprocess.CompletedProcess[str]] = _open_walk_sweep()
     return sweep.returncode == 0 and "RecursionError" not in sweep.stdout
 
 
@@ -4480,9 +4490,9 @@ def _open_walk_unreachable() -> bool:
 def test_rng_open_walk_guard_on_small_stack() -> None:  # pragma: no cover  # only where the probe reaches the guard
     # the sweep is the parent-side probe: where it completes without RecursionError the test is skipped, and where it
     # runs, the sweep must raise RecursionError somewhere and never crash
-    sweep: Final = _open_walk_sweep()
+    sweep: Final[subprocess.CompletedProcess[str]] = _open_walk_sweep()
     assert sweep.returncode == 0, sweep.stderr
-    outcomes: Final = sweep.stdout.split()
+    outcomes: Final[list[str]] = sweep.stdout.split()
     assert len(outcomes) == _DEEP, sweep.stderr
     assert set(outcomes) <= {"valid", "invalid", "RecursionError"}, sweep.stdout
     assert "RecursionError" in outcomes, sweep.stdout
@@ -4493,8 +4503,8 @@ def _repeat_check_sweep() -> subprocess.CompletedProcess[str]:
     # json's encoder nests one C level per depth and calls the validation from its innermost level, so the stack that
     # is left at the validation shrinks with the depth; the repeat check recurses on whatever is left, so it fires once
     # the walk above it has used most of the thread's stack. Each depth validates, or raises RecursionError.
-    nest: Final = "<group>" * 60 + "<text/>" * 300 + "</group>" * 60
-    code: Final = (
+    nest: Final[str] = "<group>" * 60 + "<text/>" * 300 + "</group>" * 60
+    code: Final[str] = (
         "import json, sys, threading\nfrom turbohtml import parse_xml\nfrom turbohtml.validate import RelaxNG\n"
         "data = json.load(sys.stdin)\n"
         "for kib in range(16, 129, 4):\n    try:\n        threading.stack_size(kib * 1024)\n"
@@ -4535,7 +4545,7 @@ def _repeat_check_sweep() -> subprocess.CompletedProcess[str]:
 
 def _repeat_check_unreachable() -> bool:
     # a crash stays a failure of the test itself; only a sweep that completes without any RecursionError is skipped
-    sweep: Final = _repeat_check_sweep()
+    sweep: Final[subprocess.CompletedProcess[str]] = _repeat_check_sweep()
     return sweep.returncode == 0 and "RecursionError" not in sweep.stdout
 
 
@@ -4554,9 +4564,9 @@ def _pypy_interpreter_overruns_stack() -> bool:
 def test_rng_repeat_guard_on_small_stack() -> None:  # pragma: no cover  # only where the probe reaches the guard
     # the sweep is the parent-side probe above: where it completes without RecursionError the test is skipped, and
     # where it runs, the repeat check must fire somewhere in the sweep and the sweep must never crash
-    sweep: Final = _repeat_check_sweep()
+    sweep: Final[subprocess.CompletedProcess[str]] = _repeat_check_sweep()
     assert sweep.returncode == 0, sweep.stderr
-    outcomes: Final = [outcome.split(":")[1] for outcome in sweep.stdout.split()]
+    outcomes: Final[list[str]] = [outcome.split(":")[1] for outcome in sweep.stdout.split()]
     assert len(outcomes) == 120, sweep.stderr
     assert set(outcomes) <= {"valid", "RecursionError", "JSONRecursionError"}, sweep.stdout
     assert "RecursionError" in outcomes, sweep.stdout
@@ -4581,7 +4591,7 @@ _ATTRIBUTE: Final[str] = '<attribute name="a{}"/>'
 
 
 def _arrival(order: str, count: int) -> list[int]:
-    indexes: Final = list(range(count))
+    indexes: Final[list[int]] = list(range(count))
     if order == "reverse":
         return indexes[::-1]
     if order == "alternating":
@@ -4596,7 +4606,7 @@ def _arrival(order: str, count: int) -> list[int]:
 
 
 def _leaves(order: str, count: int, *, twice: bool = False) -> str:
-    children: Final = "".join(f"<w{index}/>" for index in _arrival(order, count))
+    children: Final[str] = "".join(f"<w{index}/>" for index in _arrival(order, count))
     return f"<doc>{children * (1 + twice)}</doc>"
 
 
@@ -4618,22 +4628,22 @@ def test_rng_wide_interleave_scales_linearly_in_any_order(order: str, work_steps
 
 
 def _repeated_branches(count: int) -> tuple[str, str]:
-    body: Final = _repeat(f"<oneOrMore>{_LEAF}</oneOrMore>", count)
+    body: Final[str] = _repeat(f"<oneOrMore>{_LEAF}</oneOrMore>", count)
     return wrap(f"<interleave>{body}</interleave>"), _leaves("reverse", count, twice=True)
 
 
 def _nested_interleaves(count: int) -> tuple[str, str]:
-    body: Final = _in_slices("<interleave>{}</interleave>", count)
+    body: Final[str] = _in_slices("<interleave>{}</interleave>", count)
     return wrap(f"<interleave>{body}</interleave>"), _leaves("alternating", count)
 
 
 def _nested_repeats(count: int) -> tuple[str, str]:
-    body: Final = _in_slices("<oneOrMore><interleave>{}</interleave></oneOrMore>", count)
+    body: Final[str] = _in_slices("<oneOrMore><interleave>{}</interleave></oneOrMore>", count)
     return wrap(f"<interleave>{body}</interleave>"), _leaves("outside-in", count, twice=True)
 
 
 def _optional_branches(count: int) -> tuple[str, str]:
-    body: Final = _repeat(f"<optional>{_LEAF}</optional>", count)
+    body: Final[str] = _repeat(f"<optional>{_LEAF}</optional>", count)
     return wrap(f"<interleave>{body}</interleave>"), _leaves("reverse", count // 2)
 
 
@@ -4646,17 +4656,19 @@ def _optional_group(count: int) -> tuple[str, str]:
 
 
 def _mixed_text(count: int) -> tuple[str, str]:
-    children: Final = "".join(f"<w{index}/>t" for index in _arrival("alternating", count))
+    children: Final[str] = "".join(f"<w{index}/>t" for index in _arrival("alternating", count))
     return wrap(f"<mixed><interleave>{_repeat(_LEAF, count)}</interleave></mixed>"), f"<doc>{children}</doc>"
 
 
 def _referenced_branches(count: int) -> tuple[str, str]:
-    start: Final = f'<start><element name="doc"><interleave>{_repeat(_LEAF_REF, count)}</interleave></element></start>'
+    start: Final[str] = (
+        f'<start><element name="doc"><interleave>{_repeat(_LEAF_REF, count)}</interleave></element></start>'
+    )
     return grammar(f"{start}{_repeat(_LEAF_DEFINE, count)}"), _leaves("reverse", count)
 
 
 def _referenced_choice(count: int) -> tuple[str, str]:
-    start: Final = (
+    start: Final[str] = (
         f'<start><element name="doc"><zeroOrMore><choice>{_repeat(_LEAF_REF, count)}</choice></zeroOrMore>'
         "</element></start>"
     )
@@ -4664,45 +4676,45 @@ def _referenced_choice(count: int) -> tuple[str, str]:
 
 
 def _combined_branches(count: int) -> tuple[str, str]:
-    defines: Final = _repeat(f'<define name="wide" combine="interleave">{_LEAF}</define>', count)
+    defines: Final[str] = _repeat(f'<define name="wide" combine="interleave">{_LEAF}</define>', count)
     return grammar(f"{_WIDE_START}{defines}"), _leaves("outside-in", count)
 
 
 def _namespace_branches(count: int) -> tuple[str, str]:
-    body: Final = _repeat('<element><nsName ns="urn:n{}"/><empty/></element>', count)
-    children: Final = "".join(f'<x xmlns="urn:n{index}"/>' for index in _arrival("reverse", count))
+    body: Final[str] = _repeat('<element><nsName ns="urn:n{}"/><empty/></element>', count)
+    children: Final[str] = "".join(f'<x xmlns="urn:n{index}"/>' for index in _arrival("reverse", count))
     return wrap(f"<interleave>{body}</interleave>"), f"<doc>{children}</doc>"
 
 
 def _text_values(count: int) -> tuple[str, str]:
-    item: Final = f'<element name="i"><choice>{_repeat(_STRING_VALUE, count)}</choice></element>'
-    children: Final = "".join(f"<i>v{index}</i>" for index in _arrival("reverse", count))
+    item: Final[str] = f'<element name="i"><choice>{_repeat(_STRING_VALUE, count)}</choice></element>'
+    children: Final[str] = "".join(f"<i>v{index}</i>" for index in _arrival("reverse", count))
     return wrap(f"<oneOrMore>{item}</oneOrMore>"), f"<doc>{children}</doc>"
 
 
 def _list_values(count: int) -> tuple[str, str]:
-    tokens: Final = " ".join(f"v{index}" for index in _arrival("alternating", count))
-    body: Final = f"<list><oneOrMore><choice>{_repeat('<value>v{}</value>', count)}</choice></oneOrMore></list>"
+    tokens: Final[str] = " ".join(f"v{index}" for index in _arrival("alternating", count))
+    body: Final[str] = f"<list><oneOrMore><choice>{_repeat('<value>v{}</value>', count)}</choice></oneOrMore></list>"
     return wrap(body), f"<doc>{tokens}</doc>"
 
 
 def _attribute_values(count: int) -> tuple[str, str]:
-    item: Final = (
+    item: Final[str] = (
         f'<element name="i"><attribute name="a"><choice>{_repeat("<value>v{}</value>", count)}</choice></attribute>'
         "</element>"
     )
-    children: Final = "".join(f'<i a=" v{index}"/>' for index in _arrival("outside-in", count))
+    children: Final[str] = "".join(f'<i a=" v{index}"/>' for index in _arrival("outside-in", count))
     return wrap(f"<oneOrMore>{item}</oneOrMore>"), f"<doc>{children}</doc>"
 
 
 def _attribute_branches(count: int) -> tuple[str, str]:
-    attributes: Final = " ".join(f'a{index}="x"' for index in _arrival("reverse", count))
+    attributes: Final[str] = " ".join(f'a{index}="x"' for index in _arrival("reverse", count))
     return wrap(f"<interleave>{_repeat(_ATTRIBUTE, count)}</interleave>"), f"<doc {attributes}/>"
 
 
 def _attributes_per_element(count: int) -> tuple[str, str]:
-    item: Final = f'<element name="i"><interleave>{_repeat(_OPTIONAL_ATTRIBUTE, count)}</interleave></element>'
-    children: Final = "".join(f'<i a{index}="x"/>' for index in _arrival("reverse", count))
+    item: Final[str] = f'<element name="i"><interleave>{_repeat(_OPTIONAL_ATTRIBUTE, count)}</interleave></element>'
+    children: Final[str] = "".join(f'<i a{index}="x"/>' for index in _arrival("reverse", count))
     return wrap(f"<oneOrMore>{item}</oneOrMore>"), f"<doc>{children}</doc>"
 
 
@@ -4803,7 +4815,7 @@ _CLOSED_GROUP: Final[str] = (
 
 
 def _xyz_defines(optional: str = "") -> str:
-    required: Final = '<define name="{0}"><element name="{0}"><empty/></element></define>'
+    required: Final[str] = '<define name="{0}"><element name="{0}"><empty/></element></define>'
     return "".join(_OPTIONAL_DEFINE.format(name, name) if name == optional else required.format(name) for name in "xyz")
 
 
@@ -4865,8 +4877,12 @@ def test_rng_routed_derivatives_decide_like_the_walk(
     pattern: str, defines: str, content: str, *, expected: bool
 ) -> None:
     # once an event takes many steps, the validation routes the derivatives that follow through an index of operands
-    schema: Final = RelaxNG(grammar(f'<start><element name="doc">{_WARM_UP}{pattern}</element></start>{defines}'))
-    verdicts: Final = [schema.is_valid(parse_xml(f"<doc>{warm}{content}</doc>")) for warm in ("", _WARM_CHILDREN)]
+    schema: Final[RelaxNG] = RelaxNG(
+        grammar(f'<start><element name="doc">{_WARM_UP}{pattern}</element></start>{defines}')
+    )
+    verdicts: Final[list[bool]] = [
+        schema.is_valid(parse_xml(f"<doc>{warm}{content}</doc>")) for warm in ("", _WARM_CHILDREN)
+    ]
     assert verdicts == [expected, expected]
 
 
@@ -4876,10 +4892,12 @@ def test_rng_routed_derivatives_decide_like_the_walk(
 )
 def test_rng_empty_right_range_continuation_decides(content: str, *, valid: bool) -> None:
     # the element's join has an empty right range, so the text group past it still decides the element
-    schema: Final = RelaxNG(
+    schema: Final[RelaxNG] = RelaxNG(
         grammar(f'<start><element name="doc">{_WARM_UP}{_TEXT_REFERENCES}</element></start>{_TEXT_DEFINES}')
     )
-    verdicts: Final = [schema.is_valid(parse_xml(f"<doc>{warm}{content}</doc>")) for warm in ("", _WARM_CHILDREN)]
+    verdicts: Final[list[bool]] = [
+        schema.is_valid(parse_xml(f"<doc>{warm}{content}</doc>")) for warm in ("", _WARM_CHILDREN)
+    ]
     assert verdicts == [valid, valid]
 
 
@@ -4898,15 +4916,13 @@ _X_TEXT_OR_PAIR: Final[str] = (
     f"<group><text/>{_repeat(_X_OPTIONAL, 4)}<choice><text/><group>{_X.format('y')}{_X.format('z')}</group></choice>"
     f"{''.join(_X_OPTIONAL.format(index) for index in range(4, 8))}</group>"
 )
-# each element carries its own attribute, so no two of them have the same content and no one content covers a half
-_X_DISTINCT_OPTIONAL: Final[str] = (
-    '<optional><element name="x{0}"><attribute name="a{0}"/><empty/></element></optional>'
-)
 
 
 def _distinct_text_halves(size: int) -> str:
-    first = "".join(_X_DISTINCT_OPTIONAL.format(index) for index in range(size))
-    second = "".join(_X_DISTINCT_OPTIONAL.format(index) for index in range(size, 2 * size))
+    # each element carries its own attribute, so no two of them have the same content and no one content covers a half
+    x_distinct_optional: str = '<optional><element name="x{0}"><attribute name="a{0}"/><empty/></element></optional>'
+    first = "".join(x_distinct_optional.format(index) for index in range(size))
+    second = "".join(x_distinct_optional.format(index) for index in range(size, 2 * size))
     return f"<group><text/>{first}<text/>{second}</group>"
 
 
@@ -4980,8 +4996,8 @@ def test_rng_adopted_derivatives_decide_like_the_walk(
 ) -> None:
     # the derivatives taken before routing starts join plainly, and the first routed event adopts them into routes;
     # the warm-up between the two halves of the content starts routing
-    schema: Final = RelaxNG(wrap(f"<interleave>{pattern}{_WARM}</interleave>"))
-    verdicts: Final = [
+    schema: Final[RelaxNG] = RelaxNG(wrap(f"<interleave>{pattern}{_WARM}</interleave>"))
+    verdicts: Final[list[bool]] = [
         schema.is_valid(parse_xml(f"<doc{attributes}>{before}{warm}{after}</doc>")) for warm in ("", _WARM_CHILDREN)
     ]
     assert verdicts == [expected, expected]
@@ -5008,7 +5024,7 @@ def _optional_repeated_round(count: int) -> tuple[str, str]:
 
 
 def _round_of_empty_choices(count: int) -> tuple[str, str]:
-    round_: Final = _round(count, f"<choice>{_LEAF}<empty/></choice>")
+    round_: Final[str] = _round(count, f"<choice>{_LEAF}<empty/></choice>")
     return wrap(f"<oneOrMore>{round_}</oneOrMore>"), _leaves("outside-in", count)
 
 
@@ -5029,45 +5045,45 @@ def _optional_round(count: int) -> tuple[str, str]:
 
 
 def _rounds_in_choice_repeated(count: int) -> tuple[str, str]:
-    rounds: Final = "".join(_round(count // 4, first=first) for first in range(0, count, count // 4))
+    rounds: Final[str] = "".join(_round(count // 4, first=first) for first in range(0, count, count // 4))
     return wrap(f"<oneOrMore><choice>{rounds}</choice></oneOrMore>"), _leaves("reverse", count)
 
 
 def _round_in_nested_groups(count: int) -> tuple[str, str]:
-    body: Final = f"{f'<group>{_Z}' * 30}{_round(count)}{'</group>' * 30}"
+    body: Final[str] = f"{f'<group>{_Z}' * 30}{_round(count)}{'</group>' * 30}"
     return wrap(f"<oneOrMore>{body}</oneOrMore>"), _leaves("reverse", count)
 
 
 def _referenced_round(count: int) -> tuple[str, str]:
-    start: Final = '<start><element name="doc"><oneOrMore><ref name="round"/></oneOrMore></element></start>'
+    start: Final[str] = '<start><element name="doc"><oneOrMore><ref name="round"/></oneOrMore></element></start>'
     return grammar(f'{start}<define name="round">{_round(count)}</define>'), _leaves("reverse", count)
 
 
 def _round_after_element(count: int) -> tuple[str, str]:
-    body: Final = f'<element name="s"><empty/></element><zeroOrMore>{_round(count)}</zeroOrMore>'
+    body: Final[str] = f'<element name="s"><empty/></element><zeroOrMore>{_round(count)}</zeroOrMore>'
     return wrap(body), _leaves("reverse", count).replace("<doc>", "<doc><s/>")
 
 
 def _mixed_round(count: int) -> tuple[str, str]:
-    children: Final = "".join(f"<w{index}/>t" for index in _arrival("reverse", count))
+    children: Final[str] = "".join(f"<w{index}/>t" for index in _arrival("reverse", count))
     return wrap(f"<oneOrMore><mixed>{_round(count)}</mixed></oneOrMore>"), f"<doc>{children}</doc>"
 
 
 def _attribute_round(count: int) -> tuple[str, str]:
-    attributes: Final = " ".join(f'a{index}="x"' for index in _arrival("reverse", count))
+    attributes: Final[str] = " ".join(f'a{index}="x"' for index in _arrival("reverse", count))
     return wrap(f"<oneOrMore>{_round(count, _OPTIONAL_ATTRIBUTE)}</oneOrMore>"), f"<doc {attributes}/>"
 
 
 def _referenced_halves(count: int) -> tuple[str, str]:
     # the warm-up starts routing before <i> closes its start tag, so the references stay in its content model
-    halves: Final = (
+    halves: Final[str] = (
         f'<define name="first">{_round(count // 2)}</define>'
         f'<define name="second">{_round(count // 2, first=count // 2)}</define>'
     )
-    item: Final = (
+    item: Final[str] = (
         '<element name="i"><oneOrMore><group><ref name="first"/><ref name="second"/></group></oneOrMore></element>'
     )
-    children: Final = "".join(f"<w{index}/>" for index in _arrival("reverse", count))
+    children: Final[str] = "".join(f"<w{index}/>" for index in _arrival("reverse", count))
     return (
         grammar(f'<start><element name="doc">{_WARM}{item}</element></start>{halves}'),
         f"<doc>{_WARM_CHILDREN}<i>{children}</i></doc>",
@@ -5197,8 +5213,10 @@ _LEAD_THEN_ROUNDS: Final[str] = (
 )
 def test_rng_restarted_rounds_decide_like_the_walk(pattern: str, before: str, after: str, *, expected: bool) -> None:
     # once routing starts, a repeat whose round so far is nullable and part of a round absorbs that round
-    schema: Final = RelaxNG(wrap(f"<interleave>{pattern}{_WARM}</interleave>"))
-    verdicts: Final = [schema.is_valid(parse_xml(f"<doc>{before}{warm}{after}</doc>")) for warm in ("", _WARM_CHILDREN)]
+    schema: Final[RelaxNG] = RelaxNG(wrap(f"<interleave>{pattern}{_WARM}</interleave>"))
+    verdicts: Final[list[bool]] = [
+        schema.is_valid(parse_xml(f"<doc>{before}{warm}{after}</doc>")) for warm in ("", _WARM_CHILDREN)
+    ]
     assert verdicts == [expected, expected]
 
 
@@ -5235,22 +5253,22 @@ def _prefixed_attributes(count: int) -> str:
 def test_rng_many_attributes_and_children_scale_linearly(shape: Callable[[int], str], work_steps: WorkSteps) -> None:
     # a child's name and a prefixed attribute's name resolve against the namespace declarations of the element that
     # holds them, which must cost the same whatever that element's attribute count
-    validator: Final = RelaxNG(_ANY_ATTRIBUTES_AND_CHILDREN)
+    validator: Final[RelaxNG] = RelaxNG(_ANY_ATTRIBUTES_AND_CHILDREN)
     work_steps.assert_linear(lambda count: partial(validator.validate, parse_xml(shape(count))), (500, 2_000))
 
 
 def test_rng_wide_choice_peak_is_bounded(peak_bytes: PeakBytes, tmp_path: Path) -> None:
     # every element's derivative over a choice re-canonicalizes it; while the canonical form was a chain, that cost
     # memory quadratic in the number of alternatives
-    script: Final = (
+    script: Final[str] = (
         "import sys, tracemalloc\nfrom pathlib import Path\nfrom turbohtml import parse_xml\n"
         "from turbohtml.validate import RelaxNG\n"
         "schema = RelaxNG(Path(sys.argv[1]).read_text(encoding='utf-8'))\n"
         "document = parse_xml('<doc><a>w0</a></doc>')\n"
         "tracemalloc.start()\nschema.validate(document)\nprint(tracemalloc.get_traced_memory()[1])\n"
     )
-    source: Final = wrap(f"<choice>{_repeat(_SAME_NAME_ELEMENT, 1_000)}</choice>")
-    schema_file: Final = tmp_path / "schema.rng"
+    source: Final[str] = wrap(f"<choice>{_repeat(_SAME_NAME_ELEMENT, 1_000)}</choice>")
+    schema_file: Final[Path] = tmp_path / "schema.rng"
     schema_file.write_text(source, encoding="utf-8")
     assert peak_bytes(script, (str(schema_file),)) < 64 * len(source)
 
@@ -5267,10 +5285,10 @@ def test_rng_wide_choice_peak_is_bounded(peak_bytes: PeakBytes, tmp_path: Path) 
 def test_rng_balanced_join_keeps_operand_order(
     container: str, count: int, *, in_order: bool, reversed_order: bool, single: bool
 ) -> None:
-    names: Final = [f"e{index}" for index in range(count)]
-    patterns: Final = "\n".join(f'<element name="{name}"><empty/></element>' for name in names)
-    schema: Final = RelaxNG(wrap(f"<{container}>{patterns}</{container}>"))
-    children: Final = [f"<{name}/>" for name in names]
+    names: Final[list[str]] = [f"e{index}" for index in range(count)]
+    patterns: Final[str] = "\n".join(f'<element name="{name}"><empty/></element>' for name in names)
+    schema: Final[RelaxNG] = RelaxNG(wrap(f"<{container}>{patterns}</{container}>"))
+    children: Final[list[str]] = [f"<{name}/>" for name in names]
     assert schema.is_valid(parse_xml(f"<doc>{''.join(children)}</doc>")) is in_order
     assert schema.is_valid(parse_xml(f"<doc>{''.join(reversed(children))}</doc>")) is reversed_order
     assert [schema.is_valid(parse_xml(f"<doc>{child}</doc>")) for child in children] == [single] * count
@@ -5303,7 +5321,7 @@ def test_rng_container_without_patterns(pattern: str, content: str, *, expected:
 )
 def test_rng_combine_operator_belongs_to_the_name(first: str, second: str, *, interleaved: bool) -> None:
     # section 4.17: one component may leave combine out, wherever it stands, and the others name the operator
-    schema: Final = RelaxNG(
+    schema: Final[RelaxNG] = RelaxNG(
         grammar(
             '<start><element name="doc"><ref name="part"/></element></start>'
             f'<define name="part"{first}><element name="a"><empty/></element></define>'
@@ -5316,7 +5334,7 @@ def test_rng_combine_operator_belongs_to_the_name(first: str, second: str, *, in
 
 def test_rng_combine_interleave_checks_a_part_without_combine() -> None:
     # the part without combine joins the others by interleave, so its name clashes with theirs under section 7.4
-    schema: Final = grammar(
+    schema: Final[str] = grammar(
         '<start><element name="doc"><ref name="part"/></element></start>'
         '<define name="part" combine="interleave"><element name="a"><empty/></element></define>'
         '<define name="part"><element name="a"><empty/></element></define>'
@@ -5339,14 +5357,16 @@ _ELEMENT_LINK: Final[str] = '<element name="e"><optional><ref name="d{}"/></opti
 )
 def test_rng_reference_nesting_past_limit_raises(count: int, link: str, name: str) -> None:
     # a derivative descends through every <ref> up to the next <element>, so the 400-level limit counts them too
-    message: Final = f"<ref> to '{name}' nests patterns 400 levels or deeper with no element in between"
+    message: Final[str] = f"<ref> to '{name}' nests patterns 400 levels or deeper with no element in between"
     with pytest.raises(RecursionError, match=message):
         RelaxNG(_rng_define_chain(count, link))
 
 
 def _rng_define_chain(count: int, link: str) -> str:
-    defines: Final = "".join(f'<define name="d{index}">{link.format(index + 1)}</define>' for index in range(count))
-    start: Final = '<start><element name="doc"><ref name="d0"/></element></start>'
+    defines: Final[str] = "".join(
+        f'<define name="d{index}">{link.format(index + 1)}</define>' for index in range(count)
+    )
+    start: Final[str] = '<start><element name="doc"><ref name="d0"/></element></start>'
     return grammar(f'{start}{defines}<define name="d{count}"><text/></define>')
 
 
@@ -5386,7 +5406,7 @@ def _prefixed_grammar(body: str) -> str:
 
 @pytest.mark.parametrize(("document", "expected"), [("<a><c/><b/></a>", True), ("<a><b/></a>", False)])
 def test_rng_scan_reads_prefixed_names(document: str, *, expected: bool) -> None:
-    schema: Final = _prefixed_grammar(
+    schema: Final[str] = _prefixed_grammar(
         '<rng:start><rng:ref name="a"/></rng:start><rng:define name="a"><rng:element name="a"><rng:interleave>'
         '<rng:element name="b"><rng:empty/></rng:element><rng:element name="c"><rng:empty/></rng:element>'
         "</rng:interleave></rng:element></rng:define>"
@@ -5395,7 +5415,7 @@ def test_rng_scan_reads_prefixed_names(document: str, *, expected: bool) -> None
 
 
 def test_rng_scan_finds_a_prefixed_ref_loop() -> None:
-    schema: Final = _prefixed_grammar(
+    schema: Final[str] = _prefixed_grammar(
         '<rng:start><rng:ref name="a"/></rng:start>'
         '<rng:define name="a"><rng:choice><rng:ref name="a"/><rng:empty/></rng:choice></rng:define>'
     )
@@ -5445,7 +5465,7 @@ def test_rng_scan_name_ending_in_ref_is_not_a_ref(schema: str) -> None:
     ],
 )
 def test_rng_date_calendar_day(datatype: str, value: str, *, expected: bool) -> None:
-    validator: Final = RelaxNG(
+    validator: Final[RelaxNG] = RelaxNG(
         f'<element xmlns="{_RELAXNG_NUMERIC_BOUNDS_NAMESPACE}" datatypeLibrary="{_LIBRARY}" name="doc">'
         f'<data type="{datatype}"/></element>'
     )
@@ -5470,41 +5490,43 @@ def test_relaxng_normalized_values_keep_validation_memory_bounded(
 ) -> None:
     # every <data> normalizes the whitespace of the value it is tested against; a copy per check, kept until
     # validation ended, grew with the number of alternatives
-    script: Final = (
+    script: Final[str] = (
         "import sys, tracemalloc\nfrom pathlib import Path\nfrom turbohtml import parse_xml\n"
         "from turbohtml.validate import RelaxNG\n"
         "schema = RelaxNG(Path(sys.argv[1]).read_text(encoding='utf-8'))\n"
         "document = parse_xml(Path(sys.argv[2]).read_text(encoding='utf-8'))\n"
         "tracemalloc.start()\nassert schema.validate(document).valid\nprint(tracemalloc.get_traced_memory()[1])\n"
     )
-    schema_file: Final = tmp_path / "schema.rng"
+    schema_file: Final[Path] = tmp_path / "schema.rng"
     schema_file.write_text(wrap(body, attrs=f'datatypeLibrary="{_DT}"'), encoding="utf-8")
-    document_file: Final = tmp_path / "document.xml"
+    document_file: Final[Path] = tmp_path / "document.xml"
     document_file.write_text(xml, encoding="utf-8")
     assert peak_bytes(script, (str(schema_file), str(document_file))) < 1_048_576
 
 
 def test_relaxng_data_normalizes_each_value_afresh() -> None:
     # one buffer serves every normalization of a validate() call, so a value must not see what a longer one left in it
-    alternatives: Final = (
+    alternatives: Final[str] = (
         '<data type="token"><param name="maxLength">3</param></data>'
         '<data type="token"><param name="pattern">[a-z]+ [a-z]+</param></data>'
         '<data type="int"/>'
     )
-    validator: Final = RelaxNG(
+    validator: Final[RelaxNG] = RelaxNG(
         wrap(
             f'<zeroOrMore><element name="e"><choice>{alternatives}</choice></element></zeroOrMore>',
             attrs=f'datatypeLibrary="{_DT}"',
         )
     )
-    valid: Final = "<e>a</e><e>ab</e><e>  abcdef   ghijkl  </e><e> ab </e><e>\tx\ny\t</e><e> 12345 </e><e>  abc  </e>"
+    valid: Final[str] = (
+        "<e>a</e><e>ab</e><e>  abcdef   ghijkl  </e><e> ab </e><e>\tx\ny\t</e><e> 12345 </e><e>  abc  </e>"
+    )
     assert validator.validate(parse_xml(f"<doc>{valid}</doc>")).valid
     assert not validator.validate(parse_xml(f"<doc>{valid}<e> abcd </e></doc>")).valid
     assert not validator.validate(parse_xml(f"<doc>{valid}<e>ab cd ef</e></doc>")).valid
 
 
 def test_rng_pattern_matching_past_the_step_budget_raises() -> None:
-    schema: Final = RelaxNG(
+    schema: Final[RelaxNG] = RelaxNG(
         wrap('<data type="string"><param name="pattern">(b?){300000}</param></data>', attrs=f'datatypeLibrary="{_DT}"')
     )
     with pytest.raises(ValueError, match="schema patterns need more than 100000000 NFA steps"):
@@ -5555,7 +5577,7 @@ def test_rng_pattern_matching_past_the_step_budget_raises() -> None:
 )
 def test_rng_names_resolve_below_many_attributes(schema: str, valid: str, invalid: str, padding: int) -> None:
     # past a few dozen attributes on the way to the root a lookup reads a per-path scope instead of the ancestors
-    validator: Final = RelaxNG(schema.replace("{pad}", _padding(padding)).replace("{rng}", _RELAXNG_NS))
+    validator: Final[RelaxNG] = RelaxNG(schema.replace("{pad}", _padding(padding)).replace("{rng}", _RELAXNG_NS))
     assert validator.validate(parse_xml(valid)).valid
     assert not validator.validate(parse_xml(invalid)).valid
 
@@ -5575,7 +5597,7 @@ def _padding(count: int) -> str:
 def test_rng_compile_below_many_attributes_scales_linearly(work_steps: WorkSteps, item: str) -> None:
     # every name below the root resolves through the root's attributes, which must not cost their count each time
     def build(count: int) -> Callable[[], RelaxNG]:
-        body: Final = "".join(item.format(index=index) for index in range(count))
+        body: Final[str] = "".join(item.format(index=index) for index in range(count))
         return partial(
             RelaxNG,
             grammar(
@@ -5590,8 +5612,8 @@ def test_rng_compile_below_many_attributes_scales_linearly(work_steps: WorkSteps
 def test_rng_validate_builds_a_define_below_many_attributes_linearly(work_steps: WorkSteps) -> None:
     # validate() builds the patterns of a define again, so it resolves the names below the root's attributes too
     def build(count: int) -> Callable[[], ValidationResult]:
-        body: Final = "".join(f'<element name="e{index}"><empty/></element>' for index in range(count))
-        schema: Final = RelaxNG(
+        body: Final[str] = "".join(f'<element name="e{index}"><empty/></element>' for index in range(count))
+        schema: Final[RelaxNG] = RelaxNG(
             f'<grammar {_padding(count)} xmlns="{_RELAXNG_NS}"><start><ref name="d"/></start>'
             f'<define name="d"><choice>{body}</choice></define></grammar>'
         )
@@ -5611,7 +5633,7 @@ def test_rng_validate_builds_a_define_below_many_attributes_linearly(work_steps:
 )
 def test_rng_long_number_range(datatype: str, value: str, *, expected: bool) -> None:
     # the digits or exponent that decide the comparison sit past the 63rd character of the value
-    validator: Final = RelaxNG(
+    validator: Final[RelaxNG] = RelaxNG(
         f'<element xmlns="{_RELAXNG_NUMERIC_BOUNDS_NAMESPACE}" datatypeLibrary="{_LIBRARY}" name="doc">'
         f'<data type="{datatype}"><param name="maxInclusive">100</param></data>'
         "</element>"

@@ -14,6 +14,7 @@ from turbohtml.migration.bleach import ALLOWED_ATTRIBUTES, ALLOWED_PROTOCOLS, AL
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
+    from typing import Never
 
     from work_steps import WorkSteps
 
@@ -283,7 +284,7 @@ def test_tag_predicate_error_precedes_wildcard() -> None:
 
 
 def test_tag_predicate_truth_error_precedes_wildcard() -> None:
-    verdict: Final = weakref.proxy(set())
+    verdict: Final[weakref.ProxyType[set[Never]]] = weakref.proxy(set())
     gc.collect()
     with pytest.raises(ReferenceError, match="no longer exists"):
         clean('<a title="t">x</a>', attributes={"a": lambda *_: cast("bool", verdict), "*": ["title"]})
@@ -525,7 +526,7 @@ class _UnavailableRules(UserDict[str, "Callable[[str, str, str], bool]"]):
 
 def test_attribute_rules_do_not_create_missing_defaults() -> None:
     rules: Final[defaultdict[str, list[str]]] = defaultdict(list, {"a": ["title"]})
-    result: Final = clean('<a title="one">first</a><b title="two">second</b>', attributes=rules)
+    result: Final[str] = clean('<a title="one">first</a><b title="two">second</b>', attributes=rules)
     assert (result, dict(rules)) == ('<a title="one">first</a><b>second</b>', {"a": ["title"]})
 
 

@@ -11,6 +11,7 @@ from .atheris_runtime import failure_hook, rejecting_callback, rejection_hook
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
+    from types import ModuleType
 
 
 def fuzz(
@@ -23,10 +24,12 @@ def fuzz(
 ) -> None:
     # Require qualified ownership before loading the optional Linux runtime.
     validate_owners(targets, modules)
-    target: Final = {target.name: target for target in targets}[target_name]
-    atheris: Final = import_module("atheris")
-    instrument: Final = cast("Callable[[Callable[[bytes], None]], Callable[[bytes], None]]", atheris.instrument_func)
-    callback: Final = instrument(
+    target: Final[Target] = {target.name: target for target in targets}[target_name]
+    atheris: Final[ModuleType] = import_module("atheris")
+    instrument: Final[Callable[[Callable[[bytes], None]], Callable[[bytes], None]]] = cast(
+        "Callable[[Callable[[bytes], None]], Callable[[bytes], None]]", atheris.instrument_func
+    )
+    callback: Final[Callable[[bytes], None]] = instrument(
         rejecting_callback(
             target.run,
             target.exceptions,

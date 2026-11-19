@@ -124,16 +124,15 @@ def test_str_parse_has_no_encoding() -> None:
     assert parser.close().encoding is None
 
 
-_MULTIBYTE: Final[str] = "<p>café — ☃ — 🦄</p>"  # 2-, 3-, and 4-byte UTF-8 sequences
-
-
 @pytest.mark.parametrize("chunk", [1, 2, 3, 4, 7])
 def test_utf8_chunked_matches_decoded_str(chunk: int) -> None:
-    raw = _MULTIBYTE.encode("utf-8")
+    # 2-, 3-, and 4-byte UTF-8 sequences
+    multibyte: str = "<p>café — ☃ — 🦄</p>"
+    raw = multibyte.encode("utf-8")
     parser = IncrementalParser()
     for start in range(0, len(raw), chunk):
         parser.feed(raw[start : start + chunk])
-    assert parser.close().html == parse(_MULTIBYTE).html
+    assert parser.close().html == parse(multibyte).html
 
 
 def test_bytes_parse_reports_its_encoding() -> None:
@@ -286,7 +285,7 @@ def test_an_escape_that_ends_a_chunk_leaves_room_for_the_error_it_owes() -> None
     # chunk spends a byte: a chunk exactly as long as the decode scratch (64 code points at first) then yields one code
     # point more than it has bytes. A regression writes that one past the scratch and still returns the right text, so
     # the chunks run in a child whose allocator checks the bytes behind a block when the parser frees it
-    script: Final = textwrap.dedent("""
+    script: Final[str] = textwrap.dedent("""
         from turbohtml import IncrementalParser
 
         parser = IncrementalParser(encoding="iso-2022-jp")
@@ -975,45 +974,45 @@ def test_parse_error_outlives_its_document() -> None:
 )
 @pytest.mark.parametrize("locations", [pytest.param(False, id="no-locations"), pytest.param(True, id="locations")])
 def test_parser_text_coalescing_keeps_one_node_across_feeds(text: str, *, locations: bool) -> None:
-    parser: Final = IncrementalParser(source_locations=locations)
+    parser: Final[IncrementalParser] = IncrementalParser(source_locations=locations)
     parser.feed("<p>")
     for _ in range(129):
         parser.feed(text)
     parser.feed("</p>")
-    paragraph: Final = parser.close().find("p")
+    paragraph: Final[Element | None] = parser.close().find("p")
     assert paragraph is not None
     assert [node.text for node in paragraph.children] == [text * 129]
 
 
 def test_parser_text_coalescing_switches_between_nodes() -> None:
-    source: Final = f"<p>{'x</missing>' * 40}<i>{'y</missing>' * 40}</i>{'z</missing>' * 40}</p>"
-    paragraph: Final = parse(source).find("p")
+    source: Final[str] = f"<p>{'x</missing>' * 40}<i>{'y</missing>' * 40}</i>{'z</missing>' * 40}</p>"
+    paragraph: Final[Element | None] = parse(source).find("p")
     assert paragraph is not None
     assert [node.text for node in paragraph.children] == ["x" * 40, "y" * 40, "z" * 40]
 
 
 def test_parser_text_coalescing_keeps_fostered_text_before_table() -> None:
-    root: Final = parse(f"<div><table>{'x<tr><td>cell</td></tr>' * 40}</table></div>").find("div")
+    root: Final[Element | None] = parse(f"<div><table>{'x<tr><td>cell</td></tr>' * 40}</table></div>").find("div")
     assert root is not None
     assert [node.text for node in root.children] == ["x" * 40, "cell" * 40]
 
 
 def test_parser_text_coalescing_alternates_between_two_nodes() -> None:
     # an ignored end tag ends each run: "ok" is foster-parented before the table while the space stays inside it
-    root: Final = parse(f"<div><table>{'ok</th> </th>' * 40}</table></div>").find("div")
+    root: Final[Element | None] = parse(f"<div><table>{'ok</th> </th>' * 40}</table></div>").find("div")
     assert root is not None
     assert [node.text for node in root.children] == ["ok" * 40, " " * 40]
 
 
 def test_parser_text_coalescing_between_two_nodes_peak_memory_is_bounded(peak_bytes: PeakBytes) -> None:
     # a text node that loses its spare capacity to the other node copies its whole text on every append
-    script: Final = (
+    script: Final[str] = (
         "import sys, tracemalloc\nfrom turbohtml import parse\n"
         "source = '<table>' + sys.argv[1] * int(sys.argv[2])\n"
         "tracemalloc.start()\nparse(source)\nprint(tracemalloc.get_traced_memory()[1])\n"
     )
-    shape: Final = "ok</th> </th>"
-    count: Final = 4000
+    shape: Final[str] = "ok</th> </th>"
+    count: Final[int] = 4000
     assert peak_bytes(script, (shape, str(count))) < 64 * len(shape) * count
 
 
@@ -1022,21 +1021,21 @@ def test_parser_text_coalescing_between_two_nodes_stays_linear(work_steps: WorkS
 
 
 def test_independent_parsers_in_parallel_each_build_correctly() -> None:
-    document: Final = f"<html><body>{''.join(f'<div><p>x{index}</p></div>' for index in range(200))}</body></html>"
-    expected: Final = parse(document).html
+    document: Final[str] = f"<html><body>{''.join(f'<div><p>x{index}</p></div>' for index in range(200))}</body></html>"
+    expected: Final[str] = parse(document).html
     results: Final[list[str]] = []
-    lock: Final = threading.Lock()
-    start: Final = threading.Barrier(4)
+    lock: Final[lock] = threading.Lock()
+    start: Final[threading.Barrier] = threading.Barrier(4)
 
     def worker() -> None:
         start.wait()
-        parser: Final = IncrementalParser()
+        parser: Final[IncrementalParser] = IncrementalParser()
         for position in range(0, len(document), 4):
             parser.feed(document[position : position + 4])
         with lock:
             results.append(parser.close().html)
 
-    threads: Final = [threading.Thread(target=worker) for _ in range(4)]
+    threads: Final[list[threading.Thread]] = [threading.Thread(target=worker) for _ in range(4)]
     for thread in threads:
         thread.start()
     for thread in threads:
@@ -1045,15 +1044,15 @@ def test_independent_parsers_in_parallel_each_build_correctly() -> None:
 
 
 def test_concurrent_feeds_on_one_parser_are_memory_safe() -> None:
-    parser: Final = IncrementalParser()
-    start: Final = threading.Barrier(2)
+    parser: Final[IncrementalParser] = IncrementalParser()
+    start: Final[threading.Barrier] = threading.Barrier(2)
 
     def feeder(tag: str) -> None:
         start.wait()
         for index in range(200):
             parser.feed(f"<{tag}>{index}</{tag}>")
 
-    threads: Final = [threading.Thread(target=feeder, args=(tag,)) for tag in ("p", "span")]
+    threads: Final[list[threading.Thread]] = [threading.Thread(target=feeder, args=(tag,)) for tag in ("p", "span")]
     for thread in threads:
         thread.start()
     for thread in threads:
@@ -1232,10 +1231,10 @@ def test_pickled_xml_document_round_trips() -> None:
     ],
 )
 def test_pickled_fragment_transform_document_context(select: str, expected: str) -> None:
-    source: Final = DocumentFragment()
+    source: Final[DocumentFragment] = DocumentFragment()
     source.append(Element("b", children=[Text("hello")]))
     source.append(Text("world"))
-    convert: Final = Transform(
+    convert: Final[Transform] = Transform(
         parse_xml(
             '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
             '<xsl:output method="text"/>'

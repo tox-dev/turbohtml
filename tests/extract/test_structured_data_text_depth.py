@@ -5,19 +5,19 @@ from typing import Final
 
 import pytest
 
-from turbohtml import MicrodataItem, RdfaItem, parse, parse_xml
+from turbohtml import Document, MicrodataItem, RdfaItem, parse, parse_xml
 
 _LIMIT: Final[int] = 32
 _TAG: Final[re.Pattern[str]] = re.compile(r"<(\w+)")
 
 
 def _nest(opening: str, depth: int, inner: str = "x") -> str:
-    closing: Final = "".join(f"</{name}>" for name in reversed(_TAG.findall(opening)))
+    closing: Final[str] = "".join(f"</{name}>" for name in reversed(_TAG.findall(opening)))
     return opening * depth + inner + closing * depth
 
 
 def test_microdata_text_properties_nest_up_to_the_limit() -> None:
-    html: Final = f"<div itemscope>{_nest('<div itemprop=p>', _LIMIT)}</div>"
+    html: Final[str] = f"<div itemscope>{_nest('<div itemprop=p>', _LIMIT)}</div>"
     assert parse(html).microdata()[0].properties == {"p": ["x"] * _LIMIT}
 
 
@@ -39,19 +39,19 @@ def test_microdata_text_properties_nest_up_to_the_limit() -> None:
 )
 def test_microdata_leaves_out_text_properties_that_nest_past_the_limit(html: str, value: str) -> None:
     # the eight outermost head a chain deeper than the limit; the rest keep their exact text content
-    document: Final = parse(html)
+    document: Final[Document] = parse(html)
     assert document.microdata()[0].properties["p"] == [value] * _LIMIT
     assert document.structured_data().microdata[0].properties["p"] == [value] * _LIMIT
 
 
 def test_microdata_text_depth_ignores_item_boundaries() -> None:
     # every property belongs to an item of its own, yet the outermost one would still copy the text of all below it
-    items: Final = parse(_nest("<div itemscope><div itemprop=p>", _LIMIT + 1)).microdata()
+    items: Final[list[MicrodataItem]] = parse(_nest("<div itemscope><div itemprop=p>", _LIMIT + 1)).microdata()
     assert [item.properties for item in items] == [{}, *([{"p": ["x"]}] * _LIMIT)]
 
 
 def test_microdata_text_depth_ignores_nested_items() -> None:
-    html: Final = f"<div itemscope>{_nest('<div itemprop=i itemscope><div itemprop=p>', _LIMIT + 1)}"
+    html: Final[str] = f"<div itemscope>{_nest('<div itemprop=i itemscope><div itemprop=p>', _LIMIT + 1)}"
     item: MicrodataItem | str | None = parse(html).microdata()[0]
     texts: Final[list[list[str | MicrodataItem] | None]] = []
     while isinstance(item, MicrodataItem):
@@ -63,14 +63,14 @@ def test_microdata_text_depth_ignores_nested_items() -> None:
 
 def test_microdata_text_depth_ignores_itemref() -> None:
     # each item claims the chain from one element down, innermost first; only the last one starts above the limit
-    refs: Final = "".join(f"<div itemscope itemref=e{index}></div>" for index in reversed(range(_LIMIT + 1)))
-    targets: Final = "".join(f"<div id=e{index} itemprop=p>" for index in range(_LIMIT + 1))
-    records: Final = parse(f"{refs}{targets}x").microdata()
+    refs: Final[str] = "".join(f"<div itemscope itemref=e{index}></div>" for index in reversed(range(_LIMIT + 1)))
+    targets: Final[str] = "".join(f"<div id=e{index} itemprop=p>" for index in range(_LIMIT + 1))
+    records: Final[list[MicrodataItem]] = parse(f"{refs}{targets}x").microdata()
     assert [len(record.properties["p"]) for record in records] == [*range(1, _LIMIT + 1), _LIMIT]
 
 
 def test_microdata_text_depth_reaches_into_a_template() -> None:
-    html: Final = f"<div itemscope><div itemprop=p><template>{_nest('<div itemscope><div itemprop=p>', _LIMIT)}"
+    html: Final[str] = f"<div itemscope><div itemprop=p><template>{_nest('<div itemscope><div itemprop=p>', _LIMIT)}"
     assert parse(html).microdata()[0].properties == {}
 
 
@@ -85,26 +85,30 @@ def test_microdata_text_depth_reaches_into_a_template() -> None:
     ],
 )
 def test_microdata_elements_without_a_text_value_do_not_count(wrapper: str) -> None:
-    inner: Final = _nest(wrapper, 40, "<b itemprop=last>x</b>")
-    html: Final = f"<div itemscope>{_nest('<div itemprop=p>', _LIMIT - 1, inner)}"
+    inner: Final[str] = _nest(wrapper, 40, "<b itemprop=last>x</b>")
+    html: Final[str] = f"<div itemscope>{_nest('<div itemprop=p>', _LIMIT - 1, inner)}"
     assert parse(html).microdata()[0].properties["p"] == ["x"] * (_LIMIT - 1)
 
 
 def test_microdata_text_depth_is_counted_along_one_branch() -> None:
     # three full chains side by side, then one that closes ten levels and reopens them: none is deeper than the limit
-    side_by_side: Final = _nest("<div itemprop=p>", _LIMIT) * 3
-    opened: Final = f"{'<div itemprop=p>' * _LIMIT}x{'</div>' * 10}"
-    reopened: Final = f"{opened}<template>t</template>{_nest('<div itemprop=p>', 10)}"
-    properties: Final = parse(f"<div itemscope>{side_by_side}{reopened}</div>").microdata()[0].properties
+    side_by_side: Final[str] = _nest("<div itemprop=p>", _LIMIT) * 3
+    opened: Final[str] = f"{'<div itemprop=p>' * _LIMIT}x{'</div>' * 10}"
+    reopened: Final[str] = f"{opened}<template>t</template>{_nest('<div itemprop=p>', 10)}"
+    properties: Final[dict[str, list[str | MicrodataItem]]] = (
+        parse(f"<div itemscope>{side_by_side}{reopened}</div>").microdata()[0].properties
+    )
     assert len(properties["p"]) == _LIMIT * 4 + 10
     assert properties["p"][-10:] == ["x"] * 10
     # reopening eleven makes the outermost one head a chain of one more than the limit
-    deeper: Final = parse(f"<div itemscope>{opened}{_nest('<div itemprop=p>', 11)}</div>").microdata()[0].properties
+    deeper: Final[dict[str, list[str | MicrodataItem]]] = (
+        parse(f"<div itemscope>{opened}{_nest('<div itemprop=p>', 11)}</div>").microdata()[0].properties
+    )
     assert len(deeper["p"]) == _LIMIT + 10
 
 
 def test_rdfa_text_properties_nest_up_to_the_limit() -> None:
-    html: Final = f"<div typeof=T>{_nest('<div property=p>', _LIMIT)}</div>"
+    html: Final[str] = f"<div typeof=T>{_nest('<div property=p>', _LIMIT)}</div>"
     assert parse(html).rdfa()[0].properties == {"p": ["x"] * _LIMIT}
 
 
@@ -118,13 +122,13 @@ def test_rdfa_text_properties_nest_up_to_the_limit() -> None:
     ],
 )
 def test_rdfa_leaves_out_text_properties_that_nest_past_the_limit(html: str) -> None:
-    document: Final = parse(html)
+    document: Final[Document] = parse(html)
     assert document.rdfa()[0].properties == {"p": ["x"] * _LIMIT}
     assert document.structured_data().rdfa[0].properties == {"p": ["x"] * _LIMIT}
 
 
 def test_rdfa_text_depth_ignores_nested_items() -> None:
-    html: Final = f"<div typeof=T>{_nest('<div property=i typeof=T><div property=p>', _LIMIT + 1)}"
+    html: Final[str] = f"<div typeof=T>{_nest('<div property=i typeof=T><div property=p>', _LIMIT + 1)}"
     item: RdfaItem | str | None = parse(html).rdfa()[0]
     texts: Final[list[list[str | RdfaItem] | None]] = []
     while isinstance(item, RdfaItem):
@@ -146,8 +150,8 @@ def test_rdfa_text_depth_ignores_nested_items() -> None:
     ],
 )
 def test_rdfa_elements_without_a_text_value_do_not_count(wrapper: str) -> None:
-    inner: Final = _nest(wrapper, 40, "<b property=last>x</b>")
-    html: Final = f"<div typeof=T>{_nest('<div property=p>', _LIMIT - 1, inner)}"
+    inner: Final[str] = _nest(wrapper, 40, "<b property=last>x</b>")
+    html: Final[str] = f"<div typeof=T>{_nest('<div property=p>', _LIMIT - 1, inner)}"
     assert parse(html).rdfa()[0].properties["p"] == ["x"] * (_LIMIT - 1)
 
 
@@ -160,6 +164,6 @@ def test_rdfa_elements_without_a_text_value_do_not_count(wrapper: str) -> None:
 )
 def test_a_chain_of_text_properties_as_long_as_the_page_stays_bounded(page: str, extract: str) -> None:
     # parse_xml() has no depth cap, so the limit alone bounds how often the text below each property is copied
-    chain: Final = _nest('<a itemprop="p" property="p">', 2_000, "x" * 10_000)
-    values: Final = getattr(parse_xml(page.format(chain)), extract)()[0].properties["p"]
+    chain: Final[str] = _nest('<a itemprop="p" property="p">', 2_000, "x" * 10_000)
+    values = getattr(parse_xml(page.format(chain)), extract)()[0].properties["p"]
     assert values == ["x" * 10_000] * _LIMIT

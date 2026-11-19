@@ -42,13 +42,13 @@ def compare(case: Case, *, negative_control: bool = False, reference_labels: boo
 
 def generate(seed: int) -> Case:
     # Known labels distinguish shared mistakes from agreement.
-    rng: Final = random.Random(seed)
-    number: Final = rng.randrange(1, 100)
-    word: Final = f"word{number}"
-    family: Final = seed % 9
+    rng: Final[random.Random] = random.Random(seed)
+    number: Final[int] = rng.randrange(1, 100)
+    word: Final[str] = f"word{number}"
+    family: Final[int] = seed % 9
     if family == 0:
-        declarations: Final = '<xs:element name="v" type="xs:string"/>'
-        documents: Final = ((f"<v>{word}</v>", True), ("<v/>", True), ("<other/>", False))
+        declarations: Final[str] = '<xs:element name="v" type="xs:string"/>'
+        documents: Final[tuple[tuple[str, bool], ...]] = ((f"<v>{word}</v>", True), ("<v/>", True), ("<other/>", False))
     elif family == 1:
         declarations = '<xs:element name="v" type="xs:integer"/>'
         documents = ((f"<v>{number}</v>", True), ("<v>wrong</v>", False), ("<other/>", False))

@@ -20,32 +20,6 @@ if TYPE_CHECKING:
 
 _DATA: Final[Path] = Path(__file__).parent / "xml-conformance-suite" / "packages" / "test-data" / "xmlconf"
 
-# The leaf catalogs the top-level xmlconf.xml pulls in as external-entity includes. Listing
-# them directly sidesteps resolving those entities, and the set is stable under the pin.
-_CATALOGS: Final[tuple[str, ...]] = (
-    "xmltest/xmltest.xml",
-    "japanese/japanese.xml",
-    "sun/sun-valid.xml",
-    "sun/sun-invalid.xml",
-    "sun/sun-not-wf.xml",
-    "sun/sun-error.xml",
-    "oasis/oasis.xml",
-    "ibm/ibm_oasis_invalid.xml",
-    "ibm/ibm_oasis_not-wf.xml",
-    "ibm/ibm_oasis_valid.xml",
-    "ibm/xml-1.1/ibm_invalid.xml",
-    "ibm/xml-1.1/ibm_not-wf.xml",
-    "ibm/xml-1.1/ibm_valid.xml",
-    "eduni/errata-2e/errata2e.xml",
-    "eduni/errata-3e/errata3e.xml",
-    "eduni/errata-4e/errata4e.xml",
-    "eduni/misc/ht-bh.xml",
-    "eduni/namespaces/1.0/rmt-ns10.xml",
-    "eduni/namespaces/1.1/rmt-ns11.xml",
-    "eduni/namespaces/errata-1e/errata1e.xml",
-    "eduni/xml-1.1/xml11.xml",
-)
-
 _ENCODING: Final[str] = (
     "parse_xml takes already-decoded text; byte-level encoding errors and declared-versus-actual encoding "
     "mismatches belong to the decoding layer, not to well-formedness"
@@ -178,7 +152,32 @@ def _load() -> list[pytest.ParameterSet]:
         raise RuntimeError(msg)
     params: list[pytest.ParameterSet] = []
     counts = {"assert": 0, "xfail": 0, "skip": 0}
-    for catalog in _CATALOGS:
+    # The leaf catalogs the top-level xmlconf.xml pulls in as external-entity includes. Listing
+    # them directly sidesteps resolving those entities, and the set is stable under the pin.
+    catalogs: tuple[str, ...] = (
+        "xmltest/xmltest.xml",
+        "japanese/japanese.xml",
+        "sun/sun-valid.xml",
+        "sun/sun-invalid.xml",
+        "sun/sun-not-wf.xml",
+        "sun/sun-error.xml",
+        "oasis/oasis.xml",
+        "ibm/ibm_oasis_invalid.xml",
+        "ibm/ibm_oasis_not-wf.xml",
+        "ibm/ibm_oasis_valid.xml",
+        "ibm/xml-1.1/ibm_invalid.xml",
+        "ibm/xml-1.1/ibm_not-wf.xml",
+        "ibm/xml-1.1/ibm_valid.xml",
+        "eduni/errata-2e/errata2e.xml",
+        "eduni/errata-3e/errata3e.xml",
+        "eduni/errata-4e/errata4e.xml",
+        "eduni/misc/ht-bh.xml",
+        "eduni/namespaces/1.0/rmt-ns10.xml",
+        "eduni/namespaces/1.1/rmt-ns11.xml",
+        "eduni/namespaces/errata-1e/errata1e.xml",
+        "eduni/xml-1.1/xml11.xml",
+    )
+    for catalog in catalogs:
         for attrib, file_path in _catalog_tests(catalog):
             param, kind = _case(attrib, file_path)
             params.append(param)

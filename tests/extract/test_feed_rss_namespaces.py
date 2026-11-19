@@ -20,7 +20,7 @@ def test_feed_rss_root_explicit_empty_namespace_is_found() -> None:
 
 
 def test_feed_rss_foreign_default_channel_is_skipped() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rss version="2.0"><channel xmlns="urn:other"><title>Wrong</title></channel>'
         "<channel><title>Right</title></channel></rss>"
     )
@@ -36,7 +36,7 @@ def test_feed_rss_channel_with_other_attribute_keeps_core_namespace() -> None:
 
 
 def test_feed_rss_foreign_default_item_is_skipped() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rss version="2.0"><channel><item xmlns="urn:other"><title>Wrong</title></item>'
         "<item><title>Right</title></item></channel></rss>"
     )
@@ -56,7 +56,7 @@ def test_feed_rss_foreign_default_item_is_skipped() -> None:
     ],
 )
 def test_feed_rss_foreign_default_channel_field_is_skipped(field: str, tag: str) -> None:
-    xml: Final = (
+    xml: Final[str] = (
         f'<rss version="2.0"><channel><{tag} xmlns="urn:other">wrong</{tag}><{tag}>right</{tag}></channel></rss>'
     )
     result = parse_xml(xml).feed()
@@ -78,7 +78,7 @@ def test_feed_rss_foreign_default_channel_field_is_skipped(field: str, tag: str)
     ],
 )
 def test_feed_rss_foreign_default_item_field_is_skipped(field: str, tag: str) -> None:
-    xml: Final = (
+    xml: Final[str] = (
         f'<rss version="2.0"><channel><item><{tag} xmlns="urn:other">wrong</{tag}>'
         f"<{tag}>right</{tag}></item></channel></rss>"
     )

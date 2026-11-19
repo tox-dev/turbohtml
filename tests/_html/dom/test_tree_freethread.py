@@ -8,11 +8,11 @@ from turbohtml._html import _tree_verify
 
 
 def test_concurrent_extends_with_one_moving_foreign_node_keep_both_trees_intact() -> None:
-    child: Final = turbohtml.Element("i")
-    home: Final = turbohtml.Element("aside", children=[child])
-    parents: Final = [turbohtml.Element("p") for _ in range(4)]
-    root: Final = turbohtml.Element("main", children=parents)
-    start: Final = threading.Barrier(len(parents) + 1)
+    child: Final[turbohtml.Element] = turbohtml.Element("i")
+    home: Final[turbohtml.Element] = turbohtml.Element("aside", children=[child])
+    parents: Final[list[turbohtml.Element]] = [turbohtml.Element("p") for _ in range(4)]
+    root: Final[turbohtml.Element] = turbohtml.Element("main", children=parents)
+    start: Final[threading.Barrier] = threading.Barrier(len(parents) + 1)
 
     def extender(parent: turbohtml.Element) -> None:
         start.wait()

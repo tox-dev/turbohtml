@@ -175,13 +175,15 @@ def test_external_boundary_with_a_hostless_base_keeps_every_absolute_link() -> N
 
 def test_external_only_canonicalizes_ipv4_hosts_before_comparing() -> None:
     # a browser reads 0x7f.0.0.1 and 127.1 as 127.0.0.1, so they are internal to the loopback base and drop
-    html: Final = '<a href="http://0x7f.0.0.1/a">1</a><a href="http://127.1/b">2</a><a href="http://8.8.8.8/c">3</a>'
+    html: Final[str] = (
+        '<a href="http://0x7f.0.0.1/a">1</a><a href="http://127.1/b">2</a><a href="http://8.8.8.8/c">3</a>'
+    )
     assert extract_links(html, "http://127.0.0.1/", external_only=True) == {"http://8.8.8.8/c"}
 
 
 def test_external_only_reports_hosts_whose_dots_only_show_once_canonical() -> None:
     # a browser opens these as mirror.test and 192.168.1.1; the spelled host holding no dot must not hide the link
-    html: Final = (
+    html: Final[str] = (
         '<a href="http://mirror%2Etest/a">1</a><a href="http://mirror\u3002test/b">2</a>'
         '<a href="http://3232235777/c">3</a><a href="http://intranet/d">4</a>'
     )
@@ -194,21 +196,21 @@ def test_external_only_reports_hosts_whose_dots_only_show_once_canonical() -> No
 
 def test_external_only_attributes_backslash_authority_to_the_real_host() -> None:
     # a browser resolves evil.example\@good.example to evil.example, so the link leaves the base's site and is kept
-    html: Final = '<a href="http://evil.example\\@good.example/">x</a>'
+    html: Final[str] = '<a href="http://evil.example\\@good.example/">x</a>'
     assert extract_links(html, "http://good.example/", external_only=True) == {"http://evil.example/@good.example/"}
 
 
 def test_external_only_follows_a_same_scheme_base_href_ending_in_colon() -> None:
     # an empty port makes the base name other.test, so a browser sends the page's relative links there
-    html: Final = '<base href="https://other.test:"><a href="/login">x</a><a href="reset">y</a>'
-    expected: Final = {"https://other.test/login", "https://other.test/reset"}
+    html: Final[str] = '<base href="https://other.test:"><a href="/login">x</a><a href="reset">y</a>'
+    expected: Final[set[str]] = {"https://other.test/login", "https://other.test/reset"}
     assert extract_links(html, "https://good.example/news/today") == expected
     assert extract_links(html, "https://good.example/news/today", external_only=True) == expected
 
 
 def test_external_only_ignores_a_base_inside_template_contents() -> None:
     # a browser takes its base from the live <base>, not the inert one in <template>, so /login leaves the site
-    html: Final = (
+    html: Final[str] = (
         '<template><base href="http://good.example/"></template>'
         '<base href="http://evil.example/"><a href="/login">x</a>'
     )
@@ -525,7 +527,7 @@ def test_resolve_links_leaves_css_alone_where_css_reads_no_url_token(style: str)
     ],
 )
 def test_style_text_css_boundaries(css: str, expected: list[str]) -> None:
-    style: Final = Element("style")
+    style: Final[Element] = Element("style")
     style.append(Text(css))
     assert [link.url for link in style.links()] == expected
 
@@ -916,12 +918,12 @@ def test_escaped_import_keyword_is_resolved() -> None:
 
 def test_resolved_css_url_cannot_close_its_style_element() -> None:
     # "<\/style" is how a stylesheet spells the text "</style"; decoded and written back bare it would end the element
-    html: Final = '<style>a{background:url("x<\\/style>y")}</style>'
+    html: Final[str] = '<style>a{background:url("x<\\/style>y")}</style>'
     assert _resolved(html) == '<style>a{background:url("https://example.com/dir/x<\\/style>y")}</style>'
 
 
 def test_css_comments_and_strings_are_not_resolved() -> None:
-    html: Final = "<style>/* url(hidden.png) */a{content:'url(fake.png)';background:url(real.png)}</style>"
+    html: Final[str] = "<style>/* url(hidden.png) */a{content:'url(fake.png)';background:url(real.png)}</style>"
     assert _resolved(html) == (
         "<style>/* url(hidden.png) */a{content:'url(fake.png)';"
         "background:url(https://example.com/dir/real.png)}</style>"
@@ -1940,7 +1942,7 @@ def test_rewrite_links_requires_a_callable() -> None:
     ],
 )
 def test_external_links_drop_the_public_suffix_boundary(base: str, host: str, *, depth: int) -> None:
-    href: Final = f"https://{'s.' * depth}{host}/x"
+    href: Final[str] = f"https://{'s.' * depth}{host}/x"
     assert extract_links(f'<a href="{href}">x</a>', f"https://{base}/", external_only=True) == set()
 
 
@@ -1956,7 +1958,7 @@ def test_links_of_a_reopened_element_are_enumerated_on_each_clone() -> None:
 
 
 def test_a_reopened_element_is_resolved_on_each_clone() -> None:
-    anchor: Final = (
+    anchor: Final[str] = (
         '<a href="https://example.com/dir/a.html" ping="https://example.com/dir/p1 https://example.com/dir/p2"'
         ' title="t">'
     )
@@ -1972,10 +1974,10 @@ def test_a_reopened_element_is_resolved_on_each_clone() -> None:
     ],
 )
 def test_a_reopened_element_with_nothing_to_rewrite_is_left_alone(start_tag: str, replaced: list[str]) -> None:
-    html: Final = f"<p>{start_tag}x<p>y<p>z"
+    html: Final[str] = f"<p>{start_tag}x<p>y<p>z"
     seen: list[str] = []
     root = parse_fragment(html)
-    before: Final = root.inner_html
+    before: Final[str] = root.inner_html
     root.resolve_links(_RESOLVE_BASE)
     root.rewrite_links(seen.append)
     assert root.inner_html == before
@@ -1985,7 +1987,7 @@ def test_a_reopened_element_with_nothing_to_rewrite_is_left_alone(start_tag: str
 def test_many_reopened_elements_grow_the_shared_value_table() -> None:
     # the table starts with 16 slots and grows past half load at its ninth distinct value; the formatting list reopens
     # at most 16 elements, so twelve distinct values fit in one run
-    elements: Final = "".join(f'<b cite="c{index}">' for index in range(12))
+    elements: Final[str] = "".join(f'<b cite="c{index}">' for index in range(12))
     root = parse_fragment(f"<p>{elements}x<p>y<p>z")
     root.resolve_links(_HTTPS)
     assert [link.url for link in root.links()] == [f"{_HTTPS}c{index}" for index in range(12)] * 3
@@ -2022,7 +2024,7 @@ def test_replace_receives_each_url_of_each_clone() -> None:
         return f"/moved/{url}"
 
     out = _rewritten(_REOPENED, prefix)
-    anchor: Final = '<a href="/moved/a.html" ping="/moved/p1 /moved/p2" title="t">'
+    anchor: Final[str] = '<a href="/moved/a.html" ping="/moved/p1 /moved/p2" title="t">'
     assert out == f"<p>{anchor}x</a></p><p>{anchor}y</a></p><p>{anchor}z</a></p>"
     assert seen == ["a.html", "p1", "p2"] * 2
 
@@ -2058,7 +2060,7 @@ def test_a_reopened_element_without_links_reports_none() -> None:
 
 def test_clones_whose_attribute_replace_removed_are_each_rewritten() -> None:
     root = parse_fragment('<p><a href="a.html">x<p>y<p>z<p>w')
-    anchors: Final = root.select("a")
+    anchors: Final[list[Element]] = root.select("a")
     seen: list[str] = []
 
     def drop_from_the_clone(url: str) -> None:
@@ -2074,8 +2076,8 @@ def test_a_long_href_on_a_reopened_element_is_not_copied_per_clone() -> None:
     # without sharing, each clone would retain its own copy of the long value
     # PyPy ships no _tracemalloc; the sharing is C and covered by the CPython run.
     tracemalloc = pytest.importorskip("tracemalloc")
-    href: Final = "x" * 25_000
-    html: Final = f'<p><a href="{href}">x{"<p>y" * 1_500}'
+    href: Final[str] = "x" * 25_000
+    html: Final[str] = f'<p><a href="{href}">x{"<p>y" * 1_500}'
     resolved, rewritten = parse(html), parse(html)
     tracemalloc.start()
     resolved.resolve_links(_HTTPS)
@@ -2114,7 +2116,7 @@ def _rewrite_reopened_clones(size: int) -> None:
     ],
 )
 def test_external_links_keep_the_public_suffix_boundary(base: str, host: str, *, depth: int) -> None:
-    href: Final = f"https://{'s.' * depth}{host}/x"
+    href: Final[str] = f"https://{'s.' * depth}{host}/x"
     assert extract_links(f'<a href="{href}">x</a>', f"https://{base}/", external_only=True) == {href}
 
 

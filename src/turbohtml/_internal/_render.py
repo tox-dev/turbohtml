@@ -29,9 +29,7 @@ from ._native import (
     Formatter,
     Indent,
     Minify,
-)
-from ._native import (
-    register_render_configs as _register_render_configs,
+    register_render_configs,
 )
 
 _Option: TypeAlias = (
@@ -475,7 +473,7 @@ class Canonical:
 _CANONICAL_DEFAULT: Final[Canonical] = Canonical()
 _CANONICAL_FIELDS: Final[tuple[Field[_Option], ...]] = fields(Canonical)
 
-_register_render_configs(Markdown, PlainText, Html, Canonical)
+register_render_configs(Markdown, PlainText, Html, Canonical)
 
 
 __all__ = [

@@ -24,8 +24,6 @@ if TYPE_CHECKING:
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("resiliparse>=1.0.8",)
 
-_LINKS_BASE: Final[str] = "https://example.com/base/"  # the base turbohtml resolves relative hrefs against
-
 
 def parse(text: str) -> None:
     # Parse a whole document with resiliparse.
@@ -41,7 +39,7 @@ def _parsed(text: str) -> HTMLTree:
 def _document(tree: HTMLTree) -> DocumentNode:
     # resiliparse types the document as optional, though a parsed tree always has one.
     if (document := tree.document) is None:
-        msg: Final = "resiliparse parsed no document"
+        msg: Final[str] = "resiliparse parsed no document"
         raise ValueError(msg)
     return document
 
@@ -75,7 +73,7 @@ def select_has(text: str) -> None:
 def _select_relative(case: tuple[str, str, int]) -> None:
     selector, text, repeats = case
     if selector == "section:has(+ section a)":
-        msg: Final = "resiliparse returns no matches for section:has(+ section a)"
+        msg: Final[str] = "resiliparse returns no matches for section:has(+ section a)"
         raise NotImplementedError(msg)
     document = _document(_parsed(text))
     for _ in range(repeats):
@@ -188,9 +186,11 @@ def edit(tree: HTMLTree) -> None:
 
 def links_absolutize(tree: HTMLTree) -> None:
     # Resolve every relative link on a freshly parsed tree against the base with resiliparse's setattr.
+    # the base turbohtml resolves relative hrefs against
+    links_base: str = "https://example.com/base/"
     for anchor in _document(tree).query_selector_all("a"):
         if (href := anchor.getattr("href")) is not None:
-            anchor.setattr("href", urljoin(_LINKS_BASE, href))
+            anchor.setattr("href", urljoin(links_base, href))
 
 
 def _encoding_result(case: tuple[int, bytes]) -> None:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from types import MappingProxyType
-from typing import Final, cast
+from typing import TYPE_CHECKING, Final, cast
 
 import pytest
 
@@ -20,6 +20,9 @@ from turbohtml.query import (  # the soupsieve names
     select,
     select_one,
 )
+
+if TYPE_CHECKING:
+    from types import ModuleType
 
 
 def _root() -> Element:
@@ -489,8 +492,8 @@ def test_matches_soupsieve(doc_name: str, selector: str) -> None:
 
 @pytest.mark.oracle
 def _oracle_hits(document_html: str, selector: str) -> tuple[list[int], list[int]]:
-    bs4: Final = pytest.importorskip("bs4")
-    soupsieve: Final = pytest.importorskip("soupsieve")
+    bs4: Final[ModuleType] = pytest.importorskip("bs4")
+    soupsieve: Final[ModuleType] = pytest.importorskip("soupsieve")
     turbo_doc = parse(document_html)
     soup = bs4.BeautifulSoup(document_html, "html.parser")
     turbo_index = {

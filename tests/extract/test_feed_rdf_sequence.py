@@ -160,7 +160,7 @@ _ITEM_B: Final[str] = '<item rdf:about="https://example.org/b"><title>B</title><
     ],
 )
 def test_feed_rdf_sequence(sequence: str, items: str, expected: tuple[str, ...]) -> None:
-    xml: Final = (
+    xml: Final[str] = (
         f'{_RDF_START}<channel rdf:about="https://example.org/"><items>\n{sequence}\n</items></channel>\n{items}'
         "\n</rdf:RDF>"
     )
@@ -170,7 +170,7 @@ def test_feed_rdf_sequence(sequence: str, items: str, expected: tuple[str, ...])
 
 
 def test_feed_rdf_sequence_resolves_xml_base() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         f"""{_RDF_START.replace("<rdf:RDF ", '<rdf:RDF xml:base="https://example.org/base/" ')}"""
         """<channel rdf:about="https://example.org/"><items><rdf:Seq><rdf:li rdf:resource="a"/><rdf:li """
         """rdf:resource="https://example.org/other/b"/></rdf:Seq></items></channel><item """
@@ -183,7 +183,7 @@ def test_feed_rdf_sequence_resolves_xml_base() -> None:
 
 
 def test_feed_rdf_sequence_resolves_empty_reference_to_xml_base() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         f"""{_RDF_START.replace("<rdf:RDF ", '<rdf:RDF xml:base="https://example.org/feed" ')}"""
         """<channel rdf:about="https://example.org/"><items><rdf:Seq><rdf:li """
         """rdf:resource=""/></rdf:Seq></items></channel><item """
@@ -201,7 +201,7 @@ def test_feed_rdf_html_about_requires_rdf_prefix() -> None:
 
 
 def test_feed_rdf_sequence_root_prefix_alias() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         f"{_RDF_START.replace('<rdf:RDF ', '<r:RDF ')}"
         '<channel rdf:about="https://example.org/"><items><rdf:Seq><rdf:li '
         'rdf:resource="https://example.org/b"/><rdf:li '
@@ -213,7 +213,7 @@ def test_feed_rdf_sequence_root_prefix_alias() -> None:
 
 
 def test_feed_rdf_sequence_root_alias_ignores_trailing_foreign_item() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         f"{_RDF_START.replace('<rdf:RDF ', '<r:RDF ')}"
         '<channel rdf:about="https://example.org/"><items><rdf:Seq><rdf:li '
         'rdf:resource="https://example.org/a"/><rdf:li '
@@ -226,7 +226,7 @@ def test_feed_rdf_sequence_root_alias_ignores_trailing_foreign_item() -> None:
 
 
 def test_feed_rdf_sequence_prefixed_rss_namespace() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         f"""{_RDF_START.replace('xmlns="http://purl.org/rss/1.0/"', 'xmlns="urn:other"')}"""
         """<s:channel rdf:about="https://example.org/"><s:items><rdf:Seq><rdf:li """
         """rdf:resource="https://example.org/b"/><rdf:li """
@@ -253,7 +253,7 @@ def test_feed_rdf_sequence_prefixed_rss_namespace() -> None:
     ],
 )
 def test_feed_rdf_sequence_uri_forms(first_uri: str) -> None:
-    xml: Final = (
+    xml: Final[str] = (
         f"""{_RDF_START.replace("<rdf:RDF ", '<rdf:RDF xml:base="https://example.org/base/" ')}"""
         '<channel rdf:about="https://example.org/"><items><rdf:Seq>'
         '<rdf:li rdf:resource="https://example.org/b"/>'

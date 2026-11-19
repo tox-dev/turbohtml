@@ -125,14 +125,14 @@ def _render(data: bytes) -> None:
 
 def render_observation(data: bytes) -> _RenderObservation:
     # Escaping text must preserve it through a parsed element.
-    source: Final = data.decode("utf-8")
-    document: Final = turbohtml.parse(source)
+    source: Final[str] = data.decode("utf-8")
+    document: Final[turbohtml.Document] = turbohtml.parse(source)
     _require("Escape round trip differs", condition=turbohtml.unescape(turbohtml.escape(source)) == source)
     _require("Version result", condition=isinstance(turbohtml.__version__, str) and bool(turbohtml.__version__))
-    plain: Final = document.to_text(PlainText())
+    plain: Final[str] = document.to_text(PlainText())
     annotated, spans = document.to_annotated_text({"a": ("link",)}, PlainText())
     _require("Annotated text differs", condition=annotated == plain)
-    surface: Final = annotation_surface(annotated, spans)
+    surface: Final[dict[str, list[str]]] = annotation_surface(annotated, spans)
     _require(
         "Annotation values", condition=all(isinstance(value, str) for values in surface.values() for value in values)
     )
@@ -162,8 +162,8 @@ def _conformance(data: bytes) -> None:
 
 def conformance_observation(data: bytes) -> _ConformanceObservation:
     # Strict parse diagnostics and conformance reports use separate records.
-    source: Final = data.decode("utf-8")
-    report: Final = check(turbohtml.parse(source))
+    source: Final[str] = data.decode("utf-8")
+    report: Final[ConformanceReport] = check(turbohtml.parse(source))
     _require("Conformance entry points differ", condition=report == check_html(source))
     _require("Conformance result type", condition=isinstance(report, ConformanceReport))
     _require("Conformance verdict differs", condition=bool(report) == (not report.errors))
@@ -202,17 +202,17 @@ def selector_observation(
     data: bytes, entries: Callable[[str], str | None] = selector_entry_check
 ) -> tuple[str, tuple[tuple[int, int, int], ...]]:
     # Both translator wrappers must retain selector specificity and node selection.
-    selector: Final = data.decode("utf-8")
+    selector: Final[str] = data.decode("utf-8")
     selector_document: str = '<!doctype html><div id="a"><p class="x">one</p><p>two</p></div>'
     assert_invariant(entries, json.dumps({"html": selector_document, "css": selector}))
     try:
-        expression: Final = css_to_xpath(selector)
+        expression: Final[str] = css_to_xpath(selector)
     except ExpressionError as error:
         _require("Expression error ancestry", condition=isinstance(error, SelectorError))
         raise
     _require("Generic translator differs", condition=GenericTranslator().css_to_xpath(selector) == expression)
     _require("HTML translator differs", condition=HTMLTranslator().css_to_xpath(selector) == expression)
-    document: Final = turbohtml.parse(selector_document)
+    document: Final[turbohtml.Document] = turbohtml.parse(selector_document)
     try:
         translated = cast("list[turbohtml.Node]", document.xpath(expression))
     except XPathDepthError as error:
@@ -233,26 +233,28 @@ def cssom_observation(
     data: bytes, style: Callable[[str], str | None] = style_check
 ) -> tuple[tuple[str, str, bool], ...]:
     # Preserve declaration records through rule attachment and a ``StyleDeclaration.text`` re-read.
-    source: Final = data.decode("utf-8")
+    source: Final[str] = data.decode("utf-8")
     assert_invariant(style, source)
-    declaration: Final = StyleDeclaration.parse(source)
-    observed: Final = tuple((name, declaration[name], declaration.important(name)) for name in declaration)
+    declaration: Final[StyleDeclaration] = StyleDeclaration.parse(source)
+    observed: Final[tuple[tuple[str, str, bool], ...]] = tuple(
+        (name, declaration[name], declaration.important(name)) for name in declaration
+    )
     _require("Property order differs", condition=declaration.properties() == tuple(name for name, _, _ in observed))
     _require("Declaration length differs", condition=len(declaration) == len(observed))
     _require(
         "Declaration lookup differs",
         condition=all(name in declaration and declaration.get(name) == value for name, value, _ in observed),
     )
-    rebuilt: Final = StyleDeclaration(observed)
+    rebuilt: Final[StyleDeclaration] = StyleDeclaration(observed)
     _require(
         "Declaration reconstruction differs",
         condition=tuple((name, rebuilt[name], rebuilt.important(name)) for name in rebuilt) == observed,
     )
-    rule: Final = StyleRule("p", declaration)
-    rules: Final = RuleList((rule,))
+    rule: Final[StyleRule] = StyleRule("p", declaration)
+    rules: Final[RuleList] = RuleList((rule,))
     _require("Rule wrapper differs", condition=tuple(rules) == (rules[0],) and rules[0].style is declaration)
     if _rule_close(declaration.text) == " }":
-        sheet: Final = StyleSheet(f"p {{ {declaration.text} }}")
+        sheet: Final[StyleSheet] = StyleSheet(f"p {{ {declaration.text} }}")
         if len(sheet.rules) == 1 and sheet.rules[0].selector_text == "p":
             _require("Sheet declaration differs", condition=sheet.rules[0].style.text == declaration.text)
     computed_observation(data)
@@ -297,10 +299,10 @@ def _opaque_end(text: str, pos: int) -> int:
 
 def computed_observation(data: bytes) -> str:
     # Attach the declarations to the element whose cascade consumes them.
-    declaration: Final = StyleDeclaration.parse(data.decode("utf-8"))
-    document: Final = turbohtml.parse("<style></style><p>x</p>")
+    declaration: Final[StyleDeclaration] = StyleDeclaration.parse(data.decode("utf-8"))
+    document: Final[turbohtml.Document] = turbohtml.parse("<style></style><p>x</p>")
     document.select("style")[0].set_text(f"p {{ color: black; {declaration.text} }}")
-    computed: Final = computed_style(document.select("p")[0])
+    computed: Final[ComputedStyle] = computed_style(document.select("p")[0])
     _require("Computed result type", condition=isinstance(computed, ComputedStyle))
     _require(
         "Computed lookup differs",
@@ -321,10 +323,10 @@ def _schema(data: bytes) -> None:
 
 def schema_observation(data: bytes, xml: Callable[[str], str | None] = xml_check) -> tuple[bool, bool]:
     # Compiled schema verdicts and assertion errors must describe the same instance, and XML output must re-read.
-    source: Final = data.decode("utf-8")
+    source: Final[str] = data.decode("utf-8")
     assert_invariant(xml, source)
-    document: Final = turbohtml.parse_xml(source)
-    schemas: Final = (
+    document: Final[turbohtml.Document] = turbohtml.parse_xml(source)
+    schemas: Final[tuple[XMLSchema, RelaxNG]] = (
         XMLSchema(
             '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">'
             '<xs:element name="root" type="xs:string"/></xs:schema>'
@@ -333,7 +335,7 @@ def schema_observation(data: bytes, xml: Callable[[str], str | None] = xml_check
     )
     verdicts: list[bool] = []
     for schema in schemas:
-        result: Final = schema.validate(document)
+        result: Final[ValidationResult] = schema.validate(document)
         _require("Validation result type", condition=isinstance(result, ValidationResult))
         _require("Validation verdict differs", condition=bool(result) == schema.is_valid(document))
         _require(
@@ -356,15 +358,15 @@ def _transform(data: bytes) -> None:
 
 def transform_observation(data: bytes) -> str:
     # Parameters must remain string values even when they contain XPath quotes.
-    source: Final = data.decode("utf-8")
-    stylesheet: Final = turbohtml.parse_xml(
+    source: Final[str] = data.decode("utf-8")
+    stylesheet: Final[turbohtml.Document] = turbohtml.parse_xml(
         '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
         '<xsl:output method="text"/><xsl:param name="value"/><xsl:template match="/">'
         '<xsl:value-of select="$value"/></xsl:template></xsl:stylesheet>'
     )
-    document: Final = turbohtml.parse_xml("<root/>")
-    quoted: Final = strparam(source)
-    observed: Final = Transform(stylesheet, allow_imports=False)(document, value=quoted)
+    document: Final[turbohtml.Document] = turbohtml.parse_xml("<root/>")
+    quoted: Final[str] = strparam(source)
+    observed: Final[str] = Transform(stylesheet, allow_imports=False)(document, value=quoted)
     _require("Transform parameter differs", condition=observed == source)
     _require(
         "Transform entry points differ",
@@ -379,14 +381,14 @@ def _cli(data: bytes) -> None:
 
 def cli_observation(data: bytes) -> str:
     # File-based CLI output must match the library conversion.
-    source: Final = data.decode("utf-8")
+    source: Final[str] = data.decode("utf-8")
     with TemporaryDirectory(prefix="turbohtml-atheris-") as directory:
-        input_file: Final = Path(directory) / "input.html"
-        output_file: Final = Path(directory) / "output.txt"
+        input_file: Final[Path] = Path(directory) / "input.html"
+        output_file: Final[Path] = Path(directory) / "output.txt"
         input_file.write_text(source, encoding="utf-8")
         _require("CLI exit status", condition=main(("to-text", str(input_file), "-o", str(output_file))) == 0)
         with output_file.open(encoding="utf-8", newline="") as stream:
-            observed: Final = stream.read()
+            observed: Final[str] = stream.read()
     _require("CLI result differs", condition=observed == turbohtml.parse(source).to_text())
     return observed
 

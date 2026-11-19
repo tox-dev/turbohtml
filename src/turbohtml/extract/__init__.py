@@ -56,7 +56,7 @@ from ._native import (
     parse,
     parse_xml,
 )
-from ._native import boilerplate as _boilerplate
+from ._native import boilerplate as native_boilerplate
 from ._structured_data import MicrodataItem, OpenGraph, RdfaItem, StructuredData
 from ._urls import UrlCleaning, clean_url, extract_links, normalize_url
 
@@ -116,7 +116,7 @@ def boilerplate(html: str, options: Extraction | None = None, /) -> list[Paragra
     """
     thresholds = options or _DEFAULT
     document = parse(html)
-    rows = _boilerplate(
+    rows = native_boilerplate(
         # a parsed document always has an <html> root, though the type admits None
         cast("Element", document.root),
         document.main_content(),

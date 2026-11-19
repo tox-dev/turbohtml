@@ -9,16 +9,17 @@ from typing import TYPE_CHECKING, Final, TypeAlias, cast
 
 import pytest
 
-from turbohtml import Html, parse, parse_fragment
+from turbohtml import Document, Element, Html, parse, parse_fragment
 from turbohtml.clean import collapse_whitespace_node, strip_comments_node, transform_node
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from types import ModuleType
 
     from bench.timing import Mutating
     from bs4 import BeautifulSoup
     from lxml.html import HtmlElement
-    from pytest_mock import MockerFixture
+    from pytest_mock import MockerFixture, SpyType
     from selectolax.lexbor import LexborHTMLParser
 
 _MUTATORS: Final[tuple[str, ...]] = ("lxml", "beautifulsoup4", "beautifulsoup4_lxml", "selectolax")
@@ -56,13 +57,13 @@ _NODE_BENCH: Final[Path] = Path(__file__).parents[2] / "tools/bench/node/node_mo
     ],
 )
 def test_mutation(library: str, operation: str, fragment: str) -> None:
-    module: Final = pytest.importorskip(f"bench.competitors.{library}", exc_type=ImportError)
-    mutation: Final = cast("Mutating", module.OPERATIONS[operation][0])
-    source: Final = f"<html><head></head><body>{fragment}</body></html>"
-    tree: Final = mutation.setup(source)
+    module: Final[ModuleType] = pytest.importorskip(f"bench.competitors.{library}", exc_type=ImportError)
+    mutation: Final[Mutating[str, Tree, None]] = module.OPERATIONS[operation][0]
+    source: Final[str] = f"<html><head></head><body>{fragment}</body></html>"
+    tree: Final[Tree] = mutation.setup(source)
     mutation.run(tree)
-    output: Final = _RENDERERS[library](cast("Tree", tree))
-    expected: Final = parse(source)
+    output: Final[str] = _RENDERERS[library](tree)
+    expected: Final[Document] = parse(source)
     transform_node(
         expected,
         *{
@@ -76,8 +77,8 @@ def test_mutation(library: str, operation: str, fragment: str) -> None:
 
 @pytest.mark.parametrize("operation", _MUTATIONS)
 def test_selectolax_refuses_template_contents(operation: str) -> None:
-    module: Final = pytest.importorskip("bench.competitors.selectolax", exc_type=ImportError)
-    mutation: Final = cast("Mutating", module.OPERATIONS[operation][0])
+    module: Final[ModuleType] = pytest.importorskip("bench.competitors.selectolax", exc_type=ImportError)
+    mutation: Final[Mutating[str, LexborHTMLParser, None]] = module.OPERATIONS[operation][0]
     with pytest.raises(ValueError, match="template contents"):
         mutation.setup(f"<html><head></head><body>{_FRAGMENTS['template']}</body></html>")
 
@@ -86,9 +87,9 @@ def test_selectolax_refuses_template_contents(operation: str) -> None:
 @pytest.mark.parametrize("operation", ["serialize-inner", "encode-inner"])
 @pytest.mark.parametrize("fragment", _CASES)
 def test_inner_output(library: str, operation: str, fragment: str) -> None:
-    module: Final = pytest.importorskip(f"bench.competitors.{library}", exc_type=ImportError)
-    run: Final = cast("Callable[[str], str | bytes]", module.OPERATIONS[operation][0])
-    output: Final = run(f"<html><head></head><body>{fragment}</body></html>")
+    module: Final[ModuleType] = pytest.importorskip(f"bench.competitors.{library}", exc_type=ImportError)
+    run: Final[Callable[[str], str | bytes]] = module.OPERATIONS[operation][0]
+    output: Final[str | bytes] = run(f"<html><head></head><body>{fragment}</body></html>")
     assert parse_fragment(_as_text(output)).serialize(Html(sort_attributes=True)) == parse_fragment(fragment).serialize(
         Html(sort_attributes=True)
     )
@@ -101,10 +102,10 @@ def _as_text(output: str | bytes) -> str:
 @pytest.mark.parametrize("library", ["lxml", "beautifulsoup4", "beautifulsoup4_lxml"])
 @pytest.mark.parametrize("operation", ["serialize-inner-indent", "encode-inner-indent"])
 def test_pretty_inner_output(library: str, operation: str) -> None:
-    module: Final = pytest.importorskip(f"bench.competitors.{library}", exc_type=ImportError)
-    run: Final = cast("Callable[[str], str | bytes]", module.OPERATIONS[operation][0])
-    output: Final = run("<html><head></head><body><div><p>one</p><p>two</p></div></body></html>")
-    tree: Final = parse_fragment(_as_text(output))
+    module: Final[ModuleType] = pytest.importorskip(f"bench.competitors.{library}", exc_type=ImportError)
+    run: Final[Callable[[str], str | bytes]] = module.OPERATIONS[operation][0]
+    output: Final[str | bytes] = run("<html><head></head><body><div><p>one</p><p>two</p></div></body></html>")
+    tree: Final[Element] = parse_fragment(_as_text(output))
     assert ([element.text.strip() for element in tree.find_all("p")], bool(tree.find_all("body"))) == (
         ["one", "two"],
         False,
@@ -114,20 +115,20 @@ def test_pretty_inner_output(library: str, operation: str) -> None:
 @pytest.mark.parametrize("operation", ["serialize-inner-minify", "encode-inner-minify"])
 @pytest.mark.parametrize("fragment", _CASES[1:4])
 def test_html5lib_minified_output(operation: str, fragment: str) -> None:
-    module: Final = pytest.importorskip("bench.competitors.html5lib", exc_type=ImportError)
-    run: Final = cast("Callable[[str], str | bytes]", module.OPERATIONS[operation][0])
-    output: Final = run(f"<html><head></head><body>{fragment}</body></html>")
-    expected: Final = parse_fragment(fragment)
+    module: Final[ModuleType] = pytest.importorskip("bench.competitors.html5lib", exc_type=ImportError)
+    run: Final[Callable[[str], str | bytes]] = module.OPERATIONS[operation][0]
+    output: Final[str | bytes] = run(f"<html><head></head><body>{fragment}</body></html>")
+    expected: Final[Element] = parse_fragment(fragment)
     transform_node(expected, strip_comments_node, collapse_whitespace_node)
     assert parse_fragment(_as_text(output)).serialize() == expected.serialize()
 
 
 @pytest.mark.parametrize("fragment", _CASES[:5])
 def test_html5lib_whitespace_roundtrip(fragment: str) -> None:
-    module: Final = pytest.importorskip("bench.competitors.html5lib", exc_type=ImportError)
-    run: Final = cast("Callable[[str], str]", module.OPERATIONS["whitespace-roundtrip"][0])
-    source: Final = f"<html><head></head><body>{fragment}</body></html>"
-    expected: Final = parse(source)
+    module: Final[ModuleType] = pytest.importorskip("bench.competitors.html5lib", exc_type=ImportError)
+    run: Final[Callable[[str], str]] = module.OPERATIONS["whitespace-roundtrip"][0]
+    source: Final[str] = f"<html><head></head><body>{fragment}</body></html>"
+    expected: Final[Document] = parse(source)
     collapse_whitespace_node(expected)
     assert parse(run(source)).serialize() == expected.serialize()
 
@@ -147,11 +148,9 @@ def test_html5lib_whitespace_roundtrip(fragment: str) -> None:
 )
 @pytest.mark.parametrize("operation", ["parse-inner", "parse-inner-encode"])
 def test_javascript_inner_output(library: str, operation: str) -> None:
-    run: Final = cast(
-        "Callable[[str], str | bytes]", import_module(f"bench.competitors.{library}").OPERATIONS[operation][0]
-    )
-    fragment: Final = "a &amp; <b>café 😀</b><!--note--><template><p>one</p></template>"
-    output: Final = run(f"<html><head></head><body>{fragment}</body></html>")
+    run: Final[Callable[[str], str | bytes]] = import_module(f"bench.competitors.{library}").OPERATIONS[operation][0]
+    fragment: Final[str] = "a &amp; <b>café 😀</b><!--note--><template><p>one</p></template>"
+    output: Final[str | bytes] = run(f"<html><head></head><body>{fragment}</body></html>")
     assert parse_fragment(_as_text(output)).serialize() == parse_fragment(fragment).serialize()
 
 
@@ -163,31 +162,27 @@ def test_javascript_inner_output(library: str, operation: str) -> None:
     ],
 )
 def test_html5lib_minification_token_boundaries(fragment: str) -> None:
-    module: Final = pytest.importorskip("bench.competitors.html5lib", exc_type=ImportError)
-    run: Final = cast("Callable[[str], str]", module.OPERATIONS["serialize-inner-minify"][0])
-    output: Final = parse_fragment(run(f"<html><head></head><body>{fragment}</body></html>"))
-    expected: Final = parse_fragment(fragment)
+    module: Final[ModuleType] = pytest.importorskip("bench.competitors.html5lib", exc_type=ImportError)
+    run: Final[Callable[[str], str]] = module.OPERATIONS["serialize-inner-minify"][0]
+    output: Final[Element] = parse_fragment(run(f"<html><head></head><body>{fragment}</body></html>"))
+    expected: Final[Element] = parse_fragment(fragment)
     transform_node(expected, strip_comments_node, collapse_whitespace_node)
     assert (output.find_all("p")[0].text, expected.find_all("p")[0].text) == ("a  b", "a b")
 
 
 def test_sanitize_node_builds_a_new_tree() -> None:
-    module: Final = pytest.importorskip("bench.competitors.lxml_html_clean", exc_type=ImportError)
-    mutation: Final = cast("Mutating", module.OPERATIONS["sanitize-node"][0])
-    tree: Final = cast(
-        "HtmlElement", mutation.setup('<p onclick="bad()">https://example.com<script>bad()</script></p>')
-    )
-    output: Final = cast("HtmlElement", mutation.run(tree))
+    module: Final[ModuleType] = pytest.importorskip("bench.competitors.lxml_html_clean", exc_type=ImportError)
+    mutation: Final[Mutating[str, HtmlElement, HtmlElement]] = module.OPERATIONS["sanitize-node"][0]
+    tree: Final[HtmlElement] = mutation.setup('<p onclick="bad()">https://example.com<script>bad()</script></p>')
+    output: Final[HtmlElement] = mutation.run(tree)
     assert (output is tree, len(tree.xpath(".//script")), len(output.xpath(".//script"))) == (False, 1, 0)
 
 
 def test_linkify_node_edits_the_tree_in_place() -> None:
-    module: Final = pytest.importorskip("bench.competitors.lxml_html_clean", exc_type=ImportError)
-    mutation: Final = cast("Mutating", module.OPERATIONS["linkify-node"][0])
-    tree: Final = cast(
-        "HtmlElement", mutation.setup('<p onclick="bad()">https://example.com<script>bad()</script></p>')
-    )
-    output: Final = cast("HtmlElement", mutation.run(tree))
+    module: Final[ModuleType] = pytest.importorskip("bench.competitors.lxml_html_clean", exc_type=ImportError)
+    mutation: Final[Mutating[str, HtmlElement, HtmlElement]] = module.OPERATIONS["linkify-node"][0]
+    tree: Final[HtmlElement] = mutation.setup('<p onclick="bad()">https://example.com<script>bad()</script></p>')
+    output: Final[HtmlElement] = mutation.run(tree)
     assert (output is tree, output.xpath(".//a/@href")) == (True, ["https://example.com"])
 
 
@@ -241,16 +236,16 @@ def test_linkify_node_edits_the_tree_in_place() -> None:
 def test_lxml_serialized_output(
     operation: str, serializer: str, source: str | int, expected: bytes, mocker: MockerFixture
 ) -> None:
-    module: Final = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
-    output: Final = mocker.spy(import_module(serializer), "tostring")
+    module: Final[ModuleType] = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
+    output: Final[SpyType] = mocker.spy(import_module(serializer), "tostring")
     cast("Callable[[str | int], None]", module.OPERATIONS[operation][0])(source)
     assert output.spy_return == expected
 
 
 def test_lxml_set_html_output() -> None:
-    module: Final = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
-    mutation: Final = cast("Mutating", module.OPERATIONS["set-html"][0])
-    tree: Final = cast("HtmlElement", mutation.setup("<p>original</p>"))
+    module: Final[ModuleType] = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
+    mutation: Final[Mutating[str, HtmlElement, None]] = module.OPERATIONS["set-html"][0]
+    tree: Final[HtmlElement] = mutation.setup("<p>original</p>")
     mutation.run(tree)
     assert import_module("lxml.html").tostring(tree, encoding="unicode") == (
         '<html><body><p>Updated <a href="/x">link</a> and <b>bold</b>.</p>'
@@ -270,16 +265,15 @@ def test_lxml_set_html_output() -> None:
     ],
 )
 def test_lxml_rejects_malformed_xml(operation: str, source: str | tuple[str, str]) -> None:
-    module: Final = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
-    etree: Final = import_module("lxml.etree")
-    with pytest.raises(etree.XMLSyntaxError, match="Premature end"):
+    module: Final[ModuleType] = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
+    with pytest.raises(import_module("lxml.etree").XMLSyntaxError, match="Premature end"):
         cast("Callable[[str | tuple[str, str]], None]", module.OPERATIONS[operation][0])(source)
 
 
 def test_lxml_rejects_invalid_schema() -> None:
-    module: Final = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
-    etree: Final = import_module("lxml.etree")
-    schema: Final = (
+    module: Final[ModuleType] = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
+    etree: Final[ModuleType] = import_module("lxml.etree")
+    schema: Final[str] = (
         '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="root" type="xs:missing"/></xs:schema>'
     )
     with pytest.raises(etree.XMLSchemaParseError, match="does not resolve"):
@@ -287,7 +281,7 @@ def test_lxml_rejects_invalid_schema() -> None:
 
 
 def test_lxml_parser_target_counts_real_events(mocker: MockerFixture) -> None:
-    module: Final = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
-    parser: Final = mocker.spy(import_module("lxml.etree"), "HTMLParser")
+    module: Final[ModuleType] = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
+    parser: Final[SpyType] = mocker.spy(import_module("lxml.etree"), "HTMLParser")
     cast("Callable[[str], None]", module.OPERATIONS["htmlparser"][0])('<p a="1">text</p>')
     assert parser.call_args.kwargs["target"].close() == 10

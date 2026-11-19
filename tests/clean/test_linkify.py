@@ -28,7 +28,9 @@ from turbohtml.clean import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from types import ModuleType
 
+    from lxml.html import HtmlElement
     from work_steps import WorkSteps
 
     from turbohtml import Node
@@ -1104,17 +1106,17 @@ def test_a_reusable_linker_offers_the_node_form() -> None:
     linker = Linker()
     root = parse_fragment(_TEXT)
     assert assert_type(linker.linkify_node(root), Element).inner_html == linker.linkify(_TEXT)
-    document: Final = parse(_TEXT)
+    document: Final[Document] = parse(_TEXT)
     assert assert_type(linker.linkify_node(document), Document) is document
     assert document.serialize().count("<a ") == 2
 
 
 def test_the_node_form_drops_what_the_tree_remembered() -> None:
-    root: Final = parse_fragment(
+    root: Final[Element] = parse_fragment(
         "<p>See https://example.com</p><p><a href='/y'><i>y</i></a></p>"
         "<ol><li>a</li><a href='/x'><div><li>b</li></div></a><li>c</li></ol>"
     )
-    last: Final = root.select("li")[-1]
+    last: Final[Element] = root.select("li")[-1]
     assert len(root.select("a")) == 2  # builds the element index the queries below would read
     assert last.to_markdown() == "2. c"  # the list does not look for items inside the link
 
@@ -1504,8 +1506,8 @@ def test_linkify_snapshot_width(prefix: str) -> None:
 
 @pytest.mark.parametrize("prefix", [pytest.param("plain ", id="ascii"), pytest.param("😀 ", id="ucs4")])
 def test_linkify_snapshot_survives_callback_mutation(prefix: str) -> None:
-    root: Final = parse_fragment(f"{prefix}https://example.com tail")
-    text: Final = root.children[0]
+    root: Final[Element] = parse_fragment(f"{prefix}https://example.com tail")
+    text: Final[Node] = root.children[0]
     assert isinstance(text, Text)
 
     def mutate(link: LinkCandidate) -> LinkCandidate:
@@ -1519,8 +1521,8 @@ def test_linkify_snapshot_survives_callback_mutation(prefix: str) -> None:
 
 @pytest.mark.parametrize("verdict", ["veto", "keep"])
 def test_linkify_callback_detaches_text_node(verdict: str) -> None:
-    root: Final = parse_fragment("see example.com")
-    text: Final = root.children[0]
+    root: Final[Element] = parse_fragment("see example.com")
+    text: Final[Node] = root.children[0]
     assert isinstance(text, Text)
 
     def detach(link: LinkCandidate) -> LinkCandidate | None:
@@ -1533,8 +1535,8 @@ def test_linkify_callback_detaches_text_node(verdict: str) -> None:
 
 
 def test_linkify_callback_detaches_later_text_node() -> None:
-    root: Final = parse_fragment("<p>see example.com</p>and example.org")
-    later: Final = root.children[1]
+    root: Final[Element] = parse_fragment("<p>see example.com</p>and example.org")
+    later: Final[Node] = root.children[1]
     assert isinstance(later, Text)
 
     def detach(link: LinkCandidate) -> LinkCandidate:
@@ -1548,8 +1550,8 @@ def test_linkify_callback_detaches_later_text_node() -> None:
 
 
 def test_linkify_callback_detaches_vetoed_existing_anchor() -> None:
-    root: Final = parse_fragment('<p>hi <a href="http://example.com/">x</a></p>')
-    anchor: Final = root.select("a")[0]
+    root: Final[Element] = parse_fragment('<p>hi <a href="http://example.com/">x</a></p>')
+    anchor: Final[Element] = root.select("a")[0]
 
     def detach(_link: LinkCandidate) -> None:
         anchor.extract()
@@ -1587,12 +1589,12 @@ def test_linkify_wide_snapshot_callback_veto() -> None:
     ],
 )
 def test_linkify_snapshot_benchmark(case: int, expected: str) -> None:
-    root: Final = parse_fragment(cast("str", INPUTS["linkify-node"]()[case][1]))
+    root: Final[Element] = parse_fragment(cast("str", INPUTS["linkify-node"]()[case][1]))
     assert Linker().linkify_node(root).inner_html == expected
 
 
 def test_linkify_snapshot_callback_benchmark() -> None:
-    case: Final = cast("tuple[str, str]", INPUTS["linkify-traversal"]()[5][1])
+    case: Final[tuple[str, str]] = cast("tuple[str, str]", INPUTS["linkify-traversal"]()[5][1])
     assert Linker(Linkify(callbacks=(nofollow, target_blank), process_existing=True)).linkify(case[1]) == (
         f'<p>{"😀 " * 32_768}<a href="https://example.com" rel="nofollow" target="_blank">https://example.com</a></p>'
     )
@@ -1815,10 +1817,10 @@ def test_candidate_phone_defaults_to_none() -> None:
 )
 @pytest.mark.oracle
 def test_linkify_snapshot_outputs(case: int) -> None:
-    html: Final = pytest.importorskip("lxml.html")
-    clean: Final = pytest.importorskip("lxml_html_clean")
-    source: Final = cast("str", INPUTS["linkify-node"]()[case][1])
-    root: Final = html.fragment_fromstring(source, create_parent="div")
+    html: Final[ModuleType] = pytest.importorskip("lxml.html")
+    clean: Final[ModuleType] = pytest.importorskip("lxml_html_clean")
+    source: Final[str] = cast("str", INPUTS["linkify-node"]()[case][1])
+    root: Final[HtmlElement] = html.fragment_fromstring(source, create_parent="div")
     clean.autolink(root, avoid_hosts=())
     assert (
         Linker().linkify_node(parse_fragment(source)).inner_html,

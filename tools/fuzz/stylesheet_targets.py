@@ -31,7 +31,7 @@ def _stylesheet(data: bytes) -> None:
 
 def stylesheet_observation(data: bytes, printer: Callable[[str], str] = minify_css) -> str:
     # Check supported values and selectors against a fixed DOM context.
-    source: Final = data.decode("utf-8")
+    source: Final[str] = data.decode("utf-8")
     if _unclosed_css_blocks(source):
         msg = "CSS input has an unclosed block"
         raise OutOfScopeError(msg)

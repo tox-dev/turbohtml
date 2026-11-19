@@ -10,7 +10,7 @@ from weakref import finalize
 
 import pytest
 
-from turbohtml import Axis, Comment, Document, Element, Range, Text, parse, parse_fragment, parse_xml
+from turbohtml import Axis, Comment, Document, Element, Node, Range, Text, parse, parse_fragment, parse_xml
 from turbohtml.clean import collapse_whitespace_node
 
 if TYPE_CHECKING:
@@ -194,8 +194,8 @@ def test_class_filter_no_match(html: str, class_filter: Filter) -> None:
     ("class_filter", "found"), [pytest.param("hit", (201, 200), id="hit"), pytest.param("x", (0, 0), id="miss")]
 )
 def test_class_shared_long_value_answers(class_filter: str, found: tuple[int, int]) -> None:
-    document: Final = _recreated_long_class(200, "hit")
-    with_text: Final = document.find_all("u", class_=class_filter, text="v")
+    document: Final[Document] = _recreated_long_class(200, "hit")
+    with_text: Final[list[Element]] = document.find_all("u", class_=class_filter, text="v")
     assert (len(document.find_all(class_=class_filter)), len(with_text)) == found
 
 
@@ -390,22 +390,22 @@ def test_tag_filter_edits_tree(
     *,
     requery: bool,
 ) -> None:
-    document: Final = parse("<section><p id='a'></p><p id='b'></p><p id='c'></p><p id='d'></p></section>")
+    document: Final[Document] = parse("<section><p id='a'></p><p id='b'></p><p id='c'></p><p id='d'></p></section>")
     document.find_all("p")
-    origin: Final = scope(document)
+    origin: Final[Document | Element] = scope(document)
     seen: Final[list[str | None]] = []
 
     def last(value: str | None) -> bool:
         seen.append(value)
         if len(seen) == 1:
-            target: Final = document.find(id=victim)
+            target: Final[Element | None] = document.find(id=victim)
             assert target is not None
             target.extract()  # a structural edit drops the element index a document-wide query is reading
             if requery:
                 document.find_all("p")  # and this rebuilds it, smaller, under that query
         return value == "d"
 
-    matches: Final = search(origin, last)
+    matches: Final[list[Element | None]] = search(origin, last)
     assert ([element.attrs["id"] for element in matches if element is not None], seen) == expected
 
 
@@ -600,7 +600,7 @@ def test_text_scan_copies_an_empty_text_node(build: Callable[[], Element]) -> No
 )
 def test_text_scan_over_an_empty_subtree(pattern: str, expected: list[str]) -> None:
     # an all-empty subtree never allocates the scratch buffer, which memcpy may not receive as NULL
-    root: Final = Element("div", children=[Element("p", children=[Text("")])])
+    root: Final[Element] = Element("div", children=[Element("p", children=[Text("")])])
     assert _tags(root.find_all(text=re.compile(pattern))) == expected
 
 
@@ -868,8 +868,8 @@ def test_text_python_path_filter_adds_candidates(
     query: Callable[[Document, Callable[[str | None], bool]], object], expected: list[str] | None
 ) -> None:
     # the snapshot is sized before the structural filters run, and every call of this one adds another match
-    document: Final = parse("<a href='/seed'>z</a>" * 40)
-    body: Final = _el(document.find("body"))
+    document: Final[Document] = parse("<a href='/seed'>z</a>" * 40)
+    body: Final[Element] = _el(document.find("body"))
 
     def keep(value: str | None) -> bool:
         assert value == "/seed"
@@ -898,9 +898,9 @@ _TEST_TEXT_NESTED_SNAPSHOT_PATTERN: Final[re.Pattern[str]] = re.compile(r"^warn\
 def test_text_predicate_snapshot_shares_nested_text(query: Callable[[Document, Element], object]) -> None:
     # PyPy has no tracemalloc
     tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
-    depth: Final = 1_500
-    document: Final = parse_xml(f"<list>{'<node>item' * depth}{'</node>' * depth}</list>")
-    leaf: Final = document.find_all("node")[-1]
+    depth: Final[int] = 1_500
+    document: Final[Document] = parse_xml(f"<list>{'<node>item' * depth}{'</node>' * depth}</list>")
+    leaf: Final[Element] = document.find_all("node")[-1]
     tracing.start()
     try:
         assert not query(document, leaf)
@@ -916,19 +916,19 @@ def test_text_predicate_snapshot_shares_nested_text(query: Callable[[Document, E
 @pytest.mark.parametrize("tag", [pytest.param(None, id="any"), pytest.param("div", id="tag")])
 def test_text_predicate_receives_each_candidates_text(axis: Axis, tag: str | None) -> None:
     # nested candidates share one copy of their text in the snapshot; each still reads as its own
-    document: Final = parse(
+    document: Final[Document] = parse(
         "<header>a<div>b<div>c</div><em>d</em></div></header>"
         "<main>e<div>f<div>g<i>h</i></div><!--x-->i</div>j<br><div>k<b>l</b></div>m</main>"
         "<footer>n<div>o<u>p</u></div>q</footer>"
     )
-    origin: Final = _el(document.find("main"))
+    origin: Final[Element] = _el(document.find("main"))
     seen: Final[list[str | None]] = []
 
     def record(value: str | None) -> bool:
         seen.append(value)
         return True
 
-    matches: Final = origin.find_all(tag, text=record, axis=axis)
+    matches: Final[list[Element]] = origin.find_all(tag, text=record, axis=axis)
     assert matches == origin.find_all(tag, axis=axis)
     assert seen == [element.text for element in matches]
 
@@ -947,8 +947,8 @@ def test_text_predicate_receives_empty_text_of_textless_tree() -> None:
 
 def test_text_predicate_runs_over_text_as_of_search_start() -> None:
     # the candidates and their text are fixed before the first call, whatever a predicate edits
-    section: Final = _el(parse("<section><p>one</p><p>two</p></section>").find("section"))
-    last: Final = section.children[1]
+    section: Final[Element] = _el(parse("<section><p>one</p><p>two</p></section>").find("section"))
+    last: Final[Node] = section.children[1]
     assert isinstance(last, Element)
     seen: Final[list[str | None]] = []
 
@@ -963,7 +963,7 @@ def test_text_predicate_runs_over_text_as_of_search_start() -> None:
 
 
 def test_text_predicate_keeps_text_as_of_search_start_when_a_filter_reorders_nested_candidates() -> None:
-    document: Final = parse_xml('<r><x k="1">a<x k="2">b</x><x k="3">c</x></x></r>')
+    document: Final[Document] = parse_xml('<r><x k="1">a<x k="2">b</x><x k="3">c</x></x></r>')
     outer, middle, _ = document.find_all("x")
     seen: Final[list[str | None]] = []
 
@@ -979,7 +979,7 @@ def test_text_predicate_keeps_text_as_of_search_start_when_a_filter_reorders_nes
 
     # the callable moves the middle candidate after the last one once the candidates are gathered, so each one keeps the
     # text it had when the search started
-    matches: Final = document.find_all("x", k=reorder, text=record)
+    matches: Final[list[Element]] = document.find_all("x", k=reorder, text=record)
     assert [element.attrs["k"] for element in matches] == ["1", "2", "3"]
     assert seen == ["abc", "b", "c"]
 
@@ -1020,8 +1020,8 @@ def xml_case_document() -> Document:
     ],
 )
 def test_attribute_presence_ignores_value(attribute: str, *, present: bool, text: str) -> None:
-    document: Final = parse(f"<p {attribute}>present</p><p>absent</p>")
-    matches: Final = document.find_all("p", attrs={"custom": present})
+    document: Final[Document] = parse(f"<p {attribute}>present</p><p>absent</p>")
+    matches: Final[list[Element]] = document.find_all("p", attrs={"custom": present})
     assert [node.text for node in matches] == [text]
 
 
@@ -1038,8 +1038,8 @@ def test_attribute_presence_ignores_value(attribute: str, *, present: bool, text
     ],
 )
 def test_attribute_presence_ignores_value_keyword(attribute: str, *, present: bool, text: str) -> None:
-    document: Final = parse(f"<p {attribute}>present</p><p>absent</p>")
-    matches: Final = document.find_all("p", custom=present)
+    document: Final[Document] = parse(f"<p {attribute}>present</p><p>absent</p>")
+    matches: Final[list[Element]] = document.find_all("p", custom=present)
     assert [node.text for node in matches] == [text]
 
 
@@ -1061,8 +1061,8 @@ def test_text_exact_across_descendants(markup: str, expected: str, *, matched: b
 
 
 def test_text_exact_with_empty_text_node() -> None:
-    root: Final = Element("main")
-    child: Final = Element("p")
+    root: Final[Element] = Element("main")
+    child: Final[Element] = Element("p")
     child.append(Text(""))
     child.append(Text("match"))
     root.append(child)
@@ -1083,7 +1083,9 @@ def test_text_exact_with_empty_text_node() -> None:
     ],
 )
 def test_find_all_result_order(count: int, limit: int | None) -> None:
-    document: Final = parse("".join(f"<section><p id='{index}'></p><span></span></section>" for index in range(count)))
+    document: Final[Document] = parse(
+        "".join(f"<section><p id='{index}'></p><span></span></section>" for index in range(count))
+    )
     assert [element.attrs["id"] for element in document.find_all("p", limit=limit)] == [
         str(index) for index in range(count)
     ][:limit]
@@ -1103,7 +1105,9 @@ def test_find_all_result_order(count: int, limit: int | None) -> None:
     ],
 )
 def test_find_all_result_order_warm(count: int, limit: int | None) -> None:
-    document: Final = parse("".join(f"<section><p id='{index}'></p><span></span></section>" for index in range(count)))
+    document: Final[Document] = parse(
+        "".join(f"<section><p id='{index}'></p><span></span></section>" for index in range(count))
+    )
     document.find_all("span")
     assert [element.attrs["id"] for element in document.find_all("p", limit=limit)] == [
         str(index) for index in range(count)
@@ -1111,11 +1115,11 @@ def test_find_all_result_order_warm(count: int, limit: int | None) -> None:
 
 
 def test_find_all_results_after_mutation() -> None:
-    document: Final = parse("<main><p id='first'></p><p id='second'></p></main>")
-    matches: Final = document.find_all("p")
+    document: Final[Document] = parse("<main><p id='first'></p><p id='second'></p></main>")
+    matches: Final[list[Element]] = document.find_all("p")
     matches[0].tag = "span"
     matches[1].extract()
-    main: Final = document.find("main")
+    main: Final[Element | None] = document.find("main")
     assert main is not None
     main.append(Element("p", attrs={"id": "third"}))
     assert [element.attrs["id"] for element in document.find_all("p")] == ["third"]
@@ -1127,7 +1131,9 @@ def test_find_all_results_after_mutation() -> None:
     [pytest.param(True, ["a", "c"], id="present"), pytest.param(False, ["b", "d"], id="absent")],
 )
 def test_find_all_filtered_result_limit(limit: int, *, present: bool, expected: list[str]) -> None:
-    document: Final = parse("<section><p id='a' data-x></p><p id='b'></p><p id='c' data-x></p><p id='d'></p></section>")
+    document: Final[Document] = parse(
+        "<section><p id='a' data-x></p><p id='b'></p><p id='c' data-x></p><p id='d'></p></section>"
+    )
     document.find_all("span")
     assert [element.attrs["id"] for element in document.find_all("p", attrs={"data-x": present}, limit=limit)] == (
         expected[:limit]
@@ -1140,18 +1146,20 @@ def test_find_all_filtered_result_limit(limit: int, *, present: bool, expected: 
     [pytest.param(True, ["a", "c"], id="present"), pytest.param(False, ["b", "d"], id="absent")],
 )
 def test_find_all_filtered_result_limit_subtree(limit: int, *, present: bool, expected: list[str]) -> None:
-    document: Final = parse("<section><p id='a' data-x></p><p id='b'></p><p id='c' data-x></p><p id='d'></p></section>")
+    document: Final[Document] = parse(
+        "<section><p id='a' data-x></p><p id='b'></p><p id='c' data-x></p><p id='d'></p></section>"
+    )
     document.find_all("span")
-    section: Final = _el(document.find("section"))
+    section: Final[Element] = _el(document.find("section"))
     assert [element.attrs["id"] for element in section.find_all("p", attrs={"data-x": present}, limit=limit)] == (
         expected[:limit]
     )
 
 
 def test_find_all_filtered_result_after_attribute_mutation() -> None:
-    document: Final = parse("<p id='a' data-x></p><p id='b'></p><p id='c' data-x></p>")
+    document: Final[Document] = parse("<p id='a' data-x></p><p id='b'></p><p id='c' data-x></p>")
     document.find_all("span")
-    target: Final = document.find("p", id="b")
+    target: Final[Element | None] = document.find("p", id="b")
     assert target is not None
     target.attrs["data-x"] = None
     assert [element.attrs["id"] for element in document.find_all("p", attrs={"data-x": True})] == ["a", "b", "c"]
@@ -1165,13 +1173,13 @@ def test_find_all_filtered_result_after_attribute_mutation() -> None:
     ],
 )
 def test_find_all_indexed_filtered_limit(class_filter: str | re.Pattern[str], attrs: dict[str, str | bool]) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         "<p id='a' class='cold' data-x='one'></p>"
         "<p id='b' class='hot' data-x='two' data-y></p>"
         "<p id='c' class='hot' data-x='two' data-y></p>"
     )
     document.find_all("p")
-    matches: Final = document.find_all("p", class_=class_filter, attrs=attrs, limit=1)
+    matches: Final[list[Element]] = document.find_all("p", class_=class_filter, attrs=attrs, limit=1)
     assert [element.attrs["id"] for element in matches] == ["b"]
 
 
@@ -1183,13 +1191,13 @@ def test_find_all_indexed_filtered_limit(class_filter: str | re.Pattern[str], at
     ],
 )
 def test_find_all_indexed_attribute_filtered_limit(attrs: dict[str, str | bool]) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         "<p id='a' class='cold' data-x='one'></p>"
         "<p id='b' class='hot' data-x='two' data-y></p>"
         "<p id='c' class='hot' data-x='two' data-y></p>"
     )
     document.find_all("p")
-    matches: Final = document.find_all("p", attrs=attrs, limit=1)
+    matches: Final[list[Element]] = document.find_all("p", attrs=attrs, limit=1)
     assert [element.attrs["id"] for element in matches] == ["b"]
 
 
@@ -1225,14 +1233,14 @@ def test_find_all_indexed_attribute_filtered_limit(attrs: dict[str, str | bool])
     ],
 )
 def test_find_all_results_during_collection(offset: int, count: int, expected: list[str]) -> None:
-    thresholds: Final = gc.get_threshold()
+    thresholds: Final[tuple[int, int, int]] = gc.get_threshold()
     gc.disable()
     gc.collect()
-    document: Final = parse(f"""<main>{"<p id='old'>x</p>" * 33}</main>""")
+    document: Final[Document] = parse(f"""<main>{"<p id='old'>x</p>" * 33}</main>""")
     document.find_all("p")
-    main: Final = document.find("main")
+    main: Final[Element | None] = document.find("main")
     assert main is not None
-    collect: Final = document.find_all
+    collect = document.find_all
     changed = False
 
     def clear(phase: str, _info: dict[str, int]) -> None:
@@ -1247,7 +1255,7 @@ def test_find_all_results_during_collection(offset: int, count: int, expected: l
     try:
         gc.set_threshold(gc.get_count()[0] + offset, thresholds[1], thresholds[2])
         gc.enable()
-        result: Final = collect("p", limit=32)
+        result: Final[list[Element]] = collect("p", limit=32)
         gc.collect()
     finally:
         gc.disable()
@@ -1267,7 +1275,7 @@ if TYPE_CHECKING:
 
 
 def test_find_all_attribute_filters_survive_mapping_changes() -> None:
-    document: Final = parse('<p data-a="a" data-b="b">keep</p><p data-a="c" data-b="d">keep</p>')
+    document: Final[Document] = parse('<p data-a="a" data-b="b">keep</p><p data-a="c" data-b="d">keep</p>')
     calls: Final[list[str | None]] = []
     attrs: Final[dict[str, Callable[[str | None], bool]]] = {}
 
@@ -1293,7 +1301,7 @@ def test_find_all_attribute_filters_survive_mapping_changes() -> None:
 def test_find_all_text_filter_survives_mapping_changes(
     text: str | Callable[[str | None], bool], expected_calls: list[str]
 ) -> None:
-    document: Final = parse('<p data-a="a" data-b="b">keep</p><p data-a="c" data-b="d">keep</p>')
+    document: Final[Document] = parse('<p data-a="a" data-b="b">keep</p><p data-a="c" data-b="d">keep</p>')
     calls: Final[list[str | None]] = []
     attrs: Final[dict[str, Callable[[str | None], bool]]] = {}
 
@@ -1310,7 +1318,7 @@ def test_find_all_text_filter_survives_mapping_changes(
 
 
 def test_find_attribute_filters_survive_mapping_changes() -> None:
-    document: Final = parse('<p data-a="a" data-b="b">keep</p><p data-a="c" data-b="d">keep</p>')
+    document: Final[Document] = parse('<p data-a="a" data-b="b">keep</p><p data-a="c" data-b="d">keep</p>')
     calls: Final[list[str | None]] = []
     attrs: Final[dict[str, Callable[[str | None], bool]]] = {}
 
@@ -1321,7 +1329,7 @@ def test_find_attribute_filters_survive_mapping_changes() -> None:
 
     attrs.update({"data-a": first, "data-b": lambda value: calls.append(value) or True})
     finalize(attrs["data-b"], calls.append, "released")
-    found: Final = _el(document.find("p", attrs=attrs))
+    found: Final[Element] = _el(document.find("p", attrs=attrs))
     gc.collect()
     assert (found.text, calls) == ("keep", ["a", "b", "released"])
 
@@ -1336,7 +1344,7 @@ def test_find_attribute_filters_survive_mapping_changes() -> None:
 def test_find_text_filter_survives_mapping_changes(
     text: str | Callable[[str | None], bool], expected_calls: list[str]
 ) -> None:
-    document: Final = parse('<p data-a="a" data-b="b">keep</p><p data-a="c" data-b="d">keep</p>')
+    document: Final[Document] = parse('<p data-a="a" data-b="b">keep</p><p data-a="c" data-b="d">keep</p>')
     calls: Final[list[str | None]] = []
     attrs: Final[dict[str, Callable[[str | None], bool]]] = {}
 
@@ -1347,14 +1355,14 @@ def test_find_text_filter_survives_mapping_changes(
 
     attrs.update({"data-a": first, "data-b": lambda value: calls.append(value) or True})
     finalize(attrs["data-b"], calls.append, "released")
-    found: Final = _el(document.find("p", attrs=attrs, text=text))
+    found: Final[Element] = _el(document.find("p", attrs=attrs, text=text))
     gc.collect()
     assert (found.text, calls) == ("keep", [*expected_calls, "released"])
 
 
 def test_find_all_filter_cleanup_preserves_result_storage() -> None:
-    root: Final = _el(parse('<main><p data-x="yes">original</p></main>').find("main"))
-    target: Final = Element("article")
+    root: Final[Element] = _el(parse('<main><p data-x="yes">original</p></main>').find("main"))
+    target: Final[Element] = Element("article")
     attrs: Final[dict[str, Callable[[str | None], bool]]] = {}
     attrs["data-x"] = lambda _: attrs.clear() or True
     finalize(attrs["data-x"], target.append, root)
@@ -1364,12 +1372,12 @@ def test_find_all_filter_cleanup_preserves_result_storage() -> None:
 
 
 def test_find_filter_cleanup_preserves_result_storage() -> None:
-    root: Final = _el(parse('<main><p data-x="yes">original</p></main>').find("main"))
-    target: Final = Element("article")
+    root: Final[Element] = _el(parse('<main><p data-x="yes">original</p></main>').find("main"))
+    target: Final[Element] = Element("article")
     attrs: Final[dict[str, Callable[[str | None], bool]]] = {}
     attrs["data-x"] = lambda _: attrs.clear() or True
     finalize(attrs["data-x"], target.append, root)
-    found: Final = _el(root.find("p", attrs=attrs))
+    found: Final[Element] = _el(root.find("p", attrs=attrs))
     gc.collect()
     assert (found.text, target.text) == ("original", "original")
 
@@ -1390,14 +1398,14 @@ def test_find_filter_cleanup_preserves_result_storage() -> None:
 def test_filter_moving_the_searched_node_to_another_tree_finishes_on_the_old_one(
     search: Callable[[Element, Callable[[str | None], bool]], list[Element | None]],
 ) -> None:
-    fragment: Final = parse_fragment('<p><a href="/1">1</a><a href="/2">2</a></p>')
-    host: Final = Element("div")
+    fragment: Final[Element] = parse_fragment('<p><a href="/1">1</a><a href="/2">2</a></p>')
+    host: Final[Element] = Element("div")
 
     def moves(value: str | None) -> bool:
         host.append(fragment)  # fragment is the only wrapper of its tree, so the move leaves the search its last owner
         return value in {"/2", "2"}
 
-    matches: Final = [_el(match) for match in search(fragment, moves)]
+    matches: Final[list[Element]] = [_el(match) for match in search(fragment, moves)]
     assert [(match.attrs["href"], match.text) for match in matches] == [("/2", "2")]
     assert fragment.parent == host
 
@@ -1452,7 +1460,7 @@ def test_text_of_nested_candidates(axis: Axis, text_filter: Filter, tags: list[s
 
 
 def _nest_origin(axis: Axis) -> Document | Element:
-    document: Final = parse_xml(_NEST_DOC)
+    document: Final[Document] = parse_xml(_NEST_DOC)
     _el(document.find("i")).append(Text(""))  # an empty Text adds nothing to any element's text
     if axis is Axis.ANCESTORS:
         return document.find_all("li")[-1]
@@ -1514,11 +1522,11 @@ def test_text_search_past_nested_candidates_raises_from_filter() -> None:
 
 
 def test_text_of_nested_candidates_moved_by_a_filter() -> None:
-    document: Final = parse_xml(f"<r><m/>{'<li>' * _NEST}go{'</li>' * _NEST}<t/><u/></r>")
-    present: Final = {element.tag for element in document.find_all(axis=Axis.DESCENDANTS)}
-    moved: Final = _el(document.find("m"))
-    target: Final = _el(document.find("t"))
-    dropped: Final = _el(document.find("u"))
+    document: Final[Document] = parse_xml(f"<r><m/>{'<li>' * _NEST}go{'</li>' * _NEST}<t/><u/></r>")
+    present: Final[set[str]] = {element.tag for element in document.find_all(axis=Axis.DESCENDANTS)}
+    moved: Final[Element] = _el(document.find("m"))
+    target: Final[Element] = _el(document.find("t"))
+    dropped: Final[Element] = _el(document.find("u"))
 
     def move_at_target(name: str | None) -> bool:
         if name == "t":
@@ -1528,17 +1536,17 @@ def test_text_of_nested_candidates_moved_by_a_filter() -> None:
 
     # the result of a search whose callable edits the tree is unspecified; m is judged before the callable moves it, so
     # it stays in the result, and the search must still finish with elements the document held
-    tags: Final = _tags(document.find_all(move_at_target, text=""))
+    tags: Final[list[str]] = _tags(document.find_all(move_at_target, text=""))
     assert "m" in tags
     assert set(tags) <= present
 
 
 def test_text_of_nested_ancestors_moved_by_a_filter() -> None:
-    document: Final = parse_xml(_NEST_DOC)
-    chain: Final = document.find_all("li")
-    present: Final = {element.tag for element in document.find_all(axis=Axis.DESCENDANTS)}
-    end: Final = _el(document.find("e"))
-    calls: Final = itertools.count(1)
+    document: Final[Document] = parse_xml(_NEST_DOC)
+    chain: Final[list[Element]] = document.find_all("li")
+    present: Final[set[str]] = {element.tag for element in document.find_all(axis=Axis.DESCENDANTS)}
+    end: Final[Element] = _el(document.find("e"))
+    calls: Final[itertools.count[int]] = itertools.count(1)
 
     def move_late(_name: str | None) -> bool:
         if next(calls) == _NEST - 1_000:
@@ -1547,7 +1555,7 @@ def test_text_of_nested_ancestors_moved_by_a_filter() -> None:
 
     # the climb meets the moved element after the ancestors that were above it, so the result is unspecified here too;
     # the nearest ancestor is judged before any move, so it stays in the result
-    tags: Final = _tags(chain[-1].find_all(move_late, text="go", axis=Axis.ANCESTORS))
+    tags: Final[list[str]] = _tags(chain[-1].find_all(move_late, text="go", axis=Axis.ANCESTORS))
     assert tags[0] == "li"
     assert set(tags) <= present
 
@@ -1564,8 +1572,10 @@ def test_text_of_chain_after_a_filter_adds_an_element_scales_linearly(
 
 
 def _chain_after_an_added_element(depth: int, text_filter: Filter) -> Callable[[], object]:
-    document: Final = parse_xml(f"<r>{'<d>' * depth}tail{'</d>' * depth}<t/>{'<e>' * depth}tail{'</e>' * depth}</r>")
-    target: Final = _el(document.find("t"))
+    document: Final[Document] = parse_xml(
+        f"<r>{'<d>' * depth}tail{'</d>' * depth}<t/>{'<e>' * depth}tail{'</e>' * depth}</r>"
+    )
+    target: Final[Element] = _el(document.find("t"))
 
     def add(name: str | None) -> bool:
         if name == "t" and not target.children:
@@ -1585,8 +1595,8 @@ def test_text_of_chain_detached_by_a_filter_scales_linearly(text_filter: Filter,
 
 
 def _chain_detached_by_a_filter(depth: int, text_filter: Filter) -> Callable[[], object]:
-    document: Final = parse_xml(f"<r>{'<d>' * depth}tail{'</d>' * depth}<t/></r>")
-    target: Final = _el(document.find("t"))
+    document: Final[Document] = parse_xml(f"<r>{'<d>' * depth}tail{'</d>' * depth}<t/></r>")
+    target: Final[Element] = _el(document.find("t"))
 
     def add_and_detach(name: str | None) -> bool:
         if name == "t" and not target.children:
@@ -1613,13 +1623,13 @@ _ADDED_DOC: Final[str] = f"<r>{'<li>' * _NEST}go{'</li>' * _NEST}<t/></r>"
 def test_text_of_candidates_added_by_a_filter_past_the_nest(
     text_filter: Filter, markup: str, limit: int | None, tags: list[str]
 ) -> None:
-    document: Final = parse_xml(_ADDED_DOC)
+    document: Final[Document] = parse_xml(_ADDED_DOC)
     # the table holds no verdict for an element added after it was built, so that element is read from its subtree
     assert _tags(document.find_all(_add_at_target(document, markup), text=text_filter, limit=limit)) == tags
 
 
 def _add_at_target(document: Document, markup: str) -> Callable[[str | None], bool]:
-    target: Final = _el(document.find("t"))
+    target: Final[Element] = _el(document.find("t"))
 
     def add(name: str | None) -> bool:
         if name == "t" and not target.children:
@@ -1630,5 +1640,5 @@ def _add_at_target(document: Document, markup: str) -> Callable[[str | None], bo
 
 
 def test_first_text_match_added_by_a_filter_past_the_nest() -> None:
-    document: Final = parse_xml(_ADDED_DOC)
+    document: Final[Document] = parse_xml(_ADDED_DOC)
     assert _el(document.find(_add_at_target(document, "<b>x</b>"), text="x")).tag == "b"

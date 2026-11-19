@@ -20,10 +20,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, NoReturn, TypeAlias
 
 from ._native import (
-    microdata_as_dict as _microdata_as_dict,
-)
-from ._native import (
-    register_structured_data as _register_structured_data,
+    microdata_as_dict,
+    register_structured_data,
 )
 
 if TYPE_CHECKING:
@@ -80,7 +78,7 @@ class MicrodataItem:
 
         :returns: the item serialized as JSON.
         """
-        return json.dumps(_microdata_as_dict(self), indent=2)
+        return json.dumps(microdata_as_dict(self), indent=2)
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,7 +219,7 @@ def _decode_json(text: str) -> JSONValue:
     return json.loads(text, parse_constant=_reject_constant)
 
 
-_register_structured_data(_decode_json, MicrodataItem, RdfaItem, StructuredData, OpenGraph)
+register_structured_data(_decode_json, MicrodataItem, RdfaItem, StructuredData, OpenGraph)
 
 
 __all__ = [

@@ -31,6 +31,8 @@ if TYPE_CHECKING:
 
     from work_steps import WorkSteps
 
+    from turbohtml import DocumentFragment
+
 
 def _doctype(doc: Document) -> Doctype:
     return next(child for child in doc.children if isinstance(child, Doctype))
@@ -481,9 +483,9 @@ def test_insert_node_into_element() -> None:
 
 def test_delete_contents_from_an_empty_parsed_comment() -> None:
     # a parsed empty comment has a NULL text pointer, which memcpy may not receive even for length 0
-    paragraph: Final = _by_id(parse("<p id=a><!---->x</p>"), "a")
+    paragraph: Final[Element] = _by_id(parse("<p id=a><!---->x</p>"), "a")
     comment, text = paragraph.children
-    boundary: Final = Range(comment, 0)
+    boundary: Final[Range] = Range(comment, 0)
     boundary.set_end(text, 1)
     boundary.delete_contents()
     assert paragraph.serialize() == '<p id="a"><!----></p>'
@@ -1313,7 +1315,7 @@ def test_static_range_rejects_doctype_end() -> None:
 )
 @pytest.mark.parametrize("offset", [pytest.param(0, id="start"), pytest.param(2, id="end")])
 def test_boundary_endpoint(container: Node, offset: int) -> None:
-    boundary: Final = Range(container, offset)
+    boundary: Final[Range] = Range(container, offset)
     assert (boundary.start_container, boundary.start_offset, boundary.end_container, boundary.end_offset) == (
         container,
         offset,
@@ -1354,7 +1356,7 @@ def test_boundary_rejects_invalid_offset(container: Node, offset: int) -> None:
     ],
 )
 def test_select_character_data_contents(container: Node) -> None:
-    boundary: Final = Range(container)
+    boundary: Final[Range] = Range(container)
     boundary.select_node_contents(container)
     assert (boundary.start_offset, boundary.end_offset) == (0, 2)
 
@@ -1363,8 +1365,8 @@ def test_select_character_data_contents(container: Node) -> None:
     ("offset", "expected"), [pytest.param(0, 1, id="before-child"), pytest.param(1, -1, id="after-child")]
 )
 def test_compare_descendant_with_ancestor_boundary(offset: int, expected: int) -> None:
-    child: Final = Text("abc")
-    parent: Final = Element("div", children=[child])
+    child: Final[Text] = Text("abc")
+    parent: Final[Element] = Element("div", children=[child])
     assert Range(child, 1).compare_boundary_points(Range.START_TO_START, Range(parent, offset)) == expected
 
 
@@ -1372,11 +1374,11 @@ def test_compare_descendant_with_ancestor_boundary(offset: int, expected: int) -
     "method", [pytest.param("clone_contents", id="clone"), pytest.param("extract_contents", id="extract")]
 )
 def test_range_contained_interval(method: str) -> None:
-    root: Final = Element("div")
+    root: Final[Element] = Element("div")
     root.set_inner_html("".join(f"<i>{index}</i>" for index in range(100)))
-    boundary: Final = Range(root, 10)
+    boundary: Final[Range] = Range(root, 10)
     boundary.set_end(root, 90)
-    result: Final = getattr(boundary, method)()
+    result: Final[DocumentFragment] = getattr(boundary, method)()
     assert result.html == "".join(f"<i>{index}</i>" for index in range(10, 90))
 
 
@@ -1384,11 +1386,11 @@ def test_range_contained_interval(method: str) -> None:
     "method", [pytest.param("clone_contents", id="clone"), pytest.param("extract_contents", id="extract")]
 )
 def test_range_partial_excludes_siblings(method: str) -> None:
-    root: Final = Element("div")
+    root: Final[Element] = Element("div")
     root.set_inner_html(f'<section data-x="é水😀">abcdef{"<i></i>" * 100}</section>tail')
-    boundary: Final = Range(root)
+    boundary: Final[Range] = Range(root)
     boundary.set_end(root.children[0].children[0], 3)
-    result: Final = getattr(boundary, method)()
+    result: Final[DocumentFragment] = getattr(boundary, method)()
     assert result.html == '<section data-x="é水😀">abc</section>'
 
 
@@ -1428,16 +1430,14 @@ def test_content_operation_with_deep_paths_ignores_ancestors(
 
 
 def _deep_path_range(depth: int) -> Range:
-    path_down = f"{'<p>' * _PATH_LEVELS}<i>x</i>{'</p>' * _PATH_LEVELS}"
-    path_across = f"{'<q>' * _PATH_LEVELS}<j>y</j>{'</q>' * _PATH_LEVELS}"
+    # Below the 400-level limit on boundary paths, so the content operations take their recursive path.
+    path_levels: int = 380
+    path_down = f"{'<p>' * path_levels}<i>x</i>{'</p>' * path_levels}"
+    path_across = f"{'<q>' * path_levels}<j>y</j>{'</q>' * path_levels}"
     doc = parse_xml(f"{'<w>' * depth}{'<s/>' * depth}{path_down}{path_across}{'</w>' * depth}")
     boundary = Range(_found(doc, "i").children[0], 0)
     boundary.set_end(_found(doc, "j").children[0], 1)
     return boundary
-
-
-# Below the 400-level limit on boundary paths, so the content operations take their recursive path.
-_PATH_LEVELS: Final[int] = 380
 
 
 def test_surround_contents_over_siblings_is_linear(work_steps: WorkSteps) -> None:

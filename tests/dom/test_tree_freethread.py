@@ -661,10 +661,10 @@ def test_concurrent_table_reads_and_mutation_are_memory_safe() -> None:
 def test_concurrent_range_use_of_a_moving_node_is_memory_safe(
     use: Callable[[turbohtml.Range, turbohtml.Element], object],
 ) -> None:
-    node: Final = turbohtml.Element("b")
-    source: Final = turbohtml.Element("section", children=[node])
-    destinations: Final = [turbohtml.Element("main"), turbohtml.Element("aside")]
-    start: Final = threading.Barrier(2)
+    node: Final[turbohtml.Element] = turbohtml.Element("b")
+    source: Final[turbohtml.Element] = turbohtml.Element("section", children=[node])
+    destinations: Final[list[turbohtml.Element]] = [turbohtml.Element("main"), turbohtml.Element("aside")]
+    start: Final[threading.Barrier] = threading.Barrier(2)
 
     def user() -> None:
         start.wait()
@@ -762,11 +762,11 @@ def test_concurrent_adoption_preserves_descendant_aliases() -> None:
 def test_concurrent_adoption_and_reads(
     read: Callable[[turbohtml.Element], object], expected: int | str | dict[str, str]
 ) -> None:
-    source: Final = turbohtml.Element(
+    source: Final[turbohtml.Element] = turbohtml.Element(
         "section", {"live": "yes"}, children=[turbohtml.Element("b", children=[turbohtml.Text("text")])]
     )
-    destinations: Final = [turbohtml.Element("main"), turbohtml.Element("aside")]
-    start: Final = threading.Barrier(2)
+    destinations: Final[list[turbohtml.Element]] = [turbohtml.Element("main"), turbohtml.Element("aside")]
+    start: Final[threading.Barrier] = threading.Barrier(2)
 
     def reader() -> None:
         start.wait()
@@ -783,12 +783,12 @@ def test_concurrent_adoption_and_reads(
 
 
 def test_concurrent_adoption_keeps_hash_stable() -> None:
-    source: Final = turbohtml.Element(
+    source: Final[turbohtml.Element] = turbohtml.Element(
         "section", {"live": "yes"}, children=[turbohtml.Element("b", children=[turbohtml.Text("text")])]
     )
-    expected_hash: Final = hash(source)
-    destinations: Final = [turbohtml.Element("main"), turbohtml.Element("aside")]
-    start: Final = threading.Barrier(2)
+    expected_hash: Final[int] = hash(source)
+    destinations: Final[list[turbohtml.Element]] = [turbohtml.Element("main"), turbohtml.Element("aside")]
+    start: Final[threading.Barrier] = threading.Barrier(2)
 
     def reader() -> None:
         start.wait()
@@ -805,10 +805,10 @@ def test_concurrent_adoption_keeps_hash_stable() -> None:
 
 
 def test_concurrent_range_construction_while_the_container_moves_is_memory_safe() -> None:
-    node: Final = turbohtml.Element("b")
-    source: Final = turbohtml.Element("section", children=[node])
-    destinations: Final = [turbohtml.Element("main"), turbohtml.Element("aside")]
-    start: Final = threading.Barrier(2)
+    node: Final[turbohtml.Element] = turbohtml.Element("b")
+    source: Final[turbohtml.Element] = turbohtml.Element("section", children=[node])
+    destinations: Final[list[turbohtml.Element]] = [turbohtml.Element("main"), turbohtml.Element("aside")]
+    start: Final[threading.Barrier] = threading.Barrier(2)
 
     def builder() -> None:
         start.wait()
@@ -864,13 +864,13 @@ def test_concurrent_wraps_and_inserts_of_foreign_nodes_keep_the_tree_intact() ->
 def test_concurrent_edit_with_foreign_arguments_while_the_node_moves(
     edit: Callable[[turbohtml.Element, turbohtml.Element], object],
 ) -> None:
-    node: Final = turbohtml.Element("b")
-    source: Final = turbohtml.Element("section", children=[node])
-    destinations: Final = [turbohtml.Element("main"), turbohtml.Element("aside")]
-    items: Final = [turbohtml.Element("i") for _ in range(300)]
-    holder: Final = turbohtml.Element("div", children=items)
-    pools: Final = [turbohtml.Element("ul"), turbohtml.Element("ol")]
-    start: Final = threading.Barrier(3)
+    node: Final[turbohtml.Element] = turbohtml.Element("b")
+    source: Final[turbohtml.Element] = turbohtml.Element("section", children=[node])
+    destinations: Final[list[turbohtml.Element]] = [turbohtml.Element("main"), turbohtml.Element("aside")]
+    items: Final[list[turbohtml.Element]] = [turbohtml.Element("i") for _ in range(300)]
+    holder: Final[turbohtml.Element] = turbohtml.Element("div", children=items)
+    pools: Final[list[turbohtml.Element]] = [turbohtml.Element("ul"), turbohtml.Element("ol")]
+    start: Final[threading.Barrier] = threading.Barrier(3)
 
     def editor() -> None:
         start.wait()
@@ -895,14 +895,17 @@ def test_concurrent_edit_with_foreign_arguments_while_the_node_moves(
 
 @pytest.mark.parametrize("move_parent", [pytest.param(False, id="first"), pytest.param(True, id="parent")])
 def test_concurrent_sibling_memo_and_adoption(*, move_parent: bool) -> None:
-    children: Final = [turbohtml.Element("b") for _ in range(128)]
-    parent: Final = turbohtml.Element("main", children=children)
-    marker: Final = turbohtml.Element("i")
-    destinations: Final = [turbohtml.Element("div"), turbohtml.Element("aside", children=[marker])]
-    query: Final = Query(children[::2])
-    stable: Final = set(children[1:])
-    allowed: Final = {*children, marker}
-    start: Final = threading.Barrier(2)
+    children: Final[list[turbohtml.Element]] = [turbohtml.Element("b") for _ in range(128)]
+    parent: Final[turbohtml.Element] = turbohtml.Element("main", children=children)
+    marker: Final[turbohtml.Element] = turbohtml.Element("i")
+    destinations: Final[list[turbohtml.Element]] = [
+        turbohtml.Element("div"),
+        turbohtml.Element("aside", children=[marker]),
+    ]
+    query: Final[Query] = Query(children[::2])
+    stable: Final[set[turbohtml.Element]] = set(children[1:])
+    allowed: Final[set[turbohtml.Element]] = {*children, marker}
+    start: Final[threading.Barrier] = threading.Barrier(2)
 
     def reader() -> None:
         start.wait()
@@ -923,9 +926,9 @@ def test_concurrent_sibling_memo_and_adoption(*, move_parent: bool) -> None:
 
 
 def test_concurrent_extends_of_one_shared_child_keep_every_tree_intact() -> None:
-    child: Final = turbohtml.Element("b", children=[turbohtml.Element("i")])
-    parents: Final = [turbohtml.Element("p") for _ in range(4)]
-    start: Final = threading.Barrier(len(parents))
+    child: Final[turbohtml.Element] = turbohtml.Element("b", children=[turbohtml.Element("i")])
+    parents: Final[list[turbohtml.Element]] = [turbohtml.Element("p") for _ in range(4)]
+    start: Final[threading.Barrier] = threading.Barrier(len(parents))
 
     def mover(parent: turbohtml.Element) -> None:
         start.wait()
@@ -937,9 +940,9 @@ def test_concurrent_extends_of_one_shared_child_keep_every_tree_intact() -> None
 
 
 def test_concurrent_traversal_and_observer_setup_while_the_root_moves_is_memory_safe() -> None:
-    root: Final = turbohtml.Element("section", children=[turbohtml.Element("b")])
-    destinations: Final = [turbohtml.Element("main"), turbohtml.Element("aside")]
-    start: Final = threading.Barrier(2)
+    root: Final[turbohtml.Element] = turbohtml.Element("section", children=[turbohtml.Element("b")])
+    destinations: Final[list[turbohtml.Element]] = [turbohtml.Element("main"), turbohtml.Element("aside")]
+    start: Final[threading.Barrier] = threading.Barrier(2)
 
     def builder() -> None:
         start.wait()

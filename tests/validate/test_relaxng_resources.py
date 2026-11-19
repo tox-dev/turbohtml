@@ -400,7 +400,7 @@ def _compile(directory: Path, files: dict[str, str], **options: str | Path) -> R
     ],
 )
 def test_relaxng_resources_reject(tmp_path: Path, files: dict[str, str], error: type[Exception], match: str) -> None:
-    root: Final = tmp_path / "root"
+    root: Final[Path] = tmp_path / "root"
     with pytest.raises(error, match=match):
         _compile(root, files, include_root=root)
 
@@ -408,14 +408,14 @@ def test_relaxng_resources_reject(tmp_path: Path, files: dict[str, str], error: 
 def test_relaxng_resources_join_shared_xml_base_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # every reference below an xml:base joined it again, so one long base cost time per reference
     joined: Final[list[str]] = []
-    urljoin: Final = urllib.parse.urljoin
+    urljoin = urllib.parse.urljoin
 
     def record(base: str, url: str) -> str:
         joined.append(url)
         return urljoin(base, url)
 
     monkeypatch.setattr(urllib.parse, "urljoin", record)
-    files: Final = {
+    files: Final[dict[str, str]] = {
         "main.rng": f'<choice {_NS} xml:base="sub1/"><choice xml:base="sub2/">{_EXTERNAL_REF * 50}</choice></choice>',
         "sub1/sub2/x": _ELEMENT,
     }
@@ -424,20 +424,20 @@ def test_relaxng_resources_join_shared_xml_base_once(tmp_path: Path, monkeypatch
 
 
 def test_relaxng_resources_xml_base_at_limit_compiles(tmp_path: Path) -> None:
-    files: Final = _length_limit_files(tmp_path, _BASE_URI_LIMIT)
+    files: Final[dict[str, str]] = _length_limit_files(tmp_path, _BASE_URI_LIMIT)
     assert _verdicts(_compile(tmp_path, files), "<foo/>", "<bar/>") == [True, False]
 
 
 def _length_limit_files(tmp_path: Path, length: int) -> dict[str, str]:
     # a query is appended to the document URI unchanged, so the joined base is exactly length characters
-    document: Final = (tmp_path / "main.rng").resolve().as_uri()
-    query: Final = f"?{'q' * (length - len(document) - 1)}"
+    document: Final[str] = (tmp_path / "main.rng").resolve().as_uri()
+    query: Final[str] = f"?{'q' * (length - len(document) - 1)}"
     return {"main.rng": f'<choice {_NS} xml:base="{query}">{_EXTERNAL_REF * 2}</choice>', "x": _ELEMENT}
 
 
 def test_relaxng_resources_xml_base_past_limit_rejected(tmp_path: Path) -> None:
-    files: Final = _length_limit_files(tmp_path, _BASE_URI_LIMIT + 1)
-    message: Final = f"RELAX NG xml:base gives a base URI longer than {_BASE_URI_LIMIT} characters"
+    files: Final[dict[str, str]] = _length_limit_files(tmp_path, _BASE_URI_LIMIT + 1)
+    message: Final[str] = f"RELAX NG xml:base gives a base URI longer than {_BASE_URI_LIMIT} characters"
     with pytest.raises(ValueError, match=message):
         _compile(tmp_path, files)
 
@@ -448,7 +448,7 @@ def test_relaxng_resources_need_base_url() -> None:
 
 
 def test_relaxng_resources_symlink_escape(tmp_path: Path) -> None:
-    root: Final = tmp_path / "root"
+    root: Final[Path] = tmp_path / "root"
     root.mkdir()
     (tmp_path / "outside.rng").write_text(_ELEMENT)
     (root / "link.rng").symlink_to(tmp_path / "outside.rng")
@@ -465,12 +465,12 @@ def test_relaxng_resources_symlink_escape(tmp_path: Path) -> None:
     ],
 )
 def test_relaxng_resources_escape_names_href_not_symlink_target(tmp_path: Path, reference: str, href: str) -> None:
-    root: Final = tmp_path / "root"
+    root: Final[Path] = tmp_path / "root"
     root.mkdir()
     (tmp_path / "elsewhere").mkdir()
     (tmp_path / "target.rng").write_text(_ELEMENT)
     (root / href).symlink_to(tmp_path / "target.rng")
-    source: Final = {
+    source: Final[str] = {
         "externalRef": f'<externalRef {_NS} href="{href}"/>',
         "include": f'<grammar {_NS}><include href="{href}"/></grammar>',
     }[reference]
@@ -483,13 +483,13 @@ def test_relaxng_resources_escape_names_href_not_symlink_target(tmp_path: Path, 
 def test_relaxng_resources_without_root_follow_symlinks(tmp_path: Path) -> None:
     (tmp_path / "x").write_text(_ELEMENT)
     (tmp_path / "link.rng").symlink_to(tmp_path / "x")
-    schema: Final = RelaxNG(f'<externalRef {_NS} href="link.rng"/>', base_url=str(tmp_path / "main.rng"))
+    schema: Final[RelaxNG] = RelaxNG(f'<externalRef {_NS} href="link.rng"/>', base_url=str(tmp_path / "main.rng"))
     assert _verdicts(schema, "<foo/>", "<bar/>") == [True, False]
 
 
 def test_relaxng_resources_file_urls(tmp_path: Path) -> None:
     (tmp_path / "x y").write_text(_ELEMENT)
-    schema: Final = RelaxNG(
+    schema: Final[RelaxNG] = RelaxNG(
         parse_xml(f'<externalRef {_NS} href="{(tmp_path / "x y").as_uri()}"/>'),
         base_url=(tmp_path / "main.rng").as_uri(),
     )
@@ -502,7 +502,7 @@ def test_relaxng_resources_reject_remote_base_url() -> None:
 
 
 def test_relaxng_resources_base_url_unused_without_references() -> None:
-    schema: Final = RelaxNG(f'<element {_NS} name="foo"><empty/></element>', base_url="unused.rng")
+    schema: Final[RelaxNG] = RelaxNG(f'<element {_NS} name="foo"><empty/></element>', base_url="unused.rng")
     assert _verdicts(schema, "<foo/>", "<bar/>") == [True, False]
 
 
@@ -593,7 +593,7 @@ def test_relaxng_resources_keep_source_until_text_is_copied(tmp_path: Path, file
     # block as it is freed, so a source released before the copy turns the name and the value into filler.
     for name, text in files.items():
         (tmp_path / name).write_text(text)
-    script: Final = textwrap.dedent("""
+    script: Final[str] = textwrap.dedent("""
         import sys
         from pathlib import Path
 

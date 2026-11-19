@@ -56,14 +56,14 @@ def html_table_check(
         raise UnsupportedHtmlTableCaseError(case)
     cell, group, count, leaf = match.groups()
     encoded, decoded = _LEAVES[leaf]
-    row_count: Final = int(count)
+    row_count: Final[int] = int(count)
     row_ids = ("x", "y")
-    rows: Final = "".join(
+    rows: Final[str] = "".join(
         f'<tr id="{identifier}"><{cell} id="x">{encoded}</{cell}><{cell} id="y">{encoded}</{cell}></tr>'
         for identifier in row_ids[:row_count]
     )
-    source: Final = f'<table id="z">{f"<tbody>{rows}</tbody>" if group == "explicit" else rows}</table>'
-    expected: Final = json.dumps([
+    source: Final[str] = f'<table id="z">{f"<tbody>{rows}</tbody>" if group == "explicit" else rows}</table>'
+    expected: Final[str] = json.dumps([
         ("element", "html", "table", (("id", "z"),), 0),
         ("element", "html", "tbody", (), 1),
         *[
@@ -78,11 +78,11 @@ def html_table_check(
             ]
         ],
     ])
-    root: Final = read(source)
+    root: Final[Element] = read(source)
     if _snapshot(root) != expected:
         return "parsed table tree differs from literals"
-    printed: Final = "".join(serialize(node) for node in root.children)
-    reparsed: Final = read(printed)
+    printed: Final[str] = "".join(serialize(node) for node in root.children)
+    reparsed: Final[Element] = read(printed)
     if _snapshot(reparsed) != expected:
         return "serialized table tree differs from literals"
     return (
@@ -98,10 +98,10 @@ class UnsupportedHtmlTableCaseError(ValueError):
 
 
 def _snapshot(root: Element) -> str:
-    nodes: Final = [root, *root.descendants]
+    nodes: Final[list[Node]] = [root, *root.descendants]
     records: Final[list[tuple[str, str, str, tuple[tuple[str, str | list[str] | None], ...], int]]] = []
     for node in nodes[1:]:
-        parent: Final = nodes.index(cast("Element", node.parent))
+        parent: Final[int] = nodes.index(cast("Element", node.parent))
         if isinstance(node, Element):
             records.append(("element", node.namespace.value, node.tag, tuple(sorted(node.attrs.items())), parent))
         elif isinstance(node, Text):

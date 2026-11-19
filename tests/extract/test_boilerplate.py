@@ -252,23 +252,23 @@ def test_the_public_entry_point_still_answers_paragraphs() -> None:
     ],
 )
 def test_boilerplate_keeps_text_after_snapshot_release(content: str) -> None:
-    prose: Final = "A comet passes near the Sun, warms up and releases gas, forming a glowing coma around it."
-    page: Final = f"<article><p>{prose}</p><p>Read about this {content} today.</p></article>"
+    prose: Final[str] = "A comet passes near the Sun, warms up and releases gas, forming a glowing coma around it."
+    page: Final[str] = f"<article><p>{prose}</p><p>Read about this {content} today.</p></article>"
     assert [paragraph.text for paragraph in boilerplate(page)] == [prose, "Read about this comet today."]
 
 
 def test_boilerplate_classifies_owned_text() -> None:
-    prose: Final = "A comet passes near the Sun, warms up and releases gas, forming a glowing coma around it."
+    prose: Final[str] = "A comet passes near the Sun, warms up and releases gas, forming a glowing coma around it."
     assert boilerplate(f"<article><p>{prose}</p></article>") == [
         Paragraph(text=prose, is_boilerplate=False, is_heading=False)
     ]
 
 
 def test_boilerplate_releases_text_snapshots(retained_bytes: RetainedBytes) -> None:
-    page: Final = f'<article><p>{"A comet passes near the Sun. " * 256}<a href="/more">more</a></p></article>'
+    page: Final[str] = f'<article><p>{"A comet passes near the Sun. " * 256}<a href="/more">more</a></p></article>'
     for _ in range(128):
         boilerplate(page)
-    before: Final = retained_bytes()
+    before: Final[int] = retained_bytes()
     for _ in range(128):
         boilerplate(page)
     assert retained_bytes() - before < 256 * 1024

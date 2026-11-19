@@ -39,17 +39,17 @@ if TYPE_CHECKING:
 
 def main(argv: Sequence[str] | None = None) -> int:
     # Write materialized byte files so fuzz consumers need no carrier prefix.
-    parser: Final = argparse.ArgumentParser()
+    parser: Final[argparse.ArgumentParser] = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--budget", type=int, default=32)
     parser.add_argument("--steps", type=int, default=128)
     parser.add_argument("--count", type=int, default=0)
     parser.add_argument("--seed", type=int, default=0)
-    args: Final = parser.parse_args(argv)
+    args: Final[argparse.Namespace] = parser.parse_args(argv)
     if args.count < 0:
         parser.error("count must be nonnegative")
     try:
-        cases: Final = (
+        cases: Final[tuple[Generated, ...]] = (
             tuple(
                 encoding_generate(random.Random(args.seed + index), args.budget, steps=args.steps)
                 for index in range(args.count)
@@ -83,7 +83,7 @@ def encoding_profile(case: Generated) -> EncodingProfile:
 
 def encoding_manifest(case: Generated) -> EncodingSeed:
     # Preserve contexts when distinct codecs share one byte hash.
-    profile: Final = encoding_profile(case)
+    profile: Final[EncodingProfile] = encoding_profile(case)
     return {
         "path": hashlib.sha256(case.data).hexdigest(),
         "encoding": profile.encoding,
@@ -102,10 +102,10 @@ def encoding_manifest(case: Generated) -> EncodingSeed:
 
 def encoding_decoded(case: Generated) -> str:
     # Rebuild literals without asking the native decoder for its expectation.
-    profile: Final = encoding_profile(case)
+    profile: Final[EncodingProfile] = encoding_profile(case)
     if profile.encoding == "replacement":
         return "" if profile.empty else "\ufffd"
-    prefix: Final = "\ufeff" if profile.bom and profile.encoding in {"UTF-16BE", "UTF-16LE"} else ""
+    prefix: Final[str] = "\ufeff" if profile.bom and profile.encoding in {"UTF-16BE", "UTF-16LE"} else ""
     return (
         prefix + (f'<meta charset="{profile.declared}">' if profile.declared is not None else "") + _markup(_body(case))
     )
@@ -114,13 +114,13 @@ def encoding_decoded(case: Generated) -> str:
 def _markup(shape: _Shape) -> str:
     if shape.kind == "text":
         return shape.data
-    attrs: Final = "".join(f' {name}="{value}"' for name, value in shape.attrs)
+    attrs: Final[str] = "".join(f' {name}="{value}"' for name, value in shape.attrs)
     return f"<{shape.name}{attrs}>{''.join(_markup(child) for child in shape.children)}</{shape.name}>"
 
 
 def _body(case: Generated) -> _Shape:
-    profile: Final = encoding_profile(case)
-    anchor: Final = dict(case.bindings)["anchor"]
+    profile: Final[EncodingProfile] = encoding_profile(case)
+    anchor: Final[str] = dict(case.bindings)["anchor"]
     return _Shape(
         kind="element",
         name="div",
@@ -143,12 +143,12 @@ def _body(case: Generated) -> _Shape:
 
 
 def _content(trace: Iterator[str], encoding: str) -> tuple[_Shape, ...]:
-    mode: Final = next(trace).rsplit(":", 1)[-1]
+    mode: Final[str] = next(trace).rsplit(":", 1)[-1]
     if mode == "empty":
         return ()
     if mode in {"sample", "ascii"}:
         return (_Shape(kind="text", data=chr(_SAMPLES[encoding][1]) if mode == "sample" else "ordinary"),)
-    first: Final = _Shape(kind="element", name="span", children=_content(trace, encoding))
+    first: Final[_Shape] = _Shape(kind="element", name="span", children=_content(trace, encoding))
     return (
         (first,)
         if mode == "nested"
@@ -158,8 +158,8 @@ def _content(trace: Iterator[str], encoding: str) -> tuple[_Shape, ...]:
 
 def encoding_controls() -> dict[str, bool]:
     # Make silent decode or parser loss fail before generating corpus files.
-    case: Final = generate(_GRAMMAR, random.Random(0), 16, force="encoding:codec:utf-8")
-    sniffed: Final = generate(_GRAMMAR, random.Random(0), 16, force="encoding:meta:utf-8")
+    case: Final[Generated] = generate(_GRAMMAR, random.Random(0), 16, force="encoding:codec:utf-8")
+    sniffed: Final[Generated] = generate(_GRAMMAR, random.Random(0), 16, force="encoding:meta:utf-8")
     return {
         "missing decoded text": encoding_check(case, decode=lambda _data, _codec: "") is not None,
         "changed parsed tree": encoding_check(case, read=lambda _data, _profile: parse("<p>wrong</p>")) is not None,
@@ -178,9 +178,9 @@ def encoding_check(
     detect_bytes: Callable[[bytes], EncodingMatch] = detect,
 ) -> str | None:
     # Compare the first decode and parse with independent production literals.
-    profile: Final = encoding_profile(case)
+    profile: Final[EncodingProfile] = encoding_profile(case)
     if profile.sniff:
-        match: Final = detect_bytes(case.data)
+        match: Final[EncodingMatch] = detect_bytes(case.data)
         if (match.encoding, match.bom, match.codec) != (profile.encoding, bool(profile.bom), profile.codec):
             return "sniffed codec differs from profile"
     if decode(case.data, profile.codec) != encoding_decoded(case):
@@ -198,14 +198,14 @@ def encoding_check(
 
 def encoding_expected(case: Generated) -> tuple[XmlRecord, ...]:
     # Require literal names, attributes and parents before accepting decoded HTML.
-    profile: Final = encoding_profile(case)
+    profile: Final[EncodingProfile] = encoding_profile(case)
     records: Final[list[XmlRecord]] = []
-    meta: Final = (
+    meta: Final[tuple[_Shape, ...]] = (
         (_Shape(kind="element", name="meta", attrs=(("charset", profile.declared),)),)
         if profile.declared is not None
         else ()
     )
-    body: Final = (
+    body: Final[tuple[_Shape, ...]] = (
         ()
         if profile.empty
         else (_Shape(kind="text", data="\ufffd"),)
@@ -233,7 +233,7 @@ def encoding_expected(case: Generated) -> tuple[XmlRecord, ...]:
 
 
 def _record(shape: _Shape, parent: int, records: list[XmlRecord]) -> None:
-    position: Final = len(records)
+    position: Final[int] = len(records)
     records.append((
         "element:html" if shape.kind == "element" else shape.kind,
         shape.name,
@@ -246,7 +246,7 @@ def _record(shape: _Shape, parent: int, records: list[XmlRecord]) -> None:
 
 
 def _materialize(case: Generated) -> Generated:
-    profile: Final = encoding_profile(case)
+    profile: Final[EncodingProfile] = encoding_profile(case)
     return replace(case, data=profile.bom + _encode(case.data, profile.encoding.removesuffix("-SIG")))
 
 
@@ -260,7 +260,7 @@ def _encode(data: bytes, encoding: str) -> bytes:
 
 
 def _profiles() -> dict[str, EncodingProfile]:
-    profiles: Final = {
+    profiles: Final[dict[str, EncodingProfile]] = {
         f"encoding:codec:{name.lower()}": EncodingProfile(
             name=f"encoding:codec:{name.lower()}", encoding=name, origin=origin
         )
@@ -1415,7 +1415,7 @@ def _profiles() -> dict[str, EncodingProfile]:
         ),
     )
     for label, name, origin in labels:
-        encoding: Final = (
+        encoding: Final[str] = (
             "UTF-8-SIG"
             if name == "replacement"
             else "UTF-8"
@@ -1480,7 +1480,7 @@ def _productions() -> tuple[Production, ...]:
     html = "https://html.spec.whatwg.org/multipage/text-level-semantics.html#the-span-element"
     for name, (_data, point, origin) in _SAMPLES.items():
         if name != "replacement":
-            symbol: Final = f"content:{name}"
+            symbol: Final[str] = f"content:{name}"
             productions.extend((
                 Production(
                     name=f"{symbol}:sample", symbol=symbol, parts=(chr(point).encode(),), nodes=1, origin=origin

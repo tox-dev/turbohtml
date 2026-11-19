@@ -5,13 +5,13 @@ from typing import Final
 import pytest
 
 from turbohtml import Element, parse_fragment
-from turbohtml._html import sanitize as _sanitize
+from turbohtml._html import sanitize
 from turbohtml.clean import OnDisallowed
 
 
 def test_sanitize_rejects_wrong_arguments() -> None:
     with pytest.raises(TypeError):
-        _sanitize()  # ty: ignore[missing-argument]  # tests the C argument guard
+        sanitize()  # ty: ignore[missing-argument]  # tests the C argument guard
 
 
 def test_find_helper_reports_a_missing_element() -> None:
@@ -84,7 +84,7 @@ def _sanitize_tree(root: Element, tags: frozenset[str]) -> str:
     allow_html = allow_svg = allow_mathml = True
     empty: frozenset[str] = frozenset()
     original = root.inner_html
-    sanitized = _sanitize(
+    sanitized = sanitize(
         root, tags, {}, frozenset({"http", "https", "mailto"}), allow_relative, allow_fragments,
         OnDisallowed.REMOVE.value, strip_comments, None, None, {}, empty,
         empty, empty, {}, empty, strip_templates, None, {}, {}, isolate_named_props, None, None,

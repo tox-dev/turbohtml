@@ -7,11 +7,12 @@ from typing import TYPE_CHECKING, Final, cast
 import pytest
 from bench.operations import INPUTS
 
-from turbohtml import Text, parse, parse_xml
+from turbohtml import Document, Text, parse, parse_xml
 from turbohtml.extract import Entry, Feed, feed
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from types import ModuleType
 
     from work_steps import WorkSteps
 
@@ -51,7 +52,7 @@ _RDF_PREFIXED: Final[
 
 
 def test_feed_rss_module_prefix_aliases() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rss version="2.0" xmlns:x="http://purl.org/rss/1.0/modules/content/" '
         'xmlns:d="http://purl.org/dc/elements/1.1/"><channel>'
         '<d:date>updated</d:date><item id="entry"><d:date>published</d:date>'
@@ -80,19 +81,19 @@ def parse_feed(xml: str) -> Feed:
     ],
 )
 def test_feed_rss_default_module_namespace(local: str, uri: str, field: str) -> None:
-    xml: Final = f'<rss version="2.0"><channel><item><{local} xmlns="{uri}">value</{local}></item></channel></rss>'
+    xml: Final[str] = f'<rss version="2.0"><channel><item><{local} xmlns="{uri}">value</{local}></item></channel></rss>'
     assert getattr(parse_feed(xml).entries[0], field) == "value"
 
 
 def test_feed_rss_channel_default_dc_date() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rss version="2.0"><channel><date xmlns="http://purl.org/dc/elements/1.1/">updated</date></channel></rss>'
     )
     assert parse_feed(xml).updated == "updated"
 
 
 def test_feed_rss_default_module_namespace_after_other_attribute() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rss version="2.0"><channel><item><date title="other" xmlns="http://purl.org/dc/elements/1.1/">'
         "published</date></item></channel></rss>"
     )
@@ -100,12 +101,12 @@ def test_feed_rss_default_module_namespace_after_other_attribute() -> None:
 
 
 def test_feed_rss_shadowed_default_module_namespace() -> None:
-    xml: Final = '<rss version="2.0"><channel><item><date xmlns="urn:other">wrong</date></item></channel></rss>'
+    xml: Final[str] = '<rss version="2.0"><channel><item><date xmlns="urn:other">wrong</date></item></channel></rss>'
     assert parse_feed(xml).entries[0].published is None
 
 
 def test_feed_rss_default_dc_description_precedence() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rss version="2.0"><channel><item><description xmlns="http://purl.org/dc/elements/1.1/">dc</description>'
         "<description>rss</description></item></channel></rss>"
     )
@@ -113,7 +114,7 @@ def test_feed_rss_default_dc_description_precedence() -> None:
 
 
 def test_feed_rss_first_default_dc_description_wins() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rss version="2.0"><channel><item><description xmlns="http://purl.org/dc/elements/1.1/">first</description>'
         '<description xmlns="http://purl.org/dc/elements/1.1/">second</description></item></channel></rss>'
     )
@@ -121,7 +122,7 @@ def test_feed_rss_first_default_dc_description_wins() -> None:
 
 
 def test_feed_rss_module_prefix_shadowing() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rss version="2.0" xmlns:d="http://purl.org/dc/elements/1.1/"><channel><item '
         'xmlns:d="urn:other"><d:creator>wrong</d:creator></item></channel></rss>'
     )
@@ -129,7 +130,7 @@ def test_feed_rss_module_prefix_shadowing() -> None:
 
 
 def test_feed_rss_module_prefix_shadowing_after_cached_binding() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"><channel><item>'
         "<dc:date>published</dc:date>"
         '<dc:creator xmlns:dc="urn:other">wrong</dc:creator>'
@@ -139,7 +140,7 @@ def test_feed_rss_module_prefix_shadowing_after_cached_binding() -> None:
 
 
 def test_feed_rss_wrong_content_namespace() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rss version="2.0" xmlns:content="urn:other"><channel><item>'
         "<content:encoded>wrong</content:encoded></item></channel></rss>"
     )
@@ -147,7 +148,7 @@ def test_feed_rss_wrong_content_namespace() -> None:
 
 
 def test_feed_rss_namespace_uri_is_case_sensitive() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rss version="2.0" xmlns:d="HTTP://purl.org/dc/elements/1.1/"><channel><item>'
         "<d:creator>wrong</d:creator></item></channel></rss>"
     )
@@ -155,7 +156,7 @@ def test_feed_rss_namespace_uri_is_case_sensitive() -> None:
 
 
 def test_feed_rss_first_namespaced_field_wins() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rss version="2.0" xmlns:a="http://purl.org/dc/elements/1.1/" '
         'xmlns:b="http://purl.org/dc/elements/1.1/"><channel><item>'
         "<a:creator>first</a:creator><b:creator>second</b:creator></item></channel></rss>"
@@ -164,7 +165,7 @@ def test_feed_rss_first_namespaced_field_wins() -> None:
 
 
 def test_feed_rss_removed_namespace_declaration() -> None:
-    document: Final = parse_xml(
+    document: Final[Document] = parse_xml(
         '<rss version="2.0" xmlns:d="http://purl.org/dc/elements/1.1/"><channel><item>'
         "<d:creator>author</d:creator></item></channel></rss>"
     )
@@ -173,7 +174,7 @@ def test_feed_rss_removed_namespace_declaration() -> None:
 
 
 def test_feed_rss_valueless_namespace_declaration() -> None:
-    document: Final = parse_xml(
+    document: Final[Document] = parse_xml(
         '<rss version="2.0" xmlns:d="http://purl.org/dc/elements/1.1/"><channel><item>'
         "<d:creator>author</d:creator></item></channel></rss>"
     )
@@ -182,7 +183,7 @@ def test_feed_rss_valueless_namespace_declaration() -> None:
 
 
 def test_feed_rss_unicode_module_prefix() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rss version="2.0" xmlns:é="http://purl.org/rss/1.0/modules/content/"><channel><item>'
         "<é:encoded>body</é:encoded></item></channel></rss>"
     )
@@ -190,7 +191,7 @@ def test_feed_rss_unicode_module_prefix() -> None:
 
 
 def test_feed_rss_unicode_module_prefix_after_other_declarations() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rss version="2.0" xmlns:éé="urn:other" xmlns:é="urn:other" '
         'xmlns:ø="http://purl.org/rss/1.0/modules/content/"><channel><item>'
         "<ø:encoded>body</ø:encoded></item></channel></rss>"
@@ -199,7 +200,7 @@ def test_feed_rss_unicode_module_prefix_after_other_declarations() -> None:
 
 
 def test_feed_rss_canonical_module_names() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" '
         'xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><item>'
         "<dc:date>published</dc:date><dc:description>summary</dc:description>"
@@ -298,17 +299,19 @@ def test_feed_atom_prefixed_entry_fields(field: str, expected: str) -> None:
 
 
 def test_feed_atom_wrong_prefixed_root_namespace() -> None:
-    xml: Final = '<a:feed xmlns:a="urn:other"><a:title>wrong</a:title></a:feed>'
+    xml: Final[str] = '<a:feed xmlns:a="urn:other"><a:title>wrong</a:title></a:feed>'
     assert feed(xml) is None
 
 
 def test_feed_atom_unicode_prefix() -> None:
-    xml: Final = '<é:feed xmlns:é="http://www.w3.org/2005/Atom"><é:entry><é:title>Entry</é:title></é:entry></é:feed>'
+    xml: Final[str] = (
+        '<é:feed xmlns:é="http://www.w3.org/2005/Atom"><é:entry><é:title>Entry</é:title></é:entry></é:feed>'
+    )
     assert parse_feed(xml).entries[0].title == "Entry"
 
 
 def test_feed_atom_entry_uses_other_prefix() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<a:feed xmlns:a="http://www.w3.org/2005/Atom" xmlns:b="http://www.w3.org/2005/Atom">'
         "<b:entry><b:title>Entry</b:title></b:entry></a:feed>"
     )
@@ -316,7 +319,7 @@ def test_feed_atom_entry_uses_other_prefix() -> None:
 
 
 def test_feed_atom_wrong_prefixed_entry_namespace() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<a:feed xmlns:a="http://www.w3.org/2005/Atom" xmlns:b="urn:other">'
         "<b:entry><b:title>wrong</b:title></b:entry><a:entry><a:title>right</a:title></a:entry></a:feed>"
     )
@@ -324,7 +327,7 @@ def test_feed_atom_wrong_prefixed_entry_namespace() -> None:
 
 
 def test_feed_atom_prefixed_author_name_namespace_shadowing() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<a:feed xmlns:a="http://www.w3.org/2005/Atom"><a:entry><a:author>'
         '<a:name xmlns:a="urn:other">wrong</a:name><a:name>right</a:name>'
         "</a:author></a:entry></a:feed>"
@@ -333,7 +336,9 @@ def test_feed_atom_prefixed_author_name_namespace_shadowing() -> None:
 
 
 def test_feed_rdf_shape() -> None:
-    rdf: Final = """<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/">
+    rdf: Final[
+        str
+    ] = """<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/">
 <channel rdf:about="http://example.com/">
 <title>RDF Title</title>
 <link>http://example.com/</link>
@@ -369,7 +374,7 @@ def test_feed_rdf_shape() -> None:
 
 
 def test_feed_rdf_namespace_aliases() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<r:RDF xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#" '
         'xmlns="http://purl.org/rss/1.0/"><channel><title>Feed</title></channel>'
         '<item r:about="https://example.org/item"><title>Item</title></item></r:RDF>'
@@ -385,12 +390,12 @@ def test_feed_rdf_namespace_aliases() -> None:
 
 
 def test_feed_rdf_wrong_root_namespace() -> None:
-    xml: Final = '<rdf:RDF xmlns:rdf="urn:other"><channel><title>Feed</title></channel></rdf:RDF>'
+    xml: Final[str] = '<rdf:RDF xmlns:rdf="urn:other"><channel><title>Feed</title></channel></rdf:RDF>'
     assert feed(xml) is None
 
 
 def test_feed_rdf_wrong_about_namespace() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" '
         'xmlns:r="urn:other"><item r:about="wrong"><title>Item</title></item></rdf:RDF>'
     )
@@ -398,7 +403,7 @@ def test_feed_rdf_wrong_about_namespace() -> None:
 
 
 def test_feed_rdf_about_namespace_shadowing() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
         '<item xmlns:rdf="urn:other" rdf:about="wrong"><title>Item</title></item></rdf:RDF>'
     )
@@ -406,7 +411,7 @@ def test_feed_rdf_about_namespace_shadowing() -> None:
 
 
 def test_feed_rdf_unicode_about_prefix() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" '
         'xmlns:é="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
         '<item é:about="https://example.org/item"><title>Item</title></item></rdf:RDF>'
@@ -415,7 +420,7 @@ def test_feed_rdf_unicode_about_prefix() -> None:
 
 
 def test_feed_rdf_removed_about_namespace() -> None:
-    document: Final = parse_xml(
+    document: Final[Document] = parse_xml(
         '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
         '<item xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#" '
         'xmlns:q="urn:other" r:about="wrong" /></rdf:RDF>'
@@ -425,7 +430,7 @@ def test_feed_rdf_removed_about_namespace() -> None:
 
 
 def test_feed_rdf_valueless_about() -> None:
-    document: Final = parse_xml(
+    document: Final[Document] = parse_xml(
         '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><item rdf:about="wrong" /></rdf:RDF>'
     )
     document.select("item")[0].attrs["rdf:about"] = None
@@ -433,7 +438,7 @@ def test_feed_rdf_valueless_about() -> None:
 
 
 def test_feed_rdf_other_prefixed_attribute_before_about() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
         '<item rdf:other="wrong" rdf:about="https://example.org/item" /></rdf:RDF>'
     )
@@ -466,7 +471,7 @@ def test_feed_rdf_prefixed_item_fields(field: str, expected: str) -> None:
 
 
 def test_feed_rdf_prefixed_item_namespace_shadowing() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:s="http://purl.org/rss/1.0/">'
         '<s:item xmlns:s="urn:other"><s:title>wrong</s:title></s:item>'
         "<s:item><s:title>right</s:title></s:item></rdf:RDF>"
@@ -475,7 +480,7 @@ def test_feed_rdf_prefixed_item_namespace_shadowing() -> None:
 
 
 def test_feed_rdf_prefixed_field_namespace_shadowing() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:s="http://purl.org/rss/1.0/">'
         '<s:item><s:title xmlns:s="urn:other">wrong</s:title><s:title>right</s:title></s:item></rdf:RDF>'
     )
@@ -483,7 +488,7 @@ def test_feed_rdf_prefixed_field_namespace_shadowing() -> None:
 
 
 def test_feed_rdf_first_prefixed_field_wins() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:s="http://purl.org/rss/1.0/">'
         "<s:item><s:title>first</s:title><s:title>second</s:title></s:item></rdf:RDF>"
     )
@@ -491,7 +496,7 @@ def test_feed_rdf_first_prefixed_field_wins() -> None:
 
 
 def test_feed_rdf_wrong_prefixed_local_name() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:s="http://purl.org/rss/1.0/">'
         "<s:iteX/><s:item><s:title>right</s:title></s:item></rdf:RDF>"
     )
@@ -499,14 +504,14 @@ def test_feed_rdf_wrong_prefixed_local_name() -> None:
 
 
 def test_feed_rdf_html_fallback_keeps_literal_names() -> None:
-    document: Final = parse("<rdf:rdf><s:item><s:title>wrong</s:title></s:item></rdf:rdf>")
-    result: Final = document.feed()
+    document: Final[Document] = parse("<rdf:rdf><s:item><s:title>wrong</s:title></s:item></rdf:rdf>")
+    result: Final[Feed | None] = document.feed()
     assert result is not None
     assert result.entries == ()
 
 
 def test_feed_rdf_unicode_rss_prefix() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:é="http://purl.org/rss/1.0/">'
         "<é:channel><é:title>Feed</é:title></é:channel><é:item><é:title>Item</é:title></é:item></rdf:RDF>"
     )
@@ -514,7 +519,7 @@ def test_feed_rdf_unicode_rss_prefix() -> None:
 
 
 def test_feed_rdf_first_channel_across_rss_prefixes() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" '
         'xmlns:s="http://purl.org/rss/1.0/" xmlns="http://purl.org/rss/1.0/">'
         "<s:channel><s:title>first</s:title></s:channel>"
@@ -810,7 +815,7 @@ def test_feed_benchmark_output(case: int, expected: Feed) -> None:
     ],
 )
 def test_entry_field_precedence(fields: str, expected: tuple[str | None, ...]) -> None:
-    result: Final = feed(f"<rss version='2.0'><channel><item>{fields}</item></channel></rss>")
+    result: Final[Feed | None] = feed(f"<rss version='2.0'><channel><item>{fields}</item></channel></rss>")
     assert result is not None
     assert result.entries == (expected,)
 
@@ -832,10 +837,10 @@ def test_feed_empty_metadata_uses_fallback() -> None:
 )
 @pytest.mark.oracle
 def test_feed_benchmark_entry_values(case: int, kind: str) -> None:
-    feedparser: Final = pytest.importorskip("feedparser")
-    source: Final = cast("str", INPUTS["syndication"]()[case][1])
-    oracle: Final = feedparser.parse(source)
-    entries: Final = tuple(
+    feedparser: Final[ModuleType] = pytest.importorskip("feedparser")
+    source: Final[str] = cast("str", INPUTS["syndication"]()[case][1])
+    oracle = feedparser.parse(source)
+    entries: Final[tuple[Entry, ...]] = tuple(
         Entry(
             cast("str | None", entry.get("title")),
             cast("str | None", entry.get("link")),
@@ -848,7 +853,7 @@ def test_feed_benchmark_entry_values(case: int, kind: str) -> None:
         )
         for entry in map(dict, oracle.entries)
     )
-    header: Final = dict(oracle.feed)
+    header = dict(oracle.feed)
     assert feed(source) == Feed(
         kind,
         cast("str | None", header.get("title")),
@@ -965,7 +970,7 @@ def test_feed_atom_summary_cdata() -> None:
     ],
 )
 def test_feed_atom_xhtml_preserves_markup(field: str, markup: str, expected: str) -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><entry>'
         f'<{field} type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">{markup}</div></{field}>'
         "</entry></feed>"
@@ -974,7 +979,7 @@ def test_feed_atom_xhtml_preserves_markup(field: str, markup: str, expected: str
 
 
 def test_feed_atom_xhtml_feed_title() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
         '<div xmlns="http://www.w3.org/1999/xhtml">Hello <b>world</b></div></title></feed>'
     )
@@ -982,7 +987,7 @@ def test_feed_atom_xhtml_feed_title() -> None:
 
 
 def test_feed_atom_xhtml_feed_subtitle() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><subtitle type="xhtml">'
         '<div xmlns="http://www.w3.org/1999/xhtml">A <em>subtitle</em></div></subtitle></feed>'
     )
@@ -990,7 +995,7 @@ def test_feed_atom_xhtml_feed_subtitle() -> None:
 
 
 def test_feed_atom_xhtml_prefixed_elements() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:xh="http://www.w3.org/1999/xhtml">'
         '<title type="xhtml"><xh:div>Hi <xh:b class="x">B</xh:b></xh:div></title></feed>'
     )
@@ -998,7 +1003,7 @@ def test_feed_atom_xhtml_prefixed_elements() -> None:
 
 
 def test_feed_atom_xhtml_with_prefixed_atom_fields() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<a:feed xmlns:a="http://www.w3.org/2005/Atom" xmlns:xh="http://www.w3.org/1999/xhtml">'
         '<a:title type="xhtml"><xh:div>Hi <xh:b>there</xh:b></xh:div></a:title>'
         "</a:feed>"
@@ -1007,7 +1012,7 @@ def test_feed_atom_xhtml_with_prefixed_atom_fields() -> None:
 
 
 def test_feed_atom_xhtml_inherits_foreign_prefix() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:xh="http://www.w3.org/1999/xhtml" '
         'xmlns:s="http://www.w3.org/2000/svg"><title type="xhtml"><xh:div>'
         '<s:svg><s:circle r="2"/></s:svg></xh:div></title></feed>'
@@ -1018,7 +1023,7 @@ def test_feed_atom_xhtml_inherits_foreign_prefix() -> None:
 
 
 def test_feed_atom_xhtml_inherits_attribute_prefix() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:xlink="http://www.w3.org/1999/xlink">'
         '<title type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">'
         '<a xlink:href="https://example.org/">link</a></div></title></feed>'
@@ -1029,7 +1034,7 @@ def test_feed_atom_xhtml_inherits_attribute_prefix() -> None:
 
 
 def test_feed_atom_xhtml_inherits_prefix_from_div() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
         '<div xmlns="http://www.w3.org/1999/xhtml" xmlns:s="urn:s"><s:box/></div></title></feed>'
     )
@@ -1038,7 +1043,7 @@ def test_feed_atom_xhtml_inherits_prefix_from_div() -> None:
 
 @pytest.mark.parametrize("binding", [pytest.param(None, id="valueless"), pytest.param("", id="empty")])
 def test_feed_atom_xhtml_invalid_foreign_binding_falls_back(binding: str | None) -> None:
-    document: Final = parse_xml(
+    document: Final[Document] = parse_xml(
         '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:s="urn:s"><title type="xhtml">'
         '<div xmlns="http://www.w3.org/1999/xhtml"><s:box>text</s:box></div></title></feed>'
     )
@@ -1047,7 +1052,7 @@ def test_feed_atom_xhtml_invalid_foreign_binding_falls_back(binding: str | None)
 
 
 def test_feed_atom_xhtml_removed_foreign_binding_falls_back() -> None:
-    document: Final = parse_xml(
+    document: Final[Document] = parse_xml(
         '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:s="urn:s"><title type="xhtml">'
         '<div xmlns="http://www.w3.org/1999/xhtml"><s:box>text</s:box></div></title></feed>'
     )
@@ -1056,7 +1061,7 @@ def test_feed_atom_xhtml_removed_foreign_binding_falls_back() -> None:
 
 
 def test_feed_atom_xhtml_unbound_attribute_prefix_falls_back() -> None:
-    document: Final = parse_xml(
+    document: Final[Document] = parse_xml(
         '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:s="urn:s"><title type="xhtml">'
         '<div xmlns="http://www.w3.org/1999/xhtml"><p s:key="v">text</p></div></title></feed>'
     )
@@ -1065,7 +1070,7 @@ def test_feed_atom_xhtml_unbound_attribute_prefix_falls_back() -> None:
 
 
 def test_feed_atom_xhtml_repeats_inherited_prefix_once_per_tag() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:s="urn:s" xmlns:t="urn:t"><title type="xhtml">'
         '<div xmlns="http://www.w3.org/1999/xhtml"><p s:a="1" k="2" t:a="3" s:b="4" t:b="5"><s:x s:a="6" t:a="7"/>'
         '<i xmlns:t="urn:own" t:a="8" s:a="9" t:b="10" s:b="11"/></p></div></title></feed>'
@@ -1078,7 +1083,7 @@ def test_feed_atom_xhtml_repeats_inherited_prefix_once_per_tag() -> None:
 
 
 def test_feed_atom_xhtml_prefixes_of_different_length_stay_apart() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:s="urn:s" xmlns:ss="urn:ss"><title type="xhtml">'
         '<div xmlns="http://www.w3.org/1999/xhtml"><p s:a="1" ss:a="2" s:b="3" ss:b="4"/></div></title></feed>'
     )
@@ -1086,40 +1091,44 @@ def test_feed_atom_xhtml_prefixes_of_different_length_stay_apart() -> None:
 
 
 def test_feed_atom_xhtml_more_prefixes_than_inline_slots_declare_once() -> None:
-    prefixes: Final = "abcdefghi"
-    declarations: Final = "".join(f' xmlns:{prefix}="urn:{prefix}"' for prefix in prefixes)
-    attributes: Final = "".join(f' {prefix}:x="{index}"' for index, prefix in enumerate(prefixes))
-    xml: Final = (
+    prefixes: Final[str] = "abcdefghi"
+    declarations: Final[str] = "".join(f' xmlns:{prefix}="urn:{prefix}"' for prefix in prefixes)
+    attributes: Final[str] = "".join(f' {prefix}:x="{index}"' for index, prefix in enumerate(prefixes))
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
         f'<div xmlns="http://www.w3.org/1999/xhtml"{declarations}><p{attributes} a:y="9" i:y="10" k="11"/></div>'
         "</title></feed>"
     )
-    inherited: Final = "".join(
+    inherited: Final[str] = "".join(
         f' xmlns:{prefix}="urn:{prefix}" {prefix}:x="{index}"' for index, prefix in enumerate(prefixes)
     )
     assert parse_feed(xml).title == f'<p{inherited} a:y="9" i:y="10" k="11"></p>'
 
 
 def test_feed_atom_xhtml_prefixed_attributes_parse_in_linear_time(work_steps: WorkSteps) -> None:
-    prefixes: Final = [f"p{index}" for index in range(10)]
-    attributes: Final = {prefix: "".join(f' {prefix}:a{index}=""' for index in range(300)) for prefix in prefixes}
-    declarations: Final = "".join(f' xmlns:{prefix}="urn:{prefix}"' for prefix in prefixes)
-    head: Final = (
+    prefixes: Final[list[str]] = [f"p{index}" for index in range(10)]
+    attributes: Final[dict[str, str]] = {
+        prefix: "".join(f' {prefix}:a{index}=""' for index in range(300)) for prefix in prefixes
+    }
+    declarations: Final[str] = "".join(f' xmlns:{prefix}="urn:{prefix}"' for prefix in prefixes)
+    head: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
         f'<div xmlns="http://www.w3.org/1999/xhtml"{declarations}><b'
     )
-    tail: Final = "/></div></title></feed>"
-    prefixed_xml: Final = head + "".join(attributes.values()) + tail
-    expected_attributes: Final = "".join(f' xmlns:{prefix}="urn:{prefix}"{attributes[prefix]}' for prefix in prefixes)
+    tail: Final[str] = "/></div></title></feed>"
+    prefixed_xml: Final[str] = head + "".join(attributes.values()) + tail
+    expected_attributes: Final[str] = "".join(
+        f' xmlns:{prefix}="urn:{prefix}"{attributes[prefix]}' for prefix in prefixes
+    )
     assert parse_feed(prefixed_xml).title == f"<b{expected_attributes}></b>"
     # Rescanning earlier attributes per prefix is quadratic in the attribute count. The same tag with the prefixes
     # removed from its attribute names skips that lookup, so it is the baseline.
-    plain_xml: Final = head + "".join(attributes.values()).replace(":", "_") + tail
+    plain_xml: Final[str] = head + "".join(attributes.values()).replace(":", "_") + tail
     work_steps.assert_within(partial(parse_feed, prefixed_xml), partial(parse_feed, plain_xml), factor=40)
 
 
 def test_feed_atom_xhtml_redeclared_prefix_is_scoped_to_its_element() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:h="http://www.w3.org/1999/xhtml" xmlns:s="urn:s">'
         '<title type="xhtml"><h:div><h:p xmlns:h="urn:other" xmlns:s="urn:t"><h:b><s:x/></h:b></h:p>'
         "<h:i><s:y/></h:i><h:u/></h:div></title></feed>"
@@ -1131,7 +1140,7 @@ def test_feed_atom_xhtml_redeclared_prefix_is_scoped_to_its_element() -> None:
 
 
 def test_feed_atom_xhtml_redeclared_default_namespace_is_scoped_to_its_element() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">'
         '<p xmlns="urn:other"><b/></p><i xmlns="http://www.w3.org/1999/xhtml"><b/></i><b/></div></title></feed>'
     )
@@ -1141,8 +1150,8 @@ def test_feed_atom_xhtml_redeclared_default_namespace_is_scoped_to_its_element()
 
 
 def test_feed_atom_xhtml_many_redeclarations_on_one_element() -> None:
-    declarations: Final = "".join(f' xmlns:p{index}="urn:{index}"' for index in range(20))
-    xml: Final = (
+    declarations: Final[str] = "".join(f' xmlns:p{index}="urn:{index}"' for index in range(20))
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:p7="urn:outer"><title type="xhtml">'
         f'<div xmlns="http://www.w3.org/1999/xhtml"><p{declarations}><p7:x/></p><p7:y/></div></title></feed>'
     )
@@ -1150,14 +1159,14 @@ def test_feed_atom_xhtml_many_redeclarations_on_one_element() -> None:
 
 
 def test_feed_atom_xhtml_resolves_every_prefix_pair() -> None:
-    pairs: Final = list(combinations(range(40), 2))
-    declarations: Final = "".join(f' xmlns:p{index}="urn:{index}"' for index in range(40))
-    entries: Final = "".join(
+    pairs: Final[list[tuple[int, int]]] = list(combinations(range(40), 2))
+    declarations: Final[str] = "".join(f' xmlns:p{index}="urn:{index}"' for index in range(40))
+    entries: Final[str] = "".join(
         f'<entry><title type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml"><p{first}:x/><p{second}:y/></div>'
         "</title></entry>"
         for first, second in pairs
     )
-    xml: Final = f'<feed xmlns="http://www.w3.org/2005/Atom"{declarations}>{entries}</feed>'
+    xml: Final[str] = f'<feed xmlns="http://www.w3.org/2005/Atom"{declarations}>{entries}</feed>'
     assert [entry.title for entry in parse_feed(xml).entries] == [
         f'<p{first}:x xmlns:p{first}="urn:{first}"/><p{second}:y xmlns:p{second}="urn:{second}"/>'
         for first, second in pairs
@@ -1165,10 +1174,10 @@ def test_feed_atom_xhtml_resolves_every_prefix_pair() -> None:
 
 
 def test_feed_atom_xhtml_resolves_more_prefixes_than_the_first_table_holds() -> None:
-    prefixes: Final = [f"p{index}" for index in range(40)]
-    declarations: Final = "".join(f' xmlns:{prefix}="urn:{prefix}"' for prefix in prefixes)
-    uses: Final = "".join(f"<{prefix}:x/>" for prefix in prefixes)
-    xml: Final = (
+    prefixes: Final[list[str]] = [f"p{index}" for index in range(40)]
+    declarations: Final[str] = "".join(f' xmlns:{prefix}="urn:{prefix}"' for prefix in prefixes)
+    uses: Final[str] = "".join(f"<{prefix}:x/>" for prefix in prefixes)
+    xml: Final[str] = (
         f'<feed xmlns="http://www.w3.org/2005/Atom"{declarations}><title type="xhtml">'
         f'<div xmlns="http://www.w3.org/1999/xhtml">{uses}</div></title></feed>'
     )
@@ -1176,7 +1185,7 @@ def test_feed_atom_xhtml_resolves_more_prefixes_than_the_first_table_holds() -> 
 
 
 def test_feed_atom_xhtml_xmlns_like_attribute_declares_nothing() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
         '<div xmlns="http://www.w3.org/1999/xhtml"><p xmlnsx="urn:other"><b/></p></div></title></feed>'
     )
@@ -1194,7 +1203,7 @@ def test_feed_atom_xhtml_xmlns_like_attribute_declares_nothing() -> None:
     ],
 )
 def test_feed_atom_xhtml_prefix_spelling(prefix: str) -> None:
-    xml: Final = (
+    xml: Final[str] = (
         f'<feed xmlns="http://www.w3.org/2005/Atom" xmlns:{prefix}="http://www.w3.org/1999/xhtml" '
         f'xmlns:{prefix}x="urn:s"><title type="xhtml"><{prefix}:div><{prefix}:b {prefix}x:k="v">B</{prefix}:b>'
         f"<{prefix}x:box/></{prefix}:div></title></feed>"
@@ -1205,7 +1214,7 @@ def test_feed_atom_xhtml_prefix_spelling(prefix: str) -> None:
 
 
 def test_feed_atom_xhtml_never_declared_attribute_prefix_falls_back() -> None:
-    document: Final = parse_xml(
+    document: Final[Document] = parse_xml(
         '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
         '<div xmlns="http://www.w3.org/1999/xhtml"><p>text</p></div></title></feed>'
     )
@@ -1214,14 +1223,16 @@ def test_feed_atom_xhtml_never_declared_attribute_prefix_falls_back() -> None:
 
 
 def test_feed_atom_never_declared_entry_field_prefix() -> None:
-    document: Final = parse_xml('<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>Entry</title></entry></feed>')
+    document: Final[Document] = parse_xml(
+        '<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>Entry</title></entry></feed>'
+    )
     document.select("title")[0].tag = "q:title"
     assert cast("Feed", document.feed()).entries[0].title is None
 
 
 def test_feed_rdf_long_about_prefix() -> None:
-    prefix: Final = "r" * 80
-    xml: Final = (
+    prefix: Final[str] = "r" * 80
+    xml: Final[str] = (
         '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/" '
         f'xmlns:{prefix}="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
         f'<item {prefix}:about="https://example.org/item"><title>Item</title></item></rdf:RDF>'
@@ -1230,8 +1241,8 @@ def test_feed_rdf_long_about_prefix() -> None:
 
 
 def _wide_unused_declarations(count: int) -> str:
-    declarations: Final = "".join(f' xmlns:p{index}="urn:{index}"' for index in range(count))
-    elements: Final = "<h:b/>" * count
+    declarations: Final[str] = "".join(f' xmlns:p{index}="urn:{index}"' for index in range(count))
+    elements: Final[str] = "<h:b/>" * count
     return (
         f'<feed xmlns="http://www.w3.org/2005/Atom"{declarations} xmlns:h="http://www.w3.org/1999/xhtml">'
         f'<title type="xhtml"><h:div>{elements}</h:div></title></feed>'
@@ -1239,8 +1250,8 @@ def _wide_unused_declarations(count: int) -> str:
 
 
 def _deep_nesting(depth: int) -> str:
-    opening: Final = "<h:b>" * depth
-    closing: Final = "</h:b>" * depth
+    opening: Final[str] = "<h:b>" * depth
+    closing: Final[str] = "</h:b>" * depth
     return (
         '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:h="http://www.w3.org/1999/xhtml">'
         f'<title type="xhtml"><h:div>{opening}{closing}</h:div></title></feed>'
@@ -1370,7 +1381,7 @@ def test_feed_rss_xml_base_on_wide_ancestor_resolves_link() -> None:
 
 
 def test_feed_atom_xhtml_escapes_markup_text_and_attributes() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
         '<div xmlns="http://www.w3.org/1999/xhtml"><a title="a &amp; &quot;b&quot; &lt; &gt;">x &amp; y</a></div>'
         "</title></feed>"
@@ -1379,7 +1390,7 @@ def test_feed_atom_xhtml_escapes_markup_text_and_attributes() -> None:
 
 
 def test_feed_atom_xhtml_empty_html_elements() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
         '<div xmlns="http://www.w3.org/1999/xhtml"><p/><br/></div></title></feed>'
     )
@@ -1387,7 +1398,7 @@ def test_feed_atom_xhtml_empty_html_elements() -> None:
 
 
 def test_feed_atom_xhtml_attribute_whitespace() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
         '<div xmlns="http://www.w3.org/1999/xhtml"><a title="a&#10;b&#9;c&#13;d">x</a></div>'
         "</title></feed>"
@@ -1406,7 +1417,7 @@ def test_feed_atom_xhtml_attribute_whitespace() -> None:
     ],
 )
 def test_feed_atom_xhtml_drops_xml_forbidden_text(invalid: str) -> None:
-    document: Final = parse_xml(
+    document: Final[Document] = parse_xml(
         '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
         '<div xmlns="http://www.w3.org/1999/xhtml"><p/></div></title></feed>'
     )
@@ -1425,7 +1436,7 @@ def test_feed_atom_xhtml_drops_xml_forbidden_text(invalid: str) -> None:
     ],
 )
 def test_feed_atom_xhtml_drops_xml_forbidden_attribute(invalid: str) -> None:
-    document: Final = parse_xml(
+    document: Final[Document] = parse_xml(
         '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
         '<div xmlns="http://www.w3.org/1999/xhtml"><p title="ab"/></div></title></feed>'
     )
@@ -1434,7 +1445,7 @@ def test_feed_atom_xhtml_drops_xml_forbidden_attribute(invalid: str) -> None:
 
 
 def test_feed_atom_xhtml_empty_div_is_missing() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
         '<div xmlns="http://www.w3.org/1999/xhtml"/></title></feed>'
     )
@@ -1442,12 +1453,12 @@ def test_feed_atom_xhtml_empty_div_is_missing() -> None:
 
 
 def test_feed_atom_xhtml_without_div_keeps_text() -> None:
-    xml: Final = '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">plain</title></feed>'
+    xml: Final[str] = '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">plain</title></feed>'
     assert parse_feed(xml).title == "plain"
 
 
 def test_feed_atom_xhtml_preserves_comments_and_pi() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
         '<div xmlns="http://www.w3.org/1999/xhtml"><!--note--><?test value?><p>x</p></div></title></feed>'
     )
@@ -1455,7 +1466,7 @@ def test_feed_atom_xhtml_preserves_comments_and_pi() -> None:
 
 
 def test_feed_atom_xhtml_preserves_cdata() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
         '<div xmlns="http://www.w3.org/1999/xhtml"><![CDATA[<b>& text</b>]]></div></title></feed>'
     )
@@ -1463,7 +1474,7 @@ def test_feed_atom_xhtml_preserves_cdata() -> None:
 
 
 def test_feed_atom_xhtml_xml_prefix_is_implicit() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
         '<div xmlns="http://www.w3.org/1999/xhtml"><p xml:lang="en">text</p></div></title></feed>'
     )
@@ -1471,7 +1482,7 @@ def test_feed_atom_xhtml_xml_prefix_is_implicit() -> None:
 
 
 def test_feed_atom_xhtml_local_prefix_is_not_duplicated() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
         '<div xmlns="http://www.w3.org/1999/xhtml"><s:svg xmlns:s="http://www.w3.org/2000/svg"/></div>'
         "</title></feed>"
@@ -1480,7 +1491,7 @@ def test_feed_atom_xhtml_local_prefix_is_not_duplicated() -> None:
 
 
 def test_feed_atom_xhtml_multiple_attributes_share_prefix() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:x="urn:x"><title type="xhtml">'
         '<div xmlns="http://www.w3.org/1999/xhtml"><a x:first="1" x:second="2">x</a></div></title></feed>'
     )
@@ -1488,7 +1499,7 @@ def test_feed_atom_xhtml_multiple_attributes_share_prefix() -> None:
 
 
 def test_feed_atom_xhtml_prefixed_tag_and_attribute_share_prefix() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:s="urn:s"><title type="xhtml">'
         '<div xmlns="http://www.w3.org/1999/xhtml"><s:box s:key="v"/></div></title></feed>'
     )
@@ -1496,7 +1507,7 @@ def test_feed_atom_xhtml_prefixed_tag_and_attribute_share_prefix() -> None:
 
 
 def test_feed_atom_xhtml_prefixed_tag_and_other_attribute_prefix() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:s="urn:s" xmlns:t="urn:t">'
         '<title type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">'
         '<s:box t:key="v"/></div></title></feed>'
@@ -1505,7 +1516,7 @@ def test_feed_atom_xhtml_prefixed_tag_and_other_attribute_prefix() -> None:
 
 
 def test_feed_atom_xhtml_distinguishes_equal_length_prefixes() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:s="urn:s" xmlns:t="urn:t">'
         '<title type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">'
         '<a s:one="1" t:two="2">x</a></div></title></feed>'
@@ -1514,7 +1525,7 @@ def test_feed_atom_xhtml_distinguishes_equal_length_prefixes() -> None:
 
 
 def test_feed_atom_xhtml_attribute_name_before_prefix() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:abc="urn:abc">'
         '<title type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">'
         '<a id="x" abc:key="v">x</a></div></title></feed>'
@@ -1523,7 +1534,7 @@ def test_feed_atom_xhtml_attribute_name_before_prefix() -> None:
 
 
 def test_feed_atom_xhtml_other_name_before_prefix() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:x="urn:x">'
         '<title type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">'
         '<a class="x" x:key="v">x</a></div></title></feed>'
@@ -1532,12 +1543,12 @@ def test_feed_atom_xhtml_other_name_before_prefix() -> None:
 
 
 def test_feed_atom_xhtml_type_absent_with_other_attribute() -> None:
-    xml: Final = '<feed xmlns="http://www.w3.org/2005/Atom"><title id="x">plain</title></feed>'
+    xml: Final[str] = '<feed xmlns="http://www.w3.org/2005/Atom"><title id="x">plain</title></feed>'
     assert parse_feed(xml).title == "plain"
 
 
 def test_feed_atom_xhtml_requires_xhtml_div() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
         '<div xmlns="urn:other"><b>plain</b></div></title></feed>'
     )
@@ -1545,7 +1556,7 @@ def test_feed_atom_xhtml_requires_xhtml_div() -> None:
 
 
 def test_feed_rss_xhtml_type_keeps_plain_text() -> None:
-    xml: Final = '<rss version="2.0"><channel><title type="xhtml"><div><b>plain</b></div></title></channel></rss>'
+    xml: Final[str] = '<rss version="2.0"><channel><title type="xhtml"><div><b>plain</b></div></title></channel></rss>'
     assert parse_feed(xml).title == "plain"
 
 

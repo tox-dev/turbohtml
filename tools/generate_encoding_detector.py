@@ -25,13 +25,6 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Final
 
-# A DetectorData field of this length is a per-byte character-class table; any
-# other length is a variable-length character-pair probability table.
-_CLASS_TABLE_LEN: Final[int] = 128
-
-# The 16-bit CJK frequency tables, kept apart from the 8-bit single-byte tables.
-_U16_FIELDS: Final[tuple[str, ...]] = ("frequent_simplified", "frequent_kanji", "frequent_hangul")
-
 # The WHATWG/Python codec label each chardetng Encoding maps to, keyed by the
 # chardetng ``*_INIT`` static name. The detector never returns one outside this map.
 _ENCODING_LABEL: Final[MappingProxyType[str, str]] = MappingProxyType({
@@ -139,10 +132,15 @@ def emit_array(name: str, values: list[int], ctype: str) -> str:
 def emit_tables(tables: dict[str, list[int]]) -> list[str]:
     # Render every class, frequency, and probability table as a C array.
     out: list[str] = []
+    # A DetectorData field of this length is a per-byte character-class table; any
+    # other length is a variable-length character-pair probability table.
+    class_table_len: int = 128
+    # The 16-bit CJK frequency tables, kept apart from the 8-bit single-byte tables.
+    u16_fields: tuple[str, ...] = ("frequent_simplified", "frequent_kanji", "frequent_hangul")
     for name, values in tables.items():
-        if name in _U16_FIELDS:
+        if name in u16_fields:
             out.append(emit_array(f"th_detect_freq_{name}", values, "uint16_t"))
-        elif len(values) == _CLASS_TABLE_LEN:
+        elif len(values) == class_table_len:
             out.append(emit_array(f"th_detect_class_{name}", values, "uint8_t"))
         else:
             out.append(emit_array(f"th_detect_prob_{name}", values, "uint8_t"))

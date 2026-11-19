@@ -22,7 +22,7 @@ def split_header(data: bytes) -> tuple[Header, bytes]:
     opts, failure_pos, max_chunk = (
         int.from_bytes(data[start : start + _FIELD_SIZE], "big") for start in range(0, HEADER_SIZE, _FIELD_SIZE)
     )
-    size: Final = len(data)
+    size: Final[int] = len(data)
     # libxml2 bounds the failure position by the size plus 100 and the chunk by the size plus an eighth, reading 0 as 1,
     # so random fields land near the input's allocation count and length
     # (https://github.com/GNOME/libxml2/blob/c43dc98d27ac315a48d93dbd399c6c22cf7125b1/fuzz/xml.c#L52-L56).

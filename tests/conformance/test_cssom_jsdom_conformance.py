@@ -540,7 +540,7 @@ _AST: Final[Path] = Path(__file__).resolve().parents[2] / "tools" / "bench" / "n
 
 @pytest.fixture(scope="module")
 def css_metrics() -> dict[bytes, tuple[int, int]]:
-    script: Final = """
+    script: Final[str] = """
 const tree = require(process.argv[1]);
 const fs = require('node:fs');
 if (require(process.argv[1] + '/package.json').version !== '3.2.1') throw new Error('CSS AST version');
@@ -556,7 +556,7 @@ process.stdout.write(JSON.stringify(rows.map(source => {
     return [count, height];
 })));
 """
-    result: Final = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]  # Fixed parser program; source bytes use stdin.
+    result: Final[subprocess.CompletedProcess[str]] = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]  # Fixed parser program; source bytes use stdin.
         (_NODE, "-e", script, str(_AST)),
         input=json.dumps([case.data.decode("utf-8") for case in _CASES]),
         capture_output=True,

@@ -669,12 +669,28 @@ def _select_input(text: str) -> None:
 
 def _select_tree(text: str) -> None:
     document = parse(text)
-    for selector in _TREE_SELECTORS:
+    # a linear-time spread of the engine: descendant and sibling combinators, :has (memoized since #509), nth,
+    # attributes, and the of-type positions with no type selector in front, which every element of a sibling list has
+    # to answer, and :dir(), which reads the text of a dir=auto ancestor
+    tree_selectors = (
+        "div p",
+        "a ~ b",
+        "div:has(a)",
+        "li:nth-child(2n+1)",
+        "[data-v*='ab']",
+        ":not(:empty)",
+        ":last-of-type",
+        ":nth-of-type(2)",
+        ":dir(rtl)",
+    )
+    for selector in tree_selectors:
         document.select(selector)
 
 
 def _node_paths(text: str) -> None:
-    for element in parse(text).select(_PATH_ELEMENTS):
+    # a path is as long as its element is deep, so the paths of every element of a nested run cost elements times depth
+    # by design; two levels keep each path short and still have every child cross its own sibling list and its parent's
+    for element in parse(text).select("body > *, body > * > *"):
         element.css_path()
         element.xpath_path()
 
@@ -685,7 +701,18 @@ def _xpath_input(text: str) -> None:
 
 def _xpath_tree(text: str) -> str:
     document = parse_xml(text)
-    return "".join(str(document.xpath(expression)) for expression in _TREE_XPATHS)
+    # node walks, lang()'s climb to the declaring ancestor, the EXSLT functions that size their result from document
+    # data (str:padding is #957), and an id() lookup per element, which walked the whole document each time
+    tree_xpaths: tuple[str, ...] = (
+        "count(//*)",
+        "count(//@*)",
+        "count(//*[lang('en')])",
+        "string(/)",
+        "str:padding(string(//@*[1]), '-')",
+        "count(set:distinct(//@*))",
+        "count(//*[id(@to)])",
+    )
+    return "".join(str(document.xpath(expression)) for expression in tree_xpaths)
 
 
 def _url(text: str) -> None:
@@ -724,35 +751,7 @@ def _xslt(text: str) -> str:
 _SELECTOR_HOST: Final[Document] = parse(
     "<div id=a class='x y' data-v=ab><p lang=en-US>t<a href=/u>l</a></p><ul><li>1<li>2</ul><input type=text></div>"
 )
-# a linear-time spread of the engine: descendant and sibling combinators, :has (memoized since #509), nth, attributes,
-# and the of-type positions with no type selector in front, which every element of a sibling list has to answer, and
-# :dir(), which reads the text of a dir=auto ancestor
-_TREE_SELECTORS: Final[tuple[str, ...]] = (
-    "div p",
-    "a ~ b",
-    "div:has(a)",
-    "li:nth-child(2n+1)",
-    "[data-v*='ab']",
-    ":not(:empty)",
-    ":last-of-type",
-    ":nth-of-type(2)",
-    ":dir(rtl)",
-)
-# a path is as long as its element is deep, so the paths of every element of a nested run cost elements times depth by
-# design; two levels keep each path short and still have every child cross its own sibling list and its parent's
-_PATH_ELEMENTS: Final[str] = "body > *, body > * > *"
 _XPATH_HOST: Final[Document] = parse_xml("<r a='1'><s b='x'>text</s><s b='y'><t/></s><!--c--><?p d?></r>")
-# node walks, lang()'s climb to the declaring ancestor, the EXSLT functions that size their result from document
-# data (str:padding is #957), and an id() lookup per element, which walked the whole document each time
-_TREE_XPATHS: Final[tuple[str, ...]] = (
-    "count(//*)",
-    "count(//@*)",
-    "count(//*[lang('en')])",
-    "string(/)",
-    "str:padding(string(//@*[1]), '-')",
-    "count(set:distinct(//@*))",
-    "count(//*[id(@to)])",
-)
 _XML_SOURCES: Final[tuple[str, ...]] = ("tokenizer/xml.c", "tokenizer/xml_names.h", "dom/*")
 _HTML_SOURCES: Final[tuple[str, ...]] = ("tokenizer/*", "dom/*", _TAG_TABLE, "data/attr_atom.h")
 _AMBIGUOUS_GRAMMAR: Final[RelaxNG] = RelaxNG(

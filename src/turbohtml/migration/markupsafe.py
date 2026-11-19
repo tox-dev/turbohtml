@@ -20,7 +20,10 @@ import string
 from typing import TYPE_CHECKING, NamedTuple, SupportsIndex, cast
 
 from ._native import (
-    collapse_whitespace as _collapse_whitespace,
+    collapse_whitespace,
+    parse_fragment,
+    register_markup,
+    unescape,
 )
 from ._native import (
     markup_escape as escape,
@@ -30,13 +33,6 @@ from ._native import (
 )
 from ._native import (
     markup_soft_str as soft_str,
-)
-from ._native import (
-    parse_fragment,
-    unescape,
-)
-from ._native import (
-    register_markup as _register_markup,
 )
 
 if TYPE_CHECKING:
@@ -226,7 +222,7 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]  # 
 
         :returns: the plain text, no longer safe markup.
         """
-        return _collapse_whitespace(parse_fragment(str(self)).text)
+        return collapse_whitespace(parse_fragment(str(self)).text)
 
     def capitalize(self) -> Markup:
         """
@@ -504,7 +500,7 @@ class _MarkupEscapeHelper:
         return float(cast("SupportsFloat", self.obj))
 
 
-_register_markup(Markup)
+register_markup(Markup)
 
 __all__ = [
     "EscapeFormatter",

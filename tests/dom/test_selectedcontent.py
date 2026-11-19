@@ -986,7 +986,7 @@ def test_incremental_parser_splits_inside_a_late_selectedcontent() -> None:
 
 
 def test_filled_selectedcontent_is_copied_once(retained_bytes: RetainedBytes) -> None:
-    option: Final = f"<option>{'<b>x</b>' * 5000}</option>"
+    option: Final[str] = f"<option>{'<b>x</b>' * 5000}</option>"
     base = retained_bytes("*")
     plain = parse(f"<select>{option}</select>")
     plain_bytes = retained_bytes("*") - base

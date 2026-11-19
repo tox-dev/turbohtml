@@ -38,6 +38,8 @@ from turbohtml.migration.bleach import clean
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
+    from types import ModuleType
+    from typing import Never
 
     from work_steps import WorkSteps
 
@@ -81,8 +83,8 @@ def test_deep_input_is_sanitized_without_using_the_c_stack() -> None:
 
 
 def test_deep_unwrap_preserves_kept_ancestors() -> None:
-    source: Final = f"{'<div>' * 40}<summary>x</summary>{'</div>' * 40}"
-    expected: Final = f"{'<div>' * 40}&lt;summary&gt;x&lt;/summary&gt;{'</div>' * 40}"
+    source: Final[str] = f"{'<div>' * 40}<summary>x</summary>{'</div>' * 40}"
+    expected: Final[str] = f"{'<div>' * 40}&lt;summary&gt;x&lt;/summary&gt;{'</div>' * 40}"
     assert sanitize(source, Policy(tags=frozenset({"div"}))) == expected
 
 
@@ -90,8 +92,8 @@ def test_deep_table_unwrap_keeps_nested_content_in_order() -> None:
     node: Element = E.span("x")
     for _layer in range(40):
         node = E.div(node)
-    root: Final = E.div(E.table(E.tbody(E.tr(E.td(node)))))
-    expected: Final = (
+    root: Final[Element] = E.div(E.table(E.tbody(E.tr(E.td(node)))))
+    expected: Final[str] = (
         f"<div>&lt;table&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td&gt;{'<div>' * 40}<span>x</span>{'</div>' * 40}"
         "&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;</div>"
     )
@@ -100,17 +102,17 @@ def test_deep_table_unwrap_keeps_nested_content_in_order() -> None:
 
 def test_nested_unwrap_reaches_link_after_empty_escape() -> None:
     # the node entry point has to reparse to its own output at this depth, as the string entry point does
-    source: Final = f"{'<q><em>' * 18}<nobr><object><s><nobr><dt><ol><li>x</nobr></s>"
-    policy: Final = Policy(tags=frozenset({"q", "em", "nobr", "object", "s", "dt", "ol", "li"}))
-    once: Final = sanitize(source, policy)
+    source: Final[str] = f"{'<q><em>' * 18}<nobr><object><s><nobr><dt><ol><li>x</nobr></s>"
+    policy: Final[Policy] = Policy(tags=frozenset({"q", "em", "nobr", "object", "s", "dt", "ol", "li"}))
+    once: Final[str] = sanitize(source, policy)
     assert (parse_fragment(once).inner_html, sanitize_node(parse_fragment(source), policy).inner_html) == (once, once)
 
 
 def test_deep_unwrap_in_table_context_settles_in_place() -> None:
     # the unwrapped row sits in a table context, which fosters its children, so its settle stays in place this deep
-    source: Final = f"{'<div>' * 40}<table><tr><td>x"
-    policy: Final = Policy(tags=frozenset({"table", "td"}))
-    once: Final = sanitize(source, policy)
+    source: Final[str] = f"{'<div>' * 40}<table><tr><td>x"
+    policy: Final[Policy] = Policy(tags=frozenset({"table", "td"}))
+    once: Final[str] = sanitize(source, policy)
     reparsed = sanitize_node(parse_fragment(once), policy).inner_html
     assert (reparsed, sanitize_node(parse_fragment(source), policy).inner_html) == (once, once)
 
@@ -131,7 +133,7 @@ _UNWRAP_LIMIT: Final[int] = 3 * 512
 
 
 def test_disallowed_elements_nested_to_the_limit_are_sanitized() -> None:
-    document: Final = parse_xml("<x>" * _UNWRAP_LIMIT + "</x>" * _UNWRAP_LIMIT)
+    document: Final[Document] = parse_xml("<x>" * _UNWRAP_LIMIT + "</x>" * _UNWRAP_LIMIT)
     assert sanitize(document).count("&lt;x&gt;") == _UNWRAP_LIMIT
 
 
@@ -156,7 +158,7 @@ def test_disallowed_elements_nested_past_the_limit_are_refused(
     call: Callable[[Document, Policy], object], policy: Policy
 ) -> None:
     # each escaped or stripped element lifts its content a level, so a longer chain costs the square of its length
-    document: Final = parse_xml("<b><x>" * (_UNWRAP_LIMIT + 1) + "</x></b>" * (_UNWRAP_LIMIT + 1))
+    document: Final[Document] = parse_xml("<b><x>" * (_UNWRAP_LIMIT + 1) + "</x></b>" * (_UNWRAP_LIMIT + 1))
     with pytest.raises(RecursionError, match=f"sanitize does not support more than {_UNWRAP_LIMIT} nested"):
         call(document, policy)
 
@@ -169,14 +171,14 @@ def test_disallowed_elements_nested_past_the_limit_are_refused(
     ],
 )
 def test_deep_elements_that_move_nothing_are_not_limited(policy: Policy, expected: str) -> None:
-    document: Final = parse_xml(f"{'<b>' * 4_000}t{'</b>' * 4_000}")
+    document: Final[Document] = parse_xml(f"{'<b>' * 4_000}t{'</b>' * 4_000}")
     assert sanitize(document, replace(policy, xml=True)) == expected
 
 
 @pytest.mark.parametrize("parser", [pytest.param(parse, id="document"), pytest.param(parse_fragment, id="fragment")])
 def test_deepest_parsed_tree_is_under_the_unwrap_limit(parser: Callable[[str], Document | Element]) -> None:
     # nested template contents double the tree builder's depth cap, the deepest tree it builds
-    tree: Final = parser(f"{'<template>' * 1_000}bottom")
+    tree: Final[Document | Element] = parser(f"{'<template>' * 1_000}bottom")
     assert sanitize(tree) == "&lt;template&gt;"
 
 
@@ -933,7 +935,7 @@ def test_style_scrubbing_keeps_the_declarations(style: str, expected: str) -> No
 def test_style_block_tail_stays_dead_when_minified() -> None:
     # the scrubber keeps `color:navy{}top:0` as one color declaration, which no browser applies; the CSS minifier reads
     # the value the same way, so minifying what the scrubber kept sets no top declaration free
-    kept: Final = sanitize('<p style="color:navy{}top:0;width:1px">x</p>', _style_policy())
+    kept: Final[str] = sanitize('<p style="color:navy{}top:0;width:1px">x</p>', _style_policy())
     assert kept == '<p style="color:navy{}top:0; width:1px">x</p>'
     assert minify(kept, Minify(minify_css=CSSMinify())) == "<p style=color:navy{};width:1px>x"
 
@@ -2483,14 +2485,14 @@ def test_attribute_prefix_default_policy_drops_data_attributes() -> None:
     ],
 )
 def test_attribute_prefix_unicode_names(prefix: str) -> None:
-    policy: Final = Policy(tags=frozenset({"p"}), attributes={}, attribute_prefixes=frozenset({prefix}))
+    policy: Final[Policy] = Policy(tags=frozenset({"p"}), attributes={}, attribute_prefixes=frozenset({prefix}))
     assert sanitize(f'<p {prefix}id="1" {prefix}role="2" other="3">x</p>', policy) == (
         f'<p {prefix}id="1" {prefix}role="2">x</p>'
     )
 
 
 def test_attribute_prefix_mutation_from_callback() -> None:
-    prefixes: Final = {"data-"}
+    prefixes: Final[set[str]] = {"data-"}
 
     def change_prefixes(_tag: str, name: str, value: str) -> str:
         if name == "data-first":
@@ -2498,7 +2500,7 @@ def test_attribute_prefix_mutation_from_callback() -> None:
             prefixes.add("aria-")
         return value
 
-    policy: Final = Policy(
+    policy: Final[Policy] = Policy(
         tags=frozenset({"p"}),
         attributes={},
         attribute_prefixes=cast("frozenset[str]", prefixes),
@@ -2521,10 +2523,10 @@ def test_attribute_prefix_mutation_from_callback() -> None:
 def test_attribute_prefix_surrogate_raises(
     prefixes: frozenset[str] | set[str], attributes: dict[str, frozenset[str]], count: int
 ) -> None:
-    policy: Final = Policy(
+    policy: Final[Policy] = Policy(
         tags=frozenset({"a"}), attributes=attributes, attribute_prefixes=cast("frozenset[str]", prefixes)
     )
-    html: Final = f"""<a {" ".join(f'data-{index}="1"' for index in range(count))}>x</a>"""
+    html: Final[str] = f"""<a {" ".join(f'data-{index}="1"' for index in range(count))}>x</a>"""
     with pytest.raises(UnicodeEncodeError, match="surrogates not allowed"):
         sanitize(html, policy)
 
@@ -2802,13 +2804,13 @@ def policy() -> Policy:
 
 @pytest.mark.parametrize("count", [0, 31, 32, 1_024])
 def test_attribute_compaction_rejected_count(policy: Policy, count: int) -> None:
-    attributes: Final = "".join(f' bad-{index}="x"' for index in range(count))
+    attributes: Final[str] = "".join(f' bad-{index}="x"' for index in range(count))
     assert Sanitizer(policy).sanitize(f"<a{attributes}>x</a>") == "<a>x</a>"
 
 
 @pytest.mark.parametrize("count", [0, 31, 32, 1_024])
 def test_attribute_compaction_allowed_count(policy: Policy, count: int) -> None:
-    attributes: Final = "".join(f' data-{index}="x"' for index in range(count))
+    attributes: Final[str] = "".join(f' data-{index}="x"' for index in range(count))
     assert Sanitizer(policy).sanitize(f"<a{attributes}>x</a>") == f"<a{attributes}>x</a>"
 
 
@@ -2822,18 +2824,18 @@ def test_attribute_compaction_allowed_count(policy: Policy, count: int) -> None:
     ],
 )
 def test_attribute_compaction_safety(policy: Policy, attribute: str, expected: str) -> None:
-    rejected: Final = "".join(f' bad-{index}="x"' for index in range(32))
+    rejected: Final[str] = "".join(f' bad-{index}="x"' for index in range(32))
     assert Sanitizer(policy).sanitize(f"<a{rejected} {attribute}>x</a>") == f"<a{expected}>x</a>"
 
 
 def test_attribute_compaction_retains_order(policy: Policy) -> None:
-    attributes: Final = "".join(f' bad-{index}="x" data-{index}="{index}"' for index in range(32))
-    expected: Final = "".join(f' data-{index}="{index}"' for index in range(32))
+    attributes: Final[str] = "".join(f' bad-{index}="x" data-{index}="{index}"' for index in range(32))
+    expected: Final[str] = "".join(f' data-{index}="{index}"' for index in range(32))
     assert Sanitizer(policy).sanitize(f"<a{attributes}>x</a>") == f"<a{expected}>x</a>"
 
 
 def test_attribute_compaction_report_order(policy: Policy) -> None:
-    rejected: Final = "".join(f' bad-{index}="x"' for index in range(32))
+    rejected: Final[str] = "".join(f' bad-{index}="x"' for index in range(32))
     assert Sanitizer(policy).sanitize_report(f'<a first="x" href="javascript:x" onclick="x"{rejected}>x</a>') == (
         "<a>x</a>",
         [Removed("a", name) for name in ("first", "href", "onclick", *(f"bad-{index}" for index in range(32)))],
@@ -2841,11 +2843,11 @@ def test_attribute_compaction_report_order(policy: Policy) -> None:
 
 
 def test_attribute_compaction_report_interleaves(policy: Policy) -> None:
-    pairs: Final = [f' bad-{index}="x" data-{index}="x"' for index in range(32)]
-    rest: Final = ' onclick="x" title="t" last="x"'
-    html: Final = "".join(('<a first="x"', *pairs[:16], ' href="javascript:x"', *pairs[16:], rest, ">x</a>"))
-    bad: Final = [f"bad-{index}" for index in range(32)]
-    kept: Final = "".join(f' data-{index}="x"' for index in range(32))
+    pairs: Final[list[str]] = [f' bad-{index}="x" data-{index}="x"' for index in range(32)]
+    rest: Final[str] = ' onclick="x" title="t" last="x"'
+    html: Final[str] = "".join(('<a first="x"', *pairs[:16], ' href="javascript:x"', *pairs[16:], rest, ">x</a>"))
+    bad: Final[list[str]] = [f"bad-{index}" for index in range(32)]
+    kept: Final[str] = "".join(f' data-{index}="x"' for index in range(32))
     assert Sanitizer(policy).sanitize_report(html) == (
         f'<a{kept} title="t">x</a>',
         [Removed("a", name) for name in ("first", *bad[:16], "href", *bad[16:], "onclick", "last")],
@@ -2862,21 +2864,21 @@ def test_attribute_compaction_report_interleaves(policy: Policy) -> None:
 )
 def test_attribute_compaction_report_matches_sanitize(policy: Policy, callbacks: Policy) -> None:
     attribute_filter, custom_element_check = callbacks.attribute_filter, callbacks.custom_element_check
-    sanitizer: Final = Sanitizer(
+    sanitizer: Final[Sanitizer] = Sanitizer(
         replace(policy, attribute_filter=attribute_filter, custom_element_check=custom_element_check)
     )
-    attributes: Final = "".join(f' bad-{index}="x"' for index in range(4_096))
-    html: Final = f'<a{attributes} href="/safe">x</a>'
+    attributes: Final[str] = "".join(f' bad-{index}="x"' for index in range(4_096))
+    html: Final[str] = f'<a{attributes} href="/safe">x</a>'
     out, removed = sanitizer.sanitize_report(html)
     assert (out, sanitizer.sanitize(html)) == ('<a href="/safe">x</a>', '<a href="/safe">x</a>')
     assert removed == [Removed("a", f"bad-{index}") for index in range(4_096)]
 
 
 def test_attribute_compaction_custom_check_drops(policy: Policy) -> None:
-    parts: Final = [f' bad-{index}="x"' for index in range(32)]
+    parts: Final[list[str]] = [f' bad-{index}="x"' for index in range(32)]
     parts[7] = ' bad-7="x" is="x"'
-    attributes: Final = "".join(parts)
-    sanitizer: Final = Sanitizer(
+    attributes: Final[str] = "".join(parts)
+    sanitizer: Final[Sanitizer] = Sanitizer(
         replace(
             policy,
             custom_element_check=lambda tag: tag == "x-card",
@@ -2894,8 +2896,8 @@ def test_attribute_compaction_custom_check_raises(policy: Policy) -> None:
     def boom(_tag: str, name: str) -> bool:
         raise ValueError(name)
 
-    attributes: Final = "".join(f' bad-{index}="x"' for index in range(32))
-    sanitizer: Final = Sanitizer(
+    attributes: Final[str] = "".join(f' bad-{index}="x"' for index in range(32))
+    sanitizer: Final[Sanitizer] = Sanitizer(
         replace(policy, custom_element_check=lambda tag: tag == "x-card", custom_attribute_check=boom)
     )
     with pytest.raises(ValueError, match="bad-0"):
@@ -2910,10 +2912,10 @@ def test_attribute_compaction_custom_check_raises(policy: Policy) -> None:
     ],
 )
 def test_attribute_compaction_report_is_linear(policy: Policy, callbacks: Policy, work_steps: WorkSteps) -> None:
-    sanitizer: Final = Sanitizer(replace(policy, attribute_filter=callbacks.attribute_filter))
+    sanitizer: Final[Sanitizer] = Sanitizer(replace(policy, attribute_filter=callbacks.attribute_filter))
 
     def markup(count: int) -> str:
-        attributes: Final = "".join(f' bad-{index:x}="x"' for index in range(count))
+        attributes: Final[str] = "".join(f' bad-{index:x}="x"' for index in range(count))
         return f'<a{attributes} href="/safe">x</a>'
 
     work_steps.assert_linear(lambda n: partial(sanitizer.sanitize_report, markup(n)), (500, 2000))
@@ -2927,7 +2929,7 @@ def test_attribute_compaction_filter_order(policy: Policy) -> None:
         names.append(name)
         return value
 
-    attributes: Final = "".join(f' bad-{index}="x" data-{index}="x"' for index in range(32))
+    attributes: Final[str] = "".join(f' bad-{index}="x" data-{index}="x"' for index in range(32))
     Sanitizer(replace(policy, attribute_filter=record)).sanitize(f"<a{attributes}>x</a>")
     assert names == [f"data-{index}" for index in range(32)]
 
@@ -2942,8 +2944,8 @@ def test_attribute_compaction_filter_order(policy: Policy) -> None:
 def test_attribute_compaction_custom_checks(
     policy: Policy, prefix: str, custom_attribute_check: Callable[[str, str], bool] | None
 ) -> None:
-    attributes: Final = "".join(f' {prefix}{index}="x"' for index in range(32))
-    sanitizer: Final = Sanitizer(
+    attributes: Final[str] = "".join(f' {prefix}{index}="x"' for index in range(32))
+    sanitizer: Final[Sanitizer] = Sanitizer(
         replace(
             policy,
             custom_element_check=lambda tag: tag == "x-card",
@@ -2954,8 +2956,8 @@ def test_attribute_compaction_custom_checks(
 
 
 def test_attribute_compaction_late_writes(policy: Policy) -> None:
-    rejected: Final = "".join(f' bad-{index}="x"' for index in range(32))
-    sanitizer: Final = Sanitizer(
+    rejected: Final[str] = "".join(f' bad-{index}="x"' for index in range(32))
+    sanitizer: Final[Sanitizer] = Sanitizer(
         replace(policy, set_attributes={"a": {"href": "javascript:x", "title": "kept", "onclick": "x"}})
     )
     assert sanitizer.sanitize(f"<a{rejected}>x</a>") == '<a title="kept">x</a>'
@@ -2969,15 +2971,15 @@ def test_attribute_compaction_late_writes(policy: Policy) -> None:
     ],
 )
 def test_attribute_compaction_value_rewrites(policy: Policy, attribute: str, expected: str) -> None:
-    rejected: Final = "".join(f' bad-{index}="x"' for index in range(32))
-    sanitizer: Final = Sanitizer(replace(policy, isolate_named_props=True, strip_template_markers=True))
+    rejected: Final[str] = "".join(f' bad-{index}="x"' for index in range(32))
+    sanitizer: Final[Sanitizer] = Sanitizer(replace(policy, isolate_named_props=True, strip_template_markers=True))
     assert sanitizer.sanitize(f"<a{rejected} {attribute}>x</a>") == f"<a {expected}>x</a>"
 
 
 def test_attribute_compaction_copies_source(policy: Policy) -> None:
-    html: Final = f"""<a{"".join(f' bad-{index}="x"' for index in range(32))} href="/safe">x</a>"""
-    source: Final = parse_fragment(html)
-    sanitized: Final = Sanitizer(policy).sanitize_node(source)
+    html: Final[str] = f"""<a{"".join(f' bad-{index}="x"' for index in range(32))} href="/safe">x</a>"""
+    source: Final[Element] = parse_fragment(html)
+    sanitized: Final[Element] = Sanitizer(policy).sanitize_node(source)
     assert (source.inner_html, sanitized.inner_html) == (html, '<a href="/safe">x</a>')
 
 
@@ -2990,7 +2992,7 @@ def test_attribute_compaction_copies_source(policy: Policy) -> None:
     ],
 )
 def test_sanitize_attribute_benchmark(case: int, expected: str) -> None:
-    sanitizer: Final = Sanitizer(Policy(tags=frozenset({"p"}), attribute_prefixes=frozenset({"data-"})))
+    sanitizer: Final[Sanitizer] = Sanitizer(Policy(tags=frozenset({"p"}), attribute_prefixes=frozenset({"data-"})))
     assert sanitizer.sanitize(cast("str", INPUTS["sanitize-attributes"]()[case][1])) == expected
 
 
@@ -3440,7 +3442,7 @@ def test_annotation_xml_encoding_selects_integration_point(html: str, expected: 
     ],
 )
 def test_annotation_xml_integration_check_is_linear_in_children(encoding: str, work_steps: WorkSteps) -> None:
-    policy: Final = replace(_ENCODING_POLICY, attribute_prefixes=frozenset({"data-"}))
+    policy: Final[Policy] = replace(_ENCODING_POLICY, attribute_prefixes=frozenset({"data-"}))
 
     def markup(count: int) -> str:
         attributes = " ".join(f"data-{index:x}" for index in range(count))
@@ -4288,9 +4290,9 @@ _PARSE_STABLE_CASES: Final[list[pytest.ParameterSet]] = [
 
 @pytest.mark.parametrize("container", ["desc", "span"])
 def test_sanitize_nested_option_under_kept_container_matches_string_path(container: str) -> None:
-    markup: Final = f"<option><{container}><option>"
-    policy: Final = Policy(tags=frozenset({"option", container}), on_disallowed_tag=OnDisallowed.REMOVE)
-    expected: Final = f"<option><{container}><option></option></{container}></option>"
+    markup: Final[str] = f"<option><{container}><option>"
+    policy: Final[Policy] = Policy(tags=frozenset({"option", container}), on_disallowed_tag=OnDisallowed.REMOVE)
+    expected: Final[str] = f"<option><{container}><option></option></{container}></option>"
     assert (sanitize(markup, policy), sanitize_node(parse_fragment(markup, "div"), policy).inner_html) == (
         expected,
         expected,
@@ -5673,7 +5675,7 @@ _XML_ORACLE_POLICY: Final[Policy] = Policy(
 )
 @pytest.mark.oracle
 def test_output_parses_under_lxml(html: str, tags: list[str], text: str) -> None:
-    lxml_etree: Final = pytest.importorskip("lxml.etree")
+    lxml_etree: Final[ModuleType] = pytest.importorskip("lxml.etree")
     root = lxml_etree.fromstring(f"<root>{sanitize(html, _XML_ORACLE_POLICY)}</root>".encode())
     assert ([lxml_etree.QName(child).localname for child in root], root.xpath("string(.)")) == (tags, text)
 
@@ -5855,8 +5857,8 @@ def test_live_danger_labels_every_executable_construct(html: str, survived: list
     "count", [pytest.param(0, id="empty"), pytest.param(1, id="single"), pytest.param(1024, id="wide")]
 )
 def test_escaped_opening_attribute_width(count: int) -> None:
-    attributes: Final = "".join(f' a{index}="{index}"' for index in range(count))
-    expected: Final = f"&lt;x{attributes}&gt;text&lt;/x&gt;"
+    attributes: Final[str] = "".join(f' a{index}="{index}"' for index in range(count))
+    expected: Final[str] = f"&lt;x{attributes}&gt;text&lt;/x&gt;"
     assert sanitize(f"<x{attributes}>text</x>", Policy(on_disallowed_tag=OnDisallowed.ESCAPE)) == expected
 
 
@@ -5864,7 +5866,7 @@ def test_escaped_opening_attribute_width(count: int) -> None:
     "count", [pytest.param(0, id="empty"), pytest.param(1, id="single"), pytest.param(1024, id="wide")]
 )
 def test_stripped_opening_attribute_width(count: int) -> None:
-    attributes: Final = "".join(f' a{index}="{index}"' for index in range(count))
+    attributes: Final[str] = "".join(f' a{index}="{index}"' for index in range(count))
     assert sanitize(f"<x{attributes}>text</x>", Policy(on_disallowed_tag=OnDisallowed.STRIP)) == "text"
 
 
@@ -5897,11 +5899,13 @@ def test_escaped_opening_surrogate_attribute_name(name: str) -> None:
 def test_document_node_return_types(
     report: Callable[[Sanitizer, Document, Policy], tuple[Document, list[Removed]]],
 ) -> None:
-    document: Final = parse("<p onclick='x'>hi</p>")
-    policy: Final = Policy(tags=frozenset({"html", "head", "body", "p"}))
-    sanitizer: Final = Sanitizer(policy)
+    document: Final[Document] = parse("<p onclick='x'>hi</p>")
+    policy: Final[Policy] = Policy(tags=frozenset({"html", "head", "body", "p"}))
+    sanitizer: Final[Sanitizer] = Sanitizer(policy)
     cleaned: Final[Document] = assert_type(sanitizer.sanitize_node(document), Document)
-    result: Final = assert_type(report(sanitizer, document, policy), tuple[Document, list[Removed]])
+    result: Final[tuple[Document, list[Removed]]] = assert_type(
+        report(sanitizer, document, policy), tuple[Document, list[Removed]]
+    )
     assert (cleaned.serialize(), result[0].serialize(), result[1]) == (
         "<html><head></head><body><p>hi</p></body></html>",
         "<html><head></head><body><p>hi</p></body></html>",
@@ -5930,7 +5934,7 @@ _LEADING_ATTRIBUTES: Final[str] = " ".join(f'data-{index}="x"' for index in rang
     ],
 )
 def test_kept_element_surrogate_attribute_name(html: str, expected: str) -> None:
-    policy: Final = Policy(tags=frozenset({"p"}), attributes={}, attribute_prefixes=frozenset({"data-"}))
+    policy: Final[Policy] = Policy(tags=frozenset({"p"}), attributes={}, attribute_prefixes=frozenset({"data-"}))
     assert sanitize(html, policy) == expected
 
 
@@ -5942,7 +5946,7 @@ def test_kept_element_surrogate_attribute_name(html: str, expected: str) -> None
     ],
 )
 def test_surrogate_attribute_name_policy(html: str, expected: str) -> None:
-    policy: Final = Policy(tags=frozenset({"p"}), attributes={}, attribute_prefixes=frozenset({"data-"}))
+    policy: Final[Policy] = Policy(tags=frozenset({"p"}), attributes={}, attribute_prefixes=frozenset({"data-"}))
     assert sanitize(html, policy) == expected
 
 
@@ -5957,12 +5961,12 @@ def test_surrogate_attribute_name_policy(html: str, expected: str) -> None:
 def test_unicode_attribute_name_policy(
     attributes: dict[str, frozenset[str]], prefixes: frozenset[str], expected: str
 ) -> None:
-    policy: Final = Policy(tags=frozenset({"p"}), attributes=attributes, attribute_prefixes=prefixes)
+    policy: Final[Policy] = Policy(tags=frozenset({"p"}), attributes=attributes, attribute_prefixes=prefixes)
     assert sanitize('<p class="x" é="x" data-é="x">text</p>', policy) == expected
 
 
 def test_attribute_name_allowlist_mutation_from_callback() -> None:
-    allowed: Final = {"data-first", "data-second"}
+    allowed: Final[set[str]] = {"data-first", "data-second"}
 
     def change_allowed(_tag: str, name: str, value: str) -> str:
         if name == "data-first":
@@ -5970,7 +5974,7 @@ def test_attribute_name_allowlist_mutation_from_callback() -> None:
             allowed.add("data-third")
         return value
 
-    policy: Final = Policy(
+    policy: Final[Policy] = Policy(
         tags=frozenset({"p"}),
         attributes={"p": cast("frozenset[str]", allowed)},
         attribute_filter=change_allowed,
@@ -6001,7 +6005,7 @@ def test_attribute_name_allowlist_mutation_from_callback() -> None:
     ],
 )
 def test_clean_url_authority_drops_the_href(value: str) -> None:
-    result: Final = clean(f'<a href="{escape(value, quote=True)}">x</a>')
+    result: Final[str] = clean(f'<a href="{escape(value, quote=True)}">x</a>')
     assert dict(parse_fragment(result).select("a")[0].attrs) == {}
 
 
@@ -6031,7 +6035,7 @@ def test_clean_url_authority_drops_the_href(value: str) -> None:
     ],
 )
 def test_clean_url_authority_keeps_the_href(value: str, expected: str) -> None:
-    result: Final = clean(f'<a href="{escape(value, quote=True)}">x</a>')
+    result: Final[str] = clean(f'<a href="{escape(value, quote=True)}">x</a>')
     assert dict(parse_fragment(result).select("a")[0].attrs) == {"href": expected}
 
 
@@ -6048,51 +6052,51 @@ _URL_AUTHORITY_VALUES: Final[list[pytest.ParameterSet]] = [
 
 @pytest.mark.parametrize(("attribute", "value"), _URL_AUTHORITY_VALUES)
 def test_sanitize_url_authority_after_input(attribute: str, value: str) -> None:
-    policy: Final = Policy(tags=frozenset({"x"}), attributes={"x": frozenset({attribute})})
-    result: Final = sanitize(f'<x {attribute}="{value}"></x>', policy)
+    policy: Final[Policy] = Policy(tags=frozenset({"x"}), attributes={"x": frozenset({attribute})})
+    result: Final[str] = sanitize(f'<x {attribute}="{value}"></x>', policy)
     assert dict(parse_fragment(result).select("x")[0].attrs) == {}
 
 
 @pytest.mark.parametrize(("attribute", "value"), _URL_AUTHORITY_VALUES)
 def test_sanitize_url_authority_after_rewrite(attribute: str, value: str) -> None:
-    policy: Final = Policy(
+    policy: Final[Policy] = Policy(
         tags=frozenset({"x"}),
         attributes={"x": frozenset({attribute})},
         attribute_filter=lambda _tag, _name, _value: value,
     )
-    result: Final = sanitize(f'<x {attribute}="https://safe.example/"></x>', policy)
+    result: Final[str] = sanitize(f'<x {attribute}="https://safe.example/"></x>', policy)
     assert dict(parse_fragment(result).select("x")[0].attrs) == {}
 
 
 @pytest.mark.parametrize(("attribute", "value"), _URL_AUTHORITY_VALUES)
 def test_sanitize_url_authority_after_forced_value(attribute: str, value: str) -> None:
-    policy: Final = Policy(
+    policy: Final[Policy] = Policy(
         tags=frozenset({"x"}),
         attributes={"x": frozenset({attribute})},
         set_attributes={"x": {attribute: value}},
     )
-    result: Final = sanitize(f'<x {attribute}="https://safe.example/"></x>', policy)
+    result: Final[str] = sanitize(f'<x {attribute}="https://safe.example/"></x>', policy)
     assert dict(parse_fragment(result).select("x")[0].attrs) == {}
 
 
 def test_sanitize_data_url_brackets() -> None:
-    value: Final = f"data:text/plain,{'[' * 100_000}"
-    policy: Final = Policy(
+    value: Final[str] = f"data:text/plain,{'[' * 100_000}"
+    policy: Final[Policy] = Policy(
         tags=frozenset({"a"}), attributes={"a": frozenset({"href"})}, url_schemes=frozenset({"data"})
     )
-    result: Final = sanitize(f'<a href="{value}">x</a>', policy)
+    result: Final[str] = sanitize(f'<a href="{value}">x</a>', policy)
     assert dict(parse_fragment(result).select("a")[0].attrs) == {"href": value}
 
 
 def test_predicate_keeps_every_attribute() -> None:
-    policy: Final = Policy(attribute_predicate=lambda _tag, _name, _value: True)
+    policy: Final[Policy] = Policy(attribute_predicate=lambda _tag, _name, _value: True)
     assert sanitize('<a title="first" href="https://example.com">x</a>', policy) == (
         '<a title="first" href="https://example.com">x</a>'
     )
 
 
 def test_predicate_rejects_the_title() -> None:
-    policy: Final = Policy(attribute_predicate=lambda _tag, name, _value: name != "title")
+    policy: Final[Policy] = Policy(attribute_predicate=lambda _tag, name, _value: name != "title")
     assert sanitize('<a title="first" href="https://example.com">x</a>', policy) == (
         '<a href="https://example.com">x</a>'
     )
@@ -6126,7 +6130,7 @@ def test_predicate_reads_original_attributes_once_in_source_order() -> None:
     ],
 )
 def test_c_predicate_uses_attribute_truth(value: str, expected: str) -> None:
-    policy: Final = Policy(attributes={"a": frozenset({"data-key"})}, attribute_predicate=getattr)
+    policy: Final[Policy] = Policy(attributes={"a": frozenset({"data-key"})}, attribute_predicate=getattr)
     assert sanitize(f'<a data-key="{value}">x</a>', policy) == expected
 
 
@@ -6140,7 +6144,7 @@ def test_c_predicate_uses_attribute_truth(value: str, expected: str) -> None:
     ],
 )
 def test_predicate_cannot_bypass_safety_or_allowlists(attribute: str) -> None:
-    policy: Final = Policy(
+    policy: Final[Policy] = Policy(
         attributes={"a": frozenset({"href", "onclick", "style"})}, attribute_predicate=lambda *_: True
     )
     assert sanitize(f"<a {attribute}>x</a>", policy) == "<a>x</a>"
@@ -6156,7 +6160,7 @@ def test_predicate_exception_propagates(attribute: str) -> None:
 
 
 def test_predicate_truth_exception_propagates() -> None:
-    verdict: Final = weakref.proxy(set())
+    verdict: Final[weakref.ProxyType[set[Never]]] = weakref.proxy(set())
     gc.collect()
     with pytest.raises(ReferenceError, match="no longer exists"):
         sanitize('<a title="x">x</a>', Policy(attribute_predicate=lambda *_: cast("bool", verdict)))
@@ -6177,7 +6181,7 @@ def test_predicate_keeps_the_attribute_for_the_rewrite_filter() -> None:
 
 def test_predicate_rejects_the_attribute_before_the_rewrite_filter() -> None:
     seen: Final[list[str]] = []
-    policy: Final = Policy(
+    policy: Final[Policy] = Policy(
         attribute_predicate=lambda *_: False, attribute_filter=lambda _tag, name, value: seen.append(name) or value
     )
     assert (sanitize('<a title="x">x</a>', policy), seen) == ("<a>x</a>", [])
@@ -6228,8 +6232,8 @@ def test_predicate_keeps_order_across_attribute_compaction(count: int) -> None:
         seen.append(name)
         return name != "onclick"
 
-    source: Final = " ".join(f'data-{index}="{index}"' for index in range(count))
-    policy: Final = Policy(attributes={"a": frozenset({"*"})}, attribute_predicate=predicate)
+    source: Final[str] = " ".join(f'data-{index}="{index}"' for index in range(count))
+    policy: Final[Policy] = Policy(attributes={"a": frozenset({"*"})}, attribute_predicate=predicate)
     assert (sanitize(f'<a onclick="bad()" {source}>x</a>', policy), seen) == (
         f"<a {source}>x</a>",
         ["onclick", *(f"data-{index}" for index in range(count))],
@@ -6257,8 +6261,8 @@ def test_predicate_filters_transform_attributes() -> None:
 
 
 def test_predicate_source_mutations_do_not_change_the_copy() -> None:
-    source: Final = parse_fragment('<a title="first" href="https://example.com">x</a>')
-    destination: Final = Element("div")
+    source: Final[Element] = parse_fragment('<a title="first" href="https://example.com">x</a>')
+    destination: Final[Element] = Element("div")
 
     def predicate(_tag: str, _name: str, _value: str) -> bool:
         source.clear()
@@ -6277,7 +6281,7 @@ def test_predicate_rejections_do_not_change_reconstructed_elements() -> None:
         seen.append((name, value))
         return len(seen) > 1
 
-    policy: Final = Policy(
+    policy: Final[Policy] = Policy(
         tags=frozenset({"p", "b"}), attributes={"b": frozenset({"*"})}, attribute_predicate=predicate
     )
     assert (sanitize('<p><b title="x" lang="en">one</p>two', policy), seen) == (

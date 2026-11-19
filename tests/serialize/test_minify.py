@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Final
 
 import pytest
 
-from turbohtml import Doctype, Element, Formatter, Html, Minify, Text, parse, parse_fragment, parse_xml
+from turbohtml import Doctype, Document, Element, Formatter, Html, Minify, Text, parse, parse_fragment, parse_xml
 from turbohtml.clean import CSSMinify, minify, strip_comments_node
 
 if TYPE_CHECKING:
@@ -345,7 +345,7 @@ _PHRASING_PARENTS: Final[list[str]] = ["span", "label", "q", "sup", "ruby", "opt
 def test_omit_keeps_end_tag_last_in_phrasing_parent(parent: str, child: str) -> None:
     # `</span>` reaches the special p/li/dd on the open stack and is ignored, so an
     # omitted end tag would pull the parent's next sibling into the child
-    source: Final = f"<!DOCTYPE html><div><{parent}><{child}>x</{child}></{parent}>y</div>"
+    source: Final[str] = f"<!DOCTYPE html><div><{parent}><{child}>x</{child}></{parent}>y</div>"
     assert minify(source) == f"<!DOCTYPE html><div><{parent}><{child}>x</{child}></{parent}>y</div>"
 
 
@@ -388,8 +388,8 @@ _INTEGRATION_POINTS: Final[list[tuple[str, str]]] = [
 def test_omit_keeps_end_tag_last_in_integration_point(root: str, point: str, child: str) -> None:
     # `</foreignObject>` under an open html <option> matches no html element, stops at the special foreignObject and
     # is ignored, so an omitted end tag would turn the foreign siblings after it into html elements inside the child
-    name: Final = point.partition(" ")[0]
-    source: Final = f"<{root}><{point}><{child}>a</{child}></{name}><textarea>b</textarea></{root}>c"
+    name: Final[str] = point.partition(" ")[0]
+    source: Final[str] = f"<{root}><{point}><{child}>a</{child}></{name}><textarea>b</textarea></{root}>c"
     assert frag(source) == source
     assert parse_fragment(frag(source), "div").html == parse_fragment(source, "div").html
 
@@ -426,7 +426,7 @@ def test_omit_last_child_end_tag_in_rt_rp_optgroup_option(source: str, expected:
     # an rt/rp/optgroup/option parent either loses its own end tag to a same-named child or, with its end tag omitted
     # too, is not closed by the start tag that follows; an <option> ending its <optgroup> has neither problem, and
     # any other html parent's end tag walks past the non-special child, so those end tags still drop
-    once: Final = frag(source)
+    once: Final[str] = frag(source)
     assert once == expected
     assert parse_fragment(once, "div").html == parse_fragment(source, "div").html
 
@@ -532,8 +532,8 @@ def test_omit_end_tag_guard_stays_linear_in_nesting(work_steps: WorkSteps) -> No
 
 
 def _adopted_serialize(xml: str) -> partial[str]:
-    host: Final = parse_fragment("", "div")
-    root: Final = parse_xml(xml).root
+    host: Final[Element] = parse_fragment("", "div")
+    root: Final[Element | None] = parse_xml(xml).root
     assert isinstance(root, Element)
     host.append(root)
     return partial(host.serialize, Html(layout=Minify()), inner=True)
@@ -541,7 +541,7 @@ def _adopted_serialize(xml: str) -> partial[str]:
 
 def test_omit_keeps_end_tags_over_trailing_formatting_past_parser_depth() -> None:
     # the <i> stays on every cell's trailing path however deep it lies, and a following sibling takes it off
-    depth: Final = _PARSER_DEPTH + 37
+    depth: Final[int] = _PARSER_DEPTH + 37
     opened, closed = "<th>" * depth, "</th>" * depth
     assert _adopted(f"{opened}<i>x</i>{closed}") == f"{opened}<i>x</i>{closed}"
     assert _adopted(f"{opened}<i>x</i>y{closed}") == f"{opened}<i>x</i>y"
@@ -578,7 +578,7 @@ def test_omit_end_tag_over_child_the_walk_does_not_descend_into(source: str, exp
 )
 def test_omit_scope_climb_stops_at_parser_depth(depth: int, expected: str) -> None:
     # past the depth a reparse can reach the ruby is out of reach, so the end tag stays
-    out: Final = _adopted(f"<ruby>{'<span>' * depth}<rp/><rp/>{'</span>' * depth}</ruby>")
+    out: Final[str] = _adopted(f"<ruby>{'<span>' * depth}<rp/><rp/>{'</span>' * depth}</ruby>")
     assert out.startswith(f"<ruby>{'<span>' * depth}{expected}")
 
 
@@ -681,7 +681,7 @@ def test_body_start_omitted_with_empty_first_text() -> None:
     ],
 )
 def test_minify_raw_text_joins_an_empty_text_child(tag: str, source: str, layout: Minify, expected: str) -> None:
-    element: Final = Element(tag, children=[Text(""), Text(source)])
+    element: Final[Element] = Element(tag, children=[Text(""), Text(source)])
     assert element.serialize(Html(layout=layout)) == f"<{tag}>{expected}</{tag}>"
 
 
@@ -714,8 +714,8 @@ def test_body_start_kept_before_comment() -> None:
 )
 def test_body_start_kept_before_head_element(tag: str) -> None:
     # without the body start tag the "after head" insertion mode files the element under <head>
-    source: Final = f"<body><{tag}></{tag}>x</body>"
-    once: Final = parse(source).serialize(Html(layout=Minify()))
+    source: Final[str] = f"<body><{tag}></{tag}>x</body>"
+    once: Final[str] = parse(source).serialize(Html(layout=Minify()))
     assert once.startswith(f"<body><{tag}")
     assert parse(once).serialize(Html()) == parse(source).serialize(Html())
 
@@ -1458,7 +1458,7 @@ def test_minify_is_idempotent(source: str) -> None:
 )
 def test_minify_keeps_end_tag_guarded_by_trailing_formatting(source: str, expected: str) -> None:
     # a stripped comment is invisible to the reparse, so the formatting element before it still ends the parent
-    once: Final = minify(source)
+    once: Final[str] = minify(source)
     assert once == expected
     assert minify(once) == once
 
@@ -1466,7 +1466,7 @@ def test_minify_keeps_end_tag_guarded_by_trailing_formatting(source: str, expect
 @pytest.mark.parametrize("tag", ["pre", "listing"])
 def test_minify_keeps_leading_newline_after_stripped_comment(tag: str) -> None:
     # the parser drops the newline that opens the content, so the stripped comment must not hide the one before it
-    once: Final = minify(f"<{tag}><!--c-->\nx</{tag}>")
+    once: Final[str] = minify(f"<{tag}><!--c-->\nx</{tag}>")
     assert once == f"<{tag}>\n\nx</{tag}>"
     assert minify(once) == once
 
@@ -1507,9 +1507,9 @@ def test_minify_is_idempotent_over_seeded_documents() -> None:
         "<noscript>",
         "</noscript>",
     )
-    rng: Final = random.Random(4)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a corpus seed
-    documents: Final = ["".join(rng.choice(tokens) for _ in range(rng.randint(1, 12))) for _ in range(2000)]
-    failures: Final = [
+    rng: Final[random.Random] = random.Random(4)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a corpus seed
+    documents: Final[list[str]] = ["".join(rng.choice(tokens) for _ in range(rng.randint(1, 12))) for _ in range(2000)]
+    failures: Final[list[str]] = [
         f"{document!r}\n  once:  {minify(document)!r}\n  twice: {minify(minify(document))!r}"
         for document in documents
         if _plain_roundtrips(document) and not _minify_idempotent(document, Minify())
@@ -1531,8 +1531,10 @@ def test_minify_shrinks_documents() -> None:
     ],
 )
 def test_minify_detached_root_bounds_scope_inner(tag: str, sibling: str) -> None:
-    root: Final = Element("div", children=[Element(tag, children=[Text("a")]), Element(sibling, children=[Text("b")])])
-    content: Final = f"<{tag}>a</{tag}><{sibling}>b"
+    root: Final[Element] = Element(
+        "div", children=[Element(tag, children=[Text("a")]), Element(sibling, children=[Text("b")])]
+    )
+    content: Final[str] = f"<{tag}>a</{tag}><{sibling}>b"
     assert root.serialize(Html(layout=Minify()), inner=True) == content
 
 
@@ -1545,8 +1547,10 @@ def test_minify_detached_root_bounds_scope_inner(tag: str, sibling: str) -> None
     ],
 )
 def test_minify_detached_root_bounds_scope_outer(tag: str, sibling: str) -> None:
-    root: Final = Element("div", children=[Element(tag, children=[Text("a")]), Element(sibling, children=[Text("b")])])
-    content: Final = f"<{tag}>a</{tag}><{sibling}>b"
+    root: Final[Element] = Element(
+        "div", children=[Element(tag, children=[Text("a")]), Element(sibling, children=[Text("b")])]
+    )
+    content: Final[str] = f"<{tag}>a</{tag}><{sibling}>b"
     assert root.serialize(Html(layout=Minify())) == f"<div>{content}</div>"
 
 
@@ -1564,7 +1568,7 @@ def test_minify_plaintext_leaves_the_rest_open(source: str, expected: str) -> No
 
 
 def test_minify_plaintext_root_omits_end_tag() -> None:
-    root: Final = Element("plaintext", children=[Text("x")])
+    root: Final[Element] = Element("plaintext", children=[Text("x")])
     assert root.serialize(Html(layout=Minify())) == "<plaintext>x"
 
 
@@ -1629,18 +1633,18 @@ def test_minify_doctype(source: str, expected: str) -> None:
     ],
 )
 def test_minify_quirks_document_reparses_same(source: str) -> None:
-    once: Final = minify(source)
+    once: Final[str] = minify(source)
     assert (parse(once).html, minify(once)) == (parse(source).html, once)
 
 
 def test_minify_document_without_doctype_keeps_end_tag() -> None:
-    document: Final = parse("<!DOCTYPE html><p>x</p><table></table>")
+    document: Final[Document] = parse("<!DOCTYPE html><p>x</p><table></table>")
     _ = document.children[0].extract()
     assert "x</p><table>" in document.serialize(Html(layout=Minify()))
 
 
 def test_minify_document_with_adopted_quirky_doctype_keeps_end_tag() -> None:
-    document: Final = parse("<!DOCTYPE html><p>x</p><table></table>")
+    document: Final[Document] = parse("<!DOCTYPE html><p>x</p><table></table>")
     document.children[0].replace_with(_doctype("<!DOCTYPE foo>"))
     assert "x</p><table>" in document.serialize(Html(layout=Minify()))
 
@@ -1653,9 +1657,11 @@ def _doctype(source: str) -> Doctype:
 
 def test_minify_xml_doctype_system_identifier_stays_out_of_markup() -> None:
     # an XML SystemLiteral takes a ">", which ends an HTML doctype and hands the rest of the literal to the parser
-    document: Final = parse_xml('<!DOCTYPE html SYSTEM "urn:k>lm<i>q</i>"><html xmlns="http://www.w3.org/1999/xhtml"/>')
+    document: Final[Document] = parse_xml(
+        '<!DOCTYPE html SYSTEM "urn:k>lm<i>q</i>"><html xmlns="http://www.w3.org/1999/xhtml"/>'
+    )
     assert document.select("i") == []
-    minified: Final = document.serialize(Html(layout=Minify()))
+    minified: Final[str] = document.serialize(Html(layout=Minify()))
     assert minified == "<!DOCTYPE html><html xmlns=http://www.w3.org/1999/xhtml></html>"
     assert parse(minified).select("i") == []
 
@@ -1698,24 +1704,24 @@ def test_minify_xml_doctype(source: str, expected: str) -> None:
 def test_minify_built_doctype_identifier_html_cannot_spell(
     public_id: str | None, system_id: str | None, expected: str
 ) -> None:
-    reduced: Final = _doctype("<!DOCTYPE html>").__reduce__()
+    reduced = _doctype("<!DOCTYPE html>").__reduce__()
     assert isinstance(reduced, tuple)
     reconstruct, (kind, *_) = reduced
     # the pickle hook rebuilds the identifiers as given, so it reaches the ones neither parser stores
-    node: Final = reconstruct(kind, ("html", public_id, system_id), [])
+    node: Final[Doctype] = reconstruct(kind, ("html", public_id, system_id), [])
     assert node.serialize(Html(layout=Minify())) == expected
 
 
 def test_minify_forced_quirks_document_with_adopted_xml_doctype_stays_quirky() -> None:
-    document: Final = parse("<!DOCTYPE html bogus><p>x</p><table></table>")
+    document: Final[Document] = parse("<!DOCTYPE html bogus><p>x</p><table></table>")
     document.children[0].replace_with(parse_xml('<!DOCTYPE html SYSTEM "k>lm"><html/>').children[0])
-    minified: Final = document.serialize(Html(layout=Minify()))
+    minified: Final[str] = document.serialize(Html(layout=Minify()))
     assert minified == "<!DOCTYPE html x><p>x</p><table></table>"
     assert parse(minified).serialize(Html(layout=Minify())) == minified
 
 
 def test_minify_element_in_no_quirks_tree_omits_end_tag() -> None:
-    body: Final = parse("<!DOCTYPE html><body><p>x</p><table></table>").select_one("body")
+    body: Final[Element | None] = parse("<!DOCTYPE html><body><p>x</p><table></table>").select_one("body")
     assert isinstance(body, Element)
     assert body.serialize(Html(layout=Minify())) == "<body><p>x<table></table></body>"
 

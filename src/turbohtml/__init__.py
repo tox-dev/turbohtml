@@ -2,6 +2,21 @@
 
 from __future__ import annotations
 
+# The C extension needs these record types registered before callers can parse a document.
+from ._internal import Canonical, Html, Markdown, PlainText, SelectorSyntaxError, SourceLocation, SourceSpan
+from .extract import (
+    Article,
+    Entry,
+    Feed,
+    Link,
+    MicrodataItem,
+    OpenGraph,
+    RdfaItem,
+    StructuredData,
+)
+from .mutations import MutationObserver, MutationRecord  # registers the MutationRecord type on import
+from .query import XPathString
+
 __lazy_modules__ = [
     f"{__spec__.parent}._html",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
     f"{__spec__.parent}._version",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
@@ -43,21 +58,8 @@ from ._html import (
     tokenize,
     unescape,
 )
-from ._internal import Canonical, Html, Markdown, PlainText, SelectorSyntaxError, SourceLocation, SourceSpan
 from ._version import __version__
 from .build import E, ElementMaker
-from .extract import (
-    Article,
-    Entry,
-    Feed,
-    Link,
-    MicrodataItem,
-    OpenGraph,
-    RdfaItem,
-    StructuredData,
-)
-from .mutations import MutationObserver, MutationRecord  # registers the MutationRecord type on import
-from .query import XPathString
 from .traverse import NodeFilter, NodeIterator, TreeWalker
 
 __all__ = [

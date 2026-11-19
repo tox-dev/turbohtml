@@ -25,7 +25,7 @@ def strip_tags(text: str) -> None:
 
 def strip_remove(_text: str) -> None:
     # w3lib's regex pass never parses, so its output is not turbohtml's and the cell records that instead of a timing.
-    unsupported: Final = (
+    unsupported: Final[str] = (
         "regex substitution over the raw string, does not parse; differs on unclosed/nested elements and comments"
     )
     raise NotImplementedError(unsupported)

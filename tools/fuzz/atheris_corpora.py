@@ -42,7 +42,7 @@ CorpusProfile = Literal[
 
 def main(argv: Sequence[str] | None = None) -> int:
     # Admit domain bytes through the same callbacks used by coverage-guided consumers.
-    parser: Final = argparse.ArgumentParser(description=__doc__)
+    parser: Final[argparse.ArgumentParser] = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--count", type=int, default=1)
     parser.add_argument("--seed", type=int, default=0)
@@ -54,8 +54,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         choices=("html", "xml", "css-stylesheet", "markdown-source", "markdown-html", "encoding"),
         default="html",
     )
-    arguments: Final = parser.parse_args(argv)
-    grammar: Final = (
+    arguments: Final[argparse.Namespace] = parser.parse_args(argv)
+    grammar: Final[Grammar] = (
         html_grammar_complete()
         if arguments.profile == "html"
         else xml_grammar()
@@ -66,9 +66,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if arguments.profile == "encoding"
         else markdown_grammar(html=arguments.profile == "markdown-html")
     )
-    generator: Final = random.Random(arguments.seed)
-    budget: Final = GenerationBudget(nodes=arguments.budget, steps=arguments.steps)
-    cases: Final = (
+    generator: Final[random.Random] = random.Random(arguments.seed)
+    budget: Final[GenerationBudget] = GenerationBudget(nodes=arguments.budget, steps=arguments.steps)
+    cases: Final[tuple[Generated, ...]] = (
         *(generation_sweep(grammar, budget=budget) if arguments.sweep else ()),
         *(generate(grammar, generator, budget) for _ in range(arguments.count)),
     )
@@ -80,18 +80,18 @@ def write_corpora(
     cases: Iterable[Generated], grammar: Grammar, directory: Path, profile: CorpusProfile
 ) -> CorpusManifest:
     # Preflight the executable consumer before admitting exact bytes to its corpus.
-    targets: Final = {target.name: target for target in public_targets()}
-    origins: Final = {production.name: production.origin for production in grammar.productions}
+    targets: Final[dict[str, Target]] = {target.name: target for target in public_targets()}
+    origins: Final[dict[str, str]] = {production.name: production.origin for production in grammar.productions}
     entries: Final[list[CorpusEntry]] = []
     rejected: Final[list[RejectedEntry]] = []
     admitted: Final[set[tuple[str, str]]] = set()
     directory.mkdir(parents=True, exist_ok=True)
     for case in cases:
-        seed: Final = SEED_HEADER + case.data
-        digest: Final = hashlib.sha256(seed).hexdigest()
+        seed: Final[bytes] = SEED_HEADER + case.data
+        digest: Final[str] = hashlib.sha256(seed).hexdigest()
         for name in _routes(case, profile):
-            context: Final = encoding_profile(case) if profile == "encoding" else None
-            target: Final = _target(name, targets, context)
+            context: Final[EncodingProfile | None] = encoding_profile(case) if profile == "encoding" else None
+            target: Final[Target] = _target(name, targets, context)
             if context and (error := encoding_check(case)):
                 raise AssertionError(error)
             try:
@@ -99,12 +99,12 @@ def write_corpora(
             except target.exceptions as error:
                 rejected.append(RejectedEntry(target=name, sha256=digest, exception=type(error).__name__))
                 continue
-            subdirectory: Final = (
+            subdirectory: Final[str] = (
                 f"{name}/{context.encoding}-{'sniff' if context.sniff else 'fixed'}" if context else name
             )
-            destination: Final = _admit(directory, subdirectory, digest, seed, admitted)
+            destination: Final[Path] = _admit(directory, subdirectory, digest, seed, admitted)
             entries.append(_corpus_entry(case, target, context, str(destination.relative_to(directory)), origins))
-    manifest: Final = CorpusManifest(entries=tuple(entries), rejected=tuple(rejected))
+    manifest: Final[CorpusManifest] = CorpusManifest(entries=tuple(entries), rejected=tuple(rejected))
     (directory / "manifest.json").write_text(f"{json.dumps(asdict(manifest), indent=2)}\n", encoding="utf-8")
     return manifest
 
@@ -116,7 +116,7 @@ def _target(name: str, targets: dict[str, Target], context: EncodingProfile | No
 
 
 def _admit(directory: Path, subdirectory: str, digest: str, seed: bytes, admitted: set[tuple[str, str]]) -> Path:
-    destination: Final = directory / subdirectory / digest
+    destination: Final[Path] = directory / subdirectory / digest
     if (subdirectory, digest) not in admitted:
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(seed)

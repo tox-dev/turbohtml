@@ -5,7 +5,7 @@ from typing import Final
 import pytest
 
 from turbohtml import parse, parse_xml
-from turbohtml.extract import feed
+from turbohtml.extract import Feed, feed
 
 
 @pytest.mark.parametrize(
@@ -32,7 +32,7 @@ def test_feed_rss_xml_root_requires_version_2(root: str) -> None:
     ],
 )
 def test_feed_rss_xml_root_accepts_version_2(root: str) -> None:
-    result: Final = feed(f"{root}<channel><title>Right</title></channel></rss>")
+    result: Final[Feed | None] = feed(f"{root}<channel><title>Right</title></channel></rss>")
     assert result is not None
     assert result.title == "Right"
 
@@ -42,6 +42,6 @@ def test_feed_rss_xml_document_method_requires_version_2() -> None:
 
 
 def test_feed_html_root_without_version_is_recognized() -> None:
-    result: Final = parse("<main><rss><channel><title>Right</title></channel></rss></main>").feed()
+    result: Final[Feed | None] = parse("<main><rss><channel><title>Right</title></channel></rss></main>").feed()
     assert result is not None
     assert result.title == "Right"

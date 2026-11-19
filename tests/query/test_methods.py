@@ -646,7 +646,7 @@ def test_bulk_edit_rejects_an_invalid_selector(method: str) -> None:
     ],
 )
 def test_prune_shared_ancestors(depth: int, selector: str, expected: list[str]) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         f"<main>{'<section>' * depth}<b>A</b><i>drop</i><b>B</b>{'</section>' * depth}<i>outside</i></main>"
     )
     document.prune(selector)
@@ -654,21 +654,21 @@ def test_prune_shared_ancestors(depth: int, selector: str, expected: list[str]) 
 
 
 def test_prune_keeps_matching_subtree() -> None:
-    document: Final = parse("<main><section><b>A</b><i>inside</i></section><i>outside</i></main>")
+    document: Final[Document] = parse("<main><section><b>A</b><i>inside</i></section><i>outside</i></main>")
     document.prune("section, b")
     assert document.xpath("//main//text()") == ["A", "inside"]
 
 
 def test_prune_keeps_a_match_nested_in_another_match() -> None:
-    document: Final = parse("<main><b>A<i>in</i><b>B<i>deep</i></b></b><i>drop</i></main>")
+    document: Final[Document] = parse("<main><b>A<i>in</i><b>B<i>deep</i></b></b><i>drop</i></main>")
     document.prune("b")
     assert document.xpath("//main//text()") == ["A", "in", "B", "deep"]
 
 
 def test_prune_detached_subtree_keeps_removed_references() -> None:
-    document: Final = parse("<main><section><div><b>A</b><i>drop</i><b>B</b></div></section></main>")
-    section: Final = document.select_one("section")
-    removed: Final = document.select_one("i")
+    document: Final[Document] = parse("<main><section><div><b>A</b><i>drop</i><b>B</b></div></section></main>")
+    section: Final[Element | None] = document.select_one("section")
+    removed: Final[Element | None] = document.select_one("i")
     assert section is not None
     assert removed is not None
     document.remove("section")
@@ -702,8 +702,8 @@ def test_prune_detached_subtree_keeps_removed_references() -> None:
 def test_selector_eviction_refreshes_mutated_owner(
     operation: Callable[[Element], str], expected: str, *, adopt: bool
 ) -> None:
-    owner: Final = parse("<main><b>hit</b><i>miss</i></main>").select("main")[0]
-    destination: Final = Element("section")
+    owner: Final[Element] = parse("<main><b>hit</b><i>miss</i></main>").select("main")[0]
+    destination: Final[Element] = Element("section")
 
     class MutatingSelector(str):  # ruff:ignore[subclass-builtin]  # native selectors require a real str
         __slots__ = ()
@@ -724,11 +724,11 @@ def test_selector_eviction_refreshes_mutated_owner(
     sys.implementation.name != "cpython", reason="requires immediate CPython reference-count finalization"
 )
 def test_selector_eviction_refreshes_owner_returned_to_original_tree() -> None:
-    home: Final = Element("section")
-    owner: Final = Element("main")
+    home: Final[Element] = Element("section")
+    owner: Final[Element] = Element("main")
     owner.append(Element("b"))
     home.append(owner)
-    destination: Final = Element("aside")
+    destination: Final[Element] = Element("aside")
 
     class MovingSelector(str):  # ruff:ignore[subclass-builtin]  # native selectors require a real str
         __slots__ = ()
@@ -749,7 +749,9 @@ def test_selector_eviction_refreshes_owner_returned_to_original_tree() -> None:
     "limit", [pytest.param(0, id="all"), pytest.param(1, id="first"), pytest.param(40, id="above")]
 )
 def test_select_indexed_order(count: int, limit: int) -> None:
-    document: Final = parse("".join(f"<section><input id='{index}'><span></span></section>" for index in range(count)))
+    document: Final[Document] = parse(
+        "".join(f"<section><input id='{index}'><span></span></section>" for index in range(count))
+    )
     assert [element.attrs["id"] for element in select("input", document, limit=limit)] == [
         str(index) for index in range(count)
     ][: limit or None]
@@ -760,7 +762,9 @@ def test_select_indexed_order(count: int, limit: int) -> None:
     "limit", [pytest.param(0, id="all"), pytest.param(1, id="first"), pytest.param(40, id="above")]
 )
 def test_select_indexed_order_warm(count: int, limit: int) -> None:
-    document: Final = parse("".join(f"<section><input id='{index}'><span></span></section>" for index in range(count)))
+    document: Final[Document] = parse(
+        "".join(f"<section><input id='{index}'><span></span></section>" for index in range(count))
+    )
     document.select("span")
     assert [element.attrs["id"] for element in select("input", document, limit=limit)] == [
         str(index) for index in range(count)
@@ -768,26 +772,26 @@ def test_select_indexed_order_warm(count: int, limit: int) -> None:
 
 
 def test_select_indexed_mutation() -> None:
-    document: Final = parse("<main><input id='first'><input id='second'></main>")
+    document: Final[Document] = parse("<main><input id='first'><input id='second'></main>")
     first, second = document.select("input")
     first.tag = "span"
     second.extract()
-    main: Final = document.find("main")
+    main: Final[Element | None] = document.find("main")
     assert main is not None
     main.append(Element("input", attrs={"id": "third"}))
     assert [element.attrs["id"] for element in document.select("input")] == ["third"]
 
 
 def test_select_indexed_subtree_scope() -> None:
-    document: Final = parse("<input id='outside'><main><input id='inside'></main>")
+    document: Final[Document] = parse("<input id='outside'><main><input id='inside'></main>")
     document.select("input")
-    main: Final = document.find("main")
+    main: Final[Element | None] = document.find("main")
     assert main is not None
     assert [element.attrs["id"] for element in main.select("input")] == ["inside"]
 
 
 def test_select_indexed_xml_case() -> None:
-    document: Final = parse_xml('<root><input id="lower"/><INPUT id="upper"/></root>')
+    document: Final[Document] = parse_xml('<root><input id="lower"/><INPUT id="upper"/></root>')
     assert [element.attrs["id"] for element in document.select("input")] == ["lower"]
 
 
@@ -795,14 +799,14 @@ def test_select_indexed_xml_case() -> None:
 @pytest.mark.parametrize("offset", range(8), ids=lambda offset: f"allocation-{offset}")
 @pytest.mark.parametrize("count", [pytest.param(7, id="shrink"), pytest.param(67, id="grow")])
 def test_select_indexed_collection(offset: int, count: int) -> None:
-    thresholds: Final = gc.get_threshold()
+    thresholds: Final[tuple[int, int, int]] = gc.get_threshold()
     gc.disable()
     gc.collect()
-    document: Final = parse(f"""<main>{"<input id='old'>" * 33}</main>""")
+    document: Final[Document] = parse(f"""<main>{"<input id='old'>" * 33}</main>""")
     document.select("input")
-    main: Final = document.find("main")
+    main: Final[Element | None] = document.find("main")
     assert main is not None
-    collect: Final = document.select
+    collect: Final[Callable[[str], list[Element]]] = document.select
     changed = False
 
     def clear(phase: str, _info: dict[str, int]) -> None:
@@ -817,7 +821,7 @@ def test_select_indexed_collection(offset: int, count: int) -> None:
     try:
         gc.set_threshold(gc.get_count()[0] + offset, thresholds[1], thresholds[2])
         gc.enable()
-        result: Final = collect("input")
+        result: Final[list[Element]] = collect("input")
         gc.collect()
     finally:
         gc.disable()
@@ -835,7 +839,7 @@ def test_select_indexed_collection(offset: int, count: int) -> None:
     "limit", [pytest.param(1, id="first"), pytest.param(2, id="exact"), pytest.param(9, id="above")]
 )
 def test_select_indexed_filtered_limit(limit: int) -> None:
-    document: Final = parse('<input id="skip"><input id="first" checked><input id="second" checked>')
+    document: Final[Document] = parse('<input id="skip"><input id="first" checked><input id="second" checked>')
     document.select("input")
     assert [element.attrs["id"] for element in select("input[checked]", document, limit=limit)] == ["first", "second"][
         :limit
@@ -1311,10 +1315,10 @@ def test_extension_result_marshaling_is_rejected(
 def test_find_sibling_root_order(
     count: int, stride: int, gap: str, padding: int, order: Callable[[list[Element]], list[Element]]
 ) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         f"<main>{''.join(f'<div><i>{index}</i></div>{gap}' for index in range(count * stride + padding))}</main>"
     )
-    start: Final = padding // 2
+    start: Final[int] = padding // 2
     roots = order(document.select("div")[start : start + count * stride : stride])
     assert [node.text for node in Query([*roots, *roots]).find("i")] == [
         str(start + index * stride) for index in range(count)
@@ -1330,7 +1334,7 @@ def test_find_sibling_root_order(
     ],
 )
 def test_find_mixed_parent_root_order(order: Callable[[list[Element]], list[Element]]) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         f"<main>{''.join(f'<section><div><i>{index}</i></div></section>' for index in range(40))}</main>"
     )
     roots = order(document.select("div"))
@@ -1338,5 +1342,5 @@ def test_find_mixed_parent_root_order(order: Callable[[list[Element]], list[Elem
 
 
 def test_find_nested_root_order() -> None:
-    document: Final = parse(f"<main>{'<div><i>x</i>' * 40}{'</div>' * 40}</main>")
+    document: Final[Document] = parse(f"<main>{'<div><i>x</i>' * 40}{'</div>' * 40}</main>")
     assert list(Query(reversed(document.select("div"))).find("i")) == document.select("i")

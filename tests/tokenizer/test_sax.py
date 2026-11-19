@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from types import GeneratorType
-from typing import Final, cast
+from typing import TYPE_CHECKING, Final, cast
 
 import pytest
 
@@ -23,6 +23,9 @@ from turbohtml.saxparse import (
     iter_events,
     sax_parse,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 def test_sax_parse_matches_iter_events() -> None:
@@ -256,7 +259,7 @@ def test_bare_handler_is_a_noop_for_every_event() -> None:
     handler.doctype("html", None, None)
     handler.processing_instruction("pi", "data")
     sax_parse("<!DOCTYPE html><p>x<!--c--><?pi?></p>", handler)
-    text_only: Final = _TextOnly()
+    text_only: Final[_TextOnly] = _TextOnly()
     sax_parse("<!DOCTYPE html><p>x<!--c--><?pi?></p>", text_only)
     assert text_only.texts == ["x"]
 
@@ -339,11 +342,15 @@ def test_handler_exception_in_end_stops_the_parse() -> None:
     ],
 )
 def test_iter_events_record_types(index: int, expected: SaxEvent) -> None:
-    event: Final = list(iter_events("<!DOCTYPE html><p id=x>hi<!--c--><?pi data?></p>"))[index]
+    event: Final[StartElement | EndElement | Characters | Comment | Doctype | ProcessingInstruction] = list(
+        iter_events("<!DOCTYPE html><p id=x>hi<!--c--><?pi data?></p>")
+    )[index]
     assert (type(event), event) == (type(expected), expected)
 
 
 def test_iter_events_defers_argument_error() -> None:
-    events: Final = iter_events(cast("str", b"<p>"))
+    events: Final[Iterator[StartElement | EndElement | Characters | Comment | Doctype | ProcessingInstruction]] = (
+        iter_events(cast("str", b"<p>"))
+    )
     with pytest.raises(TypeError, match="must be str"):
         next(events)

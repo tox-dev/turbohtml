@@ -11,9 +11,7 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from ._native import (
-    register_locations as _register_locations,
-)
+from ._native import register_locations
 
 
 class SourceSpan(NamedTuple):
@@ -69,7 +67,7 @@ class SourceLocation(NamedTuple):
     """each attribute name mapped to the span of its whole ``name="value"``."""
 
 
-_register_locations(SourceLocation, SourceSpan)
+register_locations(SourceLocation, SourceSpan)
 
 
 __all__ = [

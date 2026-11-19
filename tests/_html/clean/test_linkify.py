@@ -4,11 +4,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from turbohtml._html import _linkify_scan
-from turbohtml._html import linkify_find as _linkify_find
-from turbohtml._html import linkify_fold as _linkify_fold
-from turbohtml._html import phone_e164 as _phone_e164
-from turbohtml._html import phone_regions as _phone_regions
+from turbohtml._html import _linkify_scan, linkify_find, linkify_fold, phone_e164, phone_regions
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -155,12 +151,12 @@ def test_scanner_rejects_non_tuple_url_schemes() -> None:
 
 def test_find_rejects_non_str_text() -> None:
     with pytest.raises(TypeError):
-        _linkify_find(123, True, True, (), (), ("http",), None, False)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]  # positional C API; invalid input
+        linkify_find(123, True, True, (), (), ("http",), None, False)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]  # positional C API; invalid input
 
 
 def test_find_rejects_non_tuple_tlds() -> None:
     with pytest.raises(TypeError):
-        _linkify_find("text", True, True, ["corp"], (), ("http",), None, False)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]  # positional C API; invalid input
+        linkify_find("text", True, True, ["corp"], (), ("http",), None, False)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]  # positional C API; invalid input
 
 
 @pytest.mark.parametrize(
@@ -177,41 +173,41 @@ def test_find_rejects_non_tuple_tlds() -> None:
     ],
 )
 def test_fold(values: list[str], kind: int, expected: tuple[str, ...]) -> None:
-    assert _linkify_fold(values, "field", kind) == expected
+    assert linkify_fold(values, "field", kind) == expected
 
 
 def test_fold_names_the_field_in_its_error() -> None:
     with pytest.raises(TypeError, match="skip_tags entries must be str"):
-        _linkify_fold(["pre", 5], "skip_tags", 0)  # ty: ignore[invalid-argument-type]  # the check is the point
+        linkify_fold(["pre", 5], "skip_tags", 0)  # ty: ignore[invalid-argument-type]  # the check is the point
 
 
 def test_fold_takes_three_arguments() -> None:
     with pytest.raises(TypeError):
-        _linkify_fold(["a"], "field")  # ty: ignore[missing-argument]  # the arity check is the point
+        linkify_fold(["a"], "field")  # ty: ignore[missing-argument]  # the arity check is the point
 
 
 def test_fold_needs_an_iterable() -> None:
     with pytest.raises(TypeError):
-        _linkify_fold(5, "skip_tags", 0)  # ty: ignore[invalid-argument-type]  # the check is the point
+        linkify_fold(5, "skip_tags", 0)  # ty: ignore[invalid-argument-type]  # the check is the point
 
 
 def test_regions_strip_uppercase_and_keep_first_seen_order() -> None:
-    assert _phone_regions([" gb", "US", "gb", "de "]) == ("GB", "US", "DE")
+    assert phone_regions([" gb", "US", "gb", "de "]) == ("GB", "US", "DE")
 
 
 def test_a_non_ascii_region_is_left_alone() -> None:
     # `ß` would otherwise fold to South Sudan's `SS`
-    assert _phone_regions(["ß", "us"]) == ("ß", "US")
+    assert phone_regions(["ß", "us"]) == ("ß", "US")
 
 
 def test_regions_entries_must_be_str() -> None:
     with pytest.raises(TypeError, match="regions entries must be str"):
-        _phone_regions(["US", 1])  # ty: ignore[invalid-argument-type]  # the check is the point
+        phone_regions(["US", 1])  # ty: ignore[invalid-argument-type]  # the check is the point
 
 
 def test_regions_need_an_iterable() -> None:
     with pytest.raises(TypeError):
-        _phone_regions(5)  # ty: ignore[invalid-argument-type]  # the check is the point
+        phone_regions(5)  # ty: ignore[invalid-argument-type]  # the check is the point
 
 
 @pytest.mark.parametrize(
@@ -223,12 +219,12 @@ def test_regions_need_an_iterable() -> None:
     ],
 )
 def test_e164(country_code: int, national: str, expected: str | None) -> None:
-    assert _phone_e164(country_code, national) == expected
+    assert phone_e164(country_code, national) == expected
 
 
 def test_e164_rejects_a_non_str_number() -> None:
     with pytest.raises(TypeError):
-        _phone_e164(1, 5)  # ty: ignore[invalid-argument-type]  # the check is the point
+        phone_e164(1, 5)  # ty: ignore[invalid-argument-type]  # the check is the point
 
 
 @pytest.mark.parametrize(

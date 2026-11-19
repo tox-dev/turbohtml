@@ -12,9 +12,7 @@ from typing import NamedTuple
 
 from ._native import (
     Element,
-)
-from ._native import (
-    register_article as _register_article,
+    register_article,
 )
 
 
@@ -56,7 +54,7 @@ class Article(NamedTuple):
     image: str | None
 
 
-_register_article(Article)
+register_article(Article)
 
 
 __all__ = [

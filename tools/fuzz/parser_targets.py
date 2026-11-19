@@ -32,9 +32,6 @@ if TYPE_CHECKING:
 
     from turbohtml import SourceLocation
 
-# One node-set, one scalar and one attribute expression reach each XPath result shape on the fuzzed tree.
-_XPATH_ENTRIES: Final[tuple[str, ...]] = ("//*", "count(//*)", "//*/@*")
-
 
 def parser_targets() -> tuple[Target, ...]:
     # Keep document and fragment grammar contexts distinct.
@@ -86,12 +83,14 @@ def document_observation(
     entries: Callable[[str], str | None] = xpath_entry_check,
 ) -> str:
     # Exercise returned document records through serialization consumers, span and XPath entry-point oracles.
-    source: Final = data.decode("utf-8")
-    document: Final = parse(source)
+    source: Final[str] = data.decode("utf-8")
+    document: Final[Document] = parse(source)
     _require("Document result type", condition=isinstance(document, (Document, Node)))
     assert_invariant(html, source)
     assert_invariant(spans, source)
-    for expression in _XPATH_ENTRIES:
+    # One node-set, one scalar and one attribute expression reach each XPath result shape on the fuzzed tree.
+    xpath_entries: tuple[str, ...] = ("//*", "count(//*)", "//*/@*")
+    for expression in xpath_entries:
         assert_invariant(entries, json.dumps({"html": source, "xpath": expression}))
     return _serialization(document)
 
@@ -104,13 +103,13 @@ def _require(message: str, *, condition: bool) -> None:
 def _serialization(node: Node) -> str:
     for formatter in Formatter:
         for layout in (None, Indent(2)):
-            options: Final = Html(formatter=formatter, layout=layout)
-            rendered: Final = node.serialize(options)
+            options: Final[Html] = Html(formatter=formatter, layout=layout)
+            rendered: Final[str] = node.serialize(options)
             _require("Iterator serialization differs", condition="".join(node.serialize_iter(options)) == rendered)
             _require(
                 "Encoded serialization differs", condition=node.encode("utf-8", options) == rendered.encode("utf-8")
             )
-    minified_options: Final = Html(layout=Minify())
+    minified_options: Final[Html] = Html(layout=Minify())
     _require(
         "Minified encoding differs",
         condition=node.encode("utf-8", minified_options) == node.serialize(minified_options).encode("utf-8"),
@@ -124,7 +123,7 @@ def _fragment(data: bytes) -> None:
 
 def fragment_observation(data: bytes) -> str:
     # Grammar fragments use a div context rather than document insertion modes.
-    fragment: Final = parse_fragment(data.decode("utf-8"), "div")
+    fragment: Final[Element] = parse_fragment(data.decode("utf-8"), "div")
     _require("Fragment result type", condition=isinstance(fragment, Element))
     return _serialization(fragment)
 
@@ -137,20 +136,22 @@ def incremental_observation(data: bytes, header: Header = BYTEWISE) -> tuple[str
     # Empty feeds and splits inside UTF-8 sequences must preserve the one-shot parse and its positions.
     #
     # The opts bits flip the defaults: 1 feeds decoded text, 2 drops positions, 4 records source locations.
-    source: Final = data.decode("utf-8")
-    positions: Final = not header.opts & 2
-    locations: Final = bool(header.opts & 4)
-    parser: Final = IncrementalParser(positions=positions, source_locations=locations)
+    source: Final[str] = data.decode("utf-8")
+    positions: Final[bool] = not header.opts & 2
+    locations: Final[bool] = bool(header.opts & 4)
+    parser: Final[IncrementalParser] = IncrementalParser(positions=positions, source_locations=locations)
     if header.opts & 1:
         feed_chunks(parser.feed, source, header.max_chunk)
     else:
         feed_chunks(parser.feed, data, header.max_chunk)
-    document: Final = parser.close()
+    document: Final[Document] = parser.close()
     # Byte parsing strips a BOM; text parsing keeps the already-decoded U+FEFF.
-    expected: Final = parse(source if header.opts & 1 else data, positions=positions, source_locations=locations)
-    observed: Final = _serialization(document)
+    expected: Final[Document] = parse(
+        source if header.opts & 1 else data, positions=positions, source_locations=locations
+    )
+    observed: Final[str] = _serialization(document)
     _require("Incremental document differs", condition=observed == expected.serialize())
-    placed: Final = _positions(document)
+    placed: Final[tuple[tuple[int | None, int | None, SourceLocation | None], ...]] = _positions(document)
     _require("Incremental positions differ", condition=placed == _positions(expected))
     return observed, placed
 
@@ -173,17 +174,17 @@ def token_observation(data: bytes, header: Header = BYTEWISE) -> tuple[_TokenSna
     # Streaming and reset must preserve token fields and source positions.
     #
     # The opts bits flip the defaults: 1 keeps character references apart, 2 captures source, 4 drops attributes.
-    source: Final = data.decode("utf-8")
-    options: Final = {
+    source: Final[str] = data.decode("utf-8")
+    options: Final[dict[str, bool]] = {
         "resolve_references": not header.opts & 1,
         "capture_source": bool(header.opts & 2),
         "capture_attributes": not header.opts & 4,
     }
-    tokenizer: Final = Tokenizer(**options)
+    tokenizer: Final[Tokenizer] = Tokenizer(**options)
     streamed: Final[list[Token]] = []
     feed_chunks(lambda chunk: streamed.extend(tokenizer.feed(chunk)), source, header.max_chunk)
     streamed.extend(tokenizer.close())
-    observed: Final = tuple(_token_snapshot(token) for token in streamed)
+    observed: Final[tuple[_TokenSnapshot, ...]] = tuple(_token_snapshot(token) for token in streamed)
     _require(
         "Incremental tokens differ",
         condition=observed == tuple(_token_snapshot(token) for token in tokenize(source, **options)),
