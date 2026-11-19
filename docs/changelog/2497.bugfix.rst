@@ -1,0 +1,2 @@
+``rewrite()`` no longer raises ``ValueError`` when ``Element.after()`` adds text to an unclosed ``<script>`` whose input
+already holds a ``<!--``. Text that would end the element early still raises ``ValueError``.
