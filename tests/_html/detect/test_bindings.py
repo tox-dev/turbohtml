@@ -126,12 +126,31 @@ def test_engine_entry_rejects_keyword_arguments(name: str) -> None:
 @pytest.mark.parametrize(
     ("form", "error", "message"),
     [
-        pytest.param(2**31, OverflowError, "signed integer is greater than maximum", id="above-int"),
-        pytest.param(-(2**31) - 1, OverflowError, "signed integer is less than minimum", id="below-int"),
+        # a 32-bit C long (Windows) overflows on the long conversion before the int range check
+        pytest.param(
+            2**31,
+            OverflowError,
+            "signed integer is greater than maximum|Python int too large to convert to C long",
+            id="above-int",
+        ),
+        pytest.param(
+            -(2**31) - 1,
+            OverflowError,
+            "signed integer is less than minimum|Python int too large to convert to C long",
+            id="below-int",
+        ),
         pytest.param(2**63, OverflowError, "Python int too large to convert to C long", id="above-long"),
         pytest.param(-(2**70), OverflowError, "Python int too large to convert to C long", id="below-long"),
-        pytest.param("NFC", TypeError, "'str' object cannot be interpreted as an integer", id="str"),
-        pytest.param(None, TypeError, "'NoneType' object cannot be interpreted as an integer", id="none"),
+        # PyPy words the conversion error as "expected integer, got <type> object"
+        pytest.param(
+            "NFC", TypeError, "'str' object cannot be interpreted as an integer|expected integer, got str", id="str"
+        ),
+        pytest.param(
+            None,
+            TypeError,
+            "'NoneType' object cannot be interpreted as an integer|expected integer, got NoneType",
+            id="none",
+        ),
     ],
 )
 def test_engine_entry_rejects_a_form_code_that_is_not_an_int_in_range(

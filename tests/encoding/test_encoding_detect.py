@@ -434,6 +434,8 @@ def test_windows_1252_ordinal_state_machine() -> None:
     ]
     raw = (f" {'  '.join(segments)} ").encode("cp1252")
     assert _detected(raw) == "windows-1252"
+    # a feed under 64 bytes runs the loop built without the ASCII-run skip, so the Roman arms need their own pass
+    assert _detected(" Iº  Iª  Ix  IV  II ".encode("cp1252")) == "windows-1252"
 
 
 def test_big5_written_two_combining_base() -> None:
