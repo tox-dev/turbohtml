@@ -10,333 +10,245 @@
   ],
   "rows": [
     [
-      "underscore 1.13 (67 kB)",
-      19297.0,
-      0.0011963492404296024,
+      "minify a JS library — underscore 1.13 (67 kB)",
+      19293.0,
+      0.0010317367377865594,
       20857.0,
-      0.15384521183053343
+      0.12504196545438998
     ],
     [
-      "backbone 1.6 (79 kB)",
-      24762.0,
-      0.0015998088100180514,
+      "minify a JS library — backbone 1.6 (79 kB)",
+      24760.0,
+      0.0010553070339862339,
       25926.0,
-      0.1789371770088716
+      0.12635120456689036
     ],
     [
-      "jquery 3.7 (279 kB)",
-      87776.0,
-      0.006392547226763175,
+      "minify a JS library — jquery 3.7 (279 kB)",
+      87872.0,
+      0.005421531474439689,
       93214.0,
-      0.7261410345769642
+      0.6025242117718638
     ],
     [
-      "lodash 4.17 (531 kB)",
-      71912.0,
-      0.012807822041092246,
+      "minify a JS library — lodash 4.17 (531 kB)",
+      72071.0,
+      0.004963802268684958,
       77024.0,
-      0.6785401353360309
+      0.5874699255315742
     ],
     [
-      "minify expression sequences — 1000 expression statements",
-      6889.0,
-      0.00033447680128422994,
-      6890.0,
-      0.061532582008900744
-    ],
-    [
-      "minify expression sequences — 2 expression statements",
-      9.0,
-      1.1670079966237997e-06,
-      10.0,
-      0.0009810183156635807
-    ],
-    [
-      "minify guard return chains — 512 guard returns",
-      7487.0,
-      0.00028438259536566575,
-      12608.0,
-      0.06321570966392756
-    ],
-    [
-      "minify guard return chains — 1 guard returns",
-      38.0,
-      1.8137537852661958e-06,
-      49.0,
-      0.0011015658401447581
-    ],
-    [
-      "propagate repeated JavaScript literal reads — 256 literal bindings / interleaved declarations",
-      2327,
-      0.00023127182887492382,
-      "ES5 parser rejects const",
-      "ES5 parser rejects const"
-    ],
-    [
-      "propagate repeated JavaScript literal reads — 1 literal bindings / interleaved declarations",
-      32,
-      2.090794373129275e-06,
-      "ES5 parser rejects const",
-      "ES5 parser rejects const"
-    ],
-    [
-      "propagate repeated JavaScript literal reads — 256 literal bindings / one declaration",
-      2327,
-      0.0001890878458690774,
-      "ES5 parser rejects const",
-      "ES5 parser rejects const"
-    ],
-    [
-      "check single-use JavaScript initializers — 256 call initializers / one declaration",
-      3142,
-      0.00012956246737303446,
-      "ES5 parser rejects const",
-      "ES5 parser rejects const"
-    ],
-    [
-      "check single-use JavaScript initializers — 256 call initializers / separate declarations",
-      3142,
-      0.0002017888859351539,
-      "ES5 parser rejects const",
-      "ES5 parser rejects const"
-    ],
-    [
-      "check single-use JavaScript initializers — 1 call initializers / one declaration",
-      37,
-      1.5377683748892442e-06,
-      "ES5 parser rejects const",
-      "ES5 parser rejects const"
-    ],
-    [
-      "check JavaScript var initialization order — 256 var pairs / read after initialization",
-      3652,
-      0.00022982708333074697,
-      5191.0,
-      0.03897750491742045
-    ],
-    [
-      "check JavaScript var initialization order — 1 var pairs / read after initialization",
-      37,
-      2.0490305150981195e-06,
-      42.0,
-      0.0010633084645936227
-    ],
-    [
-      "check JavaScript var initialization order — 256 var pairs / read before initialization",
-      4274,
-      0.00022446345478025856,
-      4277.0,
-      0.03349665277055465
-    ],
-    [
-      "minify JavaScript with function parameters — 8 live parameters",
-      60.0,
-      2.1140319497921687e-06,
-      61.0,
-      0.0011595764179522423
+      "minify JavaScript with function parameters — 256 live parameters",
+      1456.0,
+      5.586605712342892e-05,
+      1459.0,
+      0.013023844835697674
     ],
     [
       "minify JavaScript with function parameters — 32 live parameters",
       156.0,
-      6.542487036872065e-06,
+      6.330383038507155e-06,
       157.0,
-      0.0023412329649848593
+      0.0024107489895717057
     ],
     [
-      "minify JavaScript with function parameters — 54 live parameters",
-      244.0,
-      1.0531709036124918e-05,
-      247.0,
-      0.0026874074449854866
+      "minify JavaScript with function parameters — 192 live parameters",
+      1072.0,
+      6.909198580113222e-05,
+      1075.0,
+      0.008115261852132486
     ],
     [
-      "minify JavaScript with function parameters — 80 live parameters",
-      400.0,
-      1.8736200956936955e-05,
-      403.0,
-      0.003439738716527548
+      "minify JavaScript with function parameters — 224 live parameters",
+      1264.0,
+      4.991347006845596e-05,
+      1267.0,
+      0.01562623253145527
     ],
     [
       "minify JavaScript with function parameters — free-name conflicts",
       37.0,
-      1.1168857148765217e-06,
+      1.3305459935534595e-06,
       38.0,
-      0.000985199492333777
+      0.0012623583349977707
     ],
     [
       "minify JavaScript with function parameters — no local bindings",
       27.0,
-      6.718507069939742e-07,
+      1.24233383524223e-06,
       28.0,
-      0.0008897093369644912
+      0.0014606639948093894
+    ],
+    [
+      "check JavaScript var initialization order — 256 var pairs / read after initialization",
+      3652.0,
+      0.00018572123105210873,
+      5191.0,
+      0.04275055874216681
+    ],
+    [
+      "check JavaScript var initialization order — 80 var pairs / read after initialization",
+      1032.0,
+      3.8621201049930205e-05,
+      1515.0,
+      0.014746670629028813
+    ],
+    [
+      "check JavaScript var initialization order — 256 var pairs / read before initialization",
+      4274.0,
+      0.00013132337155544367,
+      4277.0,
+      0.03825514189108314
+    ],
+    [
+      "minify expression sequences — 1000 expression statements",
+      6889.0,
+      0.0001961441611437446,
+      6890.0,
+      0.06212463929114165
+    ],
+    [
+      "minify expression sequences — 320 expression statements",
+      2129.0,
+      4.043518077736508e-05,
+      2130.0,
+      0.024835723437718116
+    ],
+    [
+      "minify guard return chains — 512 guard returns",
+      7487.0,
+      0.00014598567989973314,
+      12608.0,
+      0.06753075259766775
+    ],
+    [
+      "minify guard return chains — 160 guard returns",
+      2207.0,
+      5.2627789676525555e-05,
+      3808.0,
+      0.023831518348500443
     ]
   ],
   "spread": [
     [
       null,
       null,
-      0.027870460547941123,
+      0.03971692832473926,
       null,
-      0.04021033690817729
+      0.05910280709774025
     ],
     [
       null,
       null,
-      0.03667014385626246,
+      0.3203499139947747,
       null,
-      0.180737125194482
+      0.026982200229676297
     ],
     [
       null,
       null,
-      0.012701740472871384,
+      0.06034918519481157,
       null,
-      0.0984415803234985
+      0.11621554898753311
     ],
     [
       null,
       null,
-      0.022467493597760506,
+      0.0672176316220204,
       null,
-      0.06493109954770923
+      0.17268302149529588
     ],
     [
       null,
       null,
-      0.13592681347012278,
+      0.028476186129319906,
       null,
-      0.20566608006343967
+      0.13326246419238733
     ],
     [
       null,
       null,
-      0.02651579899818408,
+      0.10120720411205764,
       null,
-      0.0937574630812805
+      0.08417095445514762
     ],
     [
       null,
       null,
-      0.011033915942673642,
+      0.13831973222183908,
       null,
-      0.15048294160513465
+      0.04185688056894211
     ],
     [
       null,
       null,
-      0.040253606681332654,
+      0.07074258880157278,
       null,
-      0.021326748049291796
+      0.07219381048984483
     ],
     [
       null,
       null,
-      0.06472300088548513,
+      0.04867376396308071,
       null,
-      null
+      0.048318721358076425
     ],
     [
       null,
       null,
-      0.014250806891917947,
+      0.07439945492767898,
       null,
-      null
+      0.1836812925401387
     ],
     [
       null,
       null,
-      0.020548051634025788,
+      0.3600498771798424,
       null,
-      null
+      0.02209101005071901
     ],
     [
       null,
       null,
-      0.008277346590370604,
+      0.054037508873399004,
       null,
-      null
+      0.06002043924828237
     ],
     [
       null,
       null,
-      0.014445758522265546,
+      0.17088272824372028,
       null,
-      null
+      0.04024428108245711
     ],
     [
       null,
       null,
-      0.016991173127781586,
+      0.07207358607866667,
       null,
-      null
+      0.05272581999893981
     ],
     [
       null,
       null,
-      0.010652664523775333,
+      0.02981001557650981,
       null,
-      0.0498671089424858
+      0.1917889708148035
     ],
     [
       null,
       null,
-      0.019888882536445274,
+      0.01935781798910004,
       null,
-      0.015425530496553068
+      0.06060337001525763
     ],
     [
       null,
       null,
-      0.01132166475402571,
+      0.1768490155444701,
       null,
-      0.0474552197325009
-    ],
-    [
-      null,
-      null,
-      0.03450388663816943,
-      null,
-      0.015003259330845094
-    ],
-    [
-      null,
-      null,
-      0.00716923877618138,
-      null,
-      0.22080863390119015
-    ],
-    [
-      null,
-      null,
-      0.009181367586762886,
-      null,
-      0.034779297911125336
-    ],
-    [
-      null,
-      null,
-      0.006243180682872456,
-      null,
-      0.01233865357558964
-    ],
-    [
-      null,
-      null,
-      0.016761979551737652,
-      null,
-      0.039268711129148634
-    ],
-    [
-      null,
-      null,
-      0.027179298078750316,
-      null,
-      0.019578086781316707
+      0.10450196345801749
     ]
   ],
-  "row_notes": {
-    "8": "ES5 parser rejects the const declarations in these inputs",
-    "9": "ES5 parser rejects the const declarations in these inputs",
-    "10": "ES5 parser rejects the const declarations in these inputs"
-  }
+  "row_notes": {}
 }

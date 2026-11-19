@@ -8,100 +8,96 @@
   "rows": [
     [
       "extract table grids — rows (10 rows)",
-      9.430758169652146e-06,
-      0.000575312147399624
+      5.8924031428671714e-06,
+      0.00046700324932468597
     ],
     [
       "extract table grids — records (10 rows)",
-      9.617418512538242e-06,
-      0.0007507434892583357
+      6.427631656021523e-06,
+      0.0005601425838487255
     ],
     [
       "extract table grids — rows (100 rows)",
-      6.778334891066606e-05,
-      0.0017844444995110582
+      7.40427247492903e-05,
+      0.0012395439423016797
     ],
     [
       "extract table grids — records (100 rows)",
-      7.699985258587579e-05,
-      0.0021928724224835605
+      6.0227769896907075e-05,
+      0.0014959856984205545
     ],
     [
       "extract table grids — rows (1000 rows)",
-      0.0007329701337918474,
-      0.012315525197967267
+      0.0008006555857718922,
+      0.008325083295858349
     ],
     [
       "extract table grids — records (1000 rows)",
-      0.0007686716439062972,
-      0.013339182718482334
+      0.0007156026231655233,
+      0.009283885598961206
     ],
     [
-      "extract repeated table span text — rows / 128 columns / 4096 text characters",
-      3.769692189337093e-06,
-      "omits the header row"
+      "extract repeated table span text — rows / 128 columns / 69000 text characters / 1 tables",
+      9.897600758771811e-05,
+      0.011252291587697982
     ],
     [
-      "extract repeated table span text — rows / 1 columns / 16 text characters",
-      1.2319756304002283e-06,
-      "omits the header row"
+      "extract repeated table span text — rows / 1 columns / 16 text characters / 80 tables",
+      0.00010333238971422058,
+      0.02594414425814951
     ],
     [
-      "extract repeated table span text — records / 128 columns / 4096 text characters",
-      4.297431860796527e-06,
-      "renames duplicate headers"
+      "extract repeated table span text — records / 128 columns / 68500 text characters / 1 tables",
+      0.00015884985399073533,
+      0.01177733714163575
     ]
   ],
   "spread": [
     [
       null,
-      0.17051269266929533,
-      0.07394675758141374
+      0.03644035151327742,
+      0.06270222490616463
     ],
     [
       null,
-      0.09204344297017526,
-      0.1414321569186474
+      0.060679632732521104,
+      0.05182755185826093
     ],
     [
       null,
-      0.06503604688058146,
-      0.21010321871836665
+      0.13030356292779205,
+      0.02095251958943736
     ],
     [
       null,
-      0.058592531313173574,
-      0.16663043008215417
+      0.30523734054012286,
+      0.04461448112721938
     ],
     [
       null,
-      0.08562734636261511,
-      0.08288615928509548
+      0.17982355776754408,
+      0.032897563616895546
     ],
     [
       null,
-      0.11857860115991552,
-      0.09468311152836278
+      0.2810313735516498,
+      0.03220932856559464
     ],
     [
       null,
-      0.017716170978074992,
-      null
+      0.048743429741366036,
+      0.02060632853247155
     ],
     [
       null,
-      0.01628643728875579,
-      null
+      0.28574246942446574,
+      0.2333864807179474
     ],
     [
       null,
-      0.010979440957128606,
-      null
+      0.13514232770756812,
+      0.020040259826319
     ]
   ],
-  "row_notes": {
-    "6": "read_html consumes header rows and renames duplicate columns; these outputs differ",
-    "7": "read_html consumes header rows and renames duplicate columns; these outputs differ",
-    "8": "read_html consumes header rows and renames duplicate columns; these outputs differ"
-  }
+  "row_notes": {}
 }

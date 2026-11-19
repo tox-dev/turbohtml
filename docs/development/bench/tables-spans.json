@@ -1,5 +1,5 @@
 {
-  "label": "extract shared table span text",
+  "label": "extract repeated table span text",
   "parties": [
     "turbohtml",
     "pandas"
@@ -7,39 +7,37 @@
   "metrics": [],
   "rows": [
     [
-      "rows / 128 columns / 4096 text characters",
-      3.769692189337093e-06,
-      "omits the header row"
+      "rows / 128 columns / 69000 text characters / 1 tables",
+      9.897600758771811e-05,
+      0.011252291587697982
     ],
     [
-      "rows / 1 columns / 16 text characters",
-      1.2319756304002283e-06,
-      "omits the header row"
+      "rows / 1 columns / 16 text characters / 80 tables",
+      0.00010333238971422058,
+      0.02594414425814951
     ],
     [
-      "records / 128 columns / 4096 text characters",
-      4.297431860796527e-06,
-      "renames duplicate headers"
+      "records / 128 columns / 68500 text characters / 1 tables",
+      0.00015884985399073533,
+      0.01177733714163575
     ]
   ],
   "spread": [
     [
       null,
-      0.017716170978074992,
-      null
+      0.048743429741366036,
+      0.02060632853247155
     ],
     [
       null,
-      0.01628643728875579,
-      null
+      0.28574246942446574,
+      0.2333864807179474
     ],
     [
       null,
-      0.010979440957128606,
-      null
+      0.13514232770756812,
+      0.020040259826319
     ]
   ],
-  "notes": {
-    "pandas": "read_html consumes header rows and renames duplicate columns; these outputs differ"
-  }
+  "notes": {}
 }

@@ -8,29 +8,62 @@
   "rows": [
     [
       "head",
-      1.6371414407837885e-06,
-      9.902861703399897e-05
+      3.059711224058977e-06,
+      0.00015450727667693325
     ],
     [
       "article 8 KiB",
-      2.237302314019492e-05,
-      0.002231772083632677
+      2.748777912676322e-05,
+      0.003675176627317948
+    ],
+    [
+      "1,024 OpenGraph properties",
+      0.0001981659202300534,
+      0.00922757604682071
+    ],
+    [
+      "1,024 Twitter properties",
+      0.00011098664493734608,
+      0.0068989941468316825
+    ],
+    [
+      "mixed duplicate properties",
+      0.0003364606194376544,
+      0.015744350385527166
     ]
   ],
   "spread": [
     [
       null,
-      0.024163395539074976,
-      0.016052098616314115
+      0.1804099404441867,
+      0.17983004252717186
     ],
     [
       null,
-      0.004701463761076492,
-      0.0254309534022347
+      0.06701942699375979,
+      0.2092910838073963
+    ],
+    [
+      null,
+      0.07363971187351767,
+      0.2609312799894235
+    ],
+    [
+      null,
+      0.13297201477119125,
+      0.05689888084089538
+    ],
+    [
+      null,
+      0.3165891390896922,
+      0.14305027550314606
     ]
   ],
   "row_notes": {
     "0": "returns empty metadata for the distinct-field, Twitter-only and repeated-head inputs",
-    "1": "returns empty metadata for the distinct-field, Twitter-only and repeated-head inputs"
+    "1": "returns empty metadata for the distinct-field, Twitter-only and repeated-head inputs",
+    "2": "returns empty metadata for the distinct-field, Twitter-only and repeated-head inputs",
+    "3": "returns empty metadata for the distinct-field, Twitter-only and repeated-head inputs",
+    "4": "returns empty metadata for the distinct-field, Twitter-only and repeated-head inputs"
   }
 }

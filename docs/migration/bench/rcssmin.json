@@ -10,482 +10,426 @@
   ],
   "rows": [
     [
-      "normalize.css (6 kB)",
-      1750.0,
-      3.2464727574677e-05,
-      1775.0,
-      7.227439025925264e-06
-    ],
-    [
-      "pico.css (90 kB)",
-      81155.0,
-      0.0010817124017800477,
-      82078.0,
-      0.0002621144950959812
-    ],
-    [
-      "animate.css (93 kB)",
-      73788.0,
-      0.0012892222758485634,
-      75682.0,
-      0.00022064549447501727
-    ],
-    [
-      "foundation.css (164 kB)",
-      132898.0,
-      0.0028156564673433118,
-      136682.0,
-      0.00048533412052620406
-    ],
-    [
-      "bootstrap.css (274 kB)",
-      229554.0,
-      0.003730066627516256,
-      233172.0,
-      0.0008058121210675987
-    ],
-    [
-      "bulma.css (745 kB)",
-      681425.0,
-      0.008693945529860988,
-      679974.0,
-      0.0023041306975149687
-    ],
-    [
-      "batch CSS rule merges — 10 identical media blocks",
-      155,
-      3.2320295455671534e-06,
-      290.0,
-      4.47254636644819e-07
-    ],
-    [
-      "batch CSS rule merges — 1000 identical media blocks",
-      15905,
-      0.0002903690771442295,
-      30890.0,
-      3.840989308135552e-05
-    ],
-    [
-      "batch CSS rule merges — 10 identical declaration bodies",
-      50,
-      2.128971937054303e-06,
-      140.0,
-      2.9126311430853016e-07
-    ],
-    [
-      "batch CSS rule merges — 1000 identical declaration bodies",
-      5900,
-      0.0001956030156482787,
-      15890.0,
-      2.229071521261024e-05
-    ],
-    [
-      "batch CSS rule merges — 100 alternating media preludes",
-      2940,
-      3.1277452399081086e-05,
-      2940.0,
-      3.663739520239536e-06
-    ],
-    [
-      "batch CSS rule merges — 100 rules with comment barriers",
-      2381,
-      2.2076973376291183e-05,
-      1490.0,
-      1.8225738087333336e-06
-    ],
-    [
-      "merge CSS rules across disjoint declarations — 32 rule pairs, 32 properties, 128 value bytes",
-      8818,
-      0.001534815234299458,
-      282176.0,
-      0.0003319198186545691
-    ],
-    [
-      "merge CSS rules across disjoint declarations — 32 rule pairs, 32 properties, 1 value bytes",
-      690,
-      0.000720662456357483,
-      22080.0,
-      2.881380819038289e-05
-    ],
-    [
-      "merge CSS rules across disjoint declarations — 1 rule pairs, 2 properties, 1 value bytes",
-      46,
-      8.943995756756824e-07,
-      46.0,
-      1.3095364837697094e-07
-    ],
-    [
       "minify CSS — normalize.css (6 kB)",
       1750.0,
-      1.5879560251619296e-05,
+      1.4366052835986428e-05,
       1775.0,
-      7.227439025925264e-06
+      3.82148537614313e-06
     ],
     [
       "minify CSS — pico.css (90 kB)",
-      81155.0,
-      0.0005075346409739723,
+      81699.0,
+      0.0006662563529062027,
       82078.0,
-      0.0002621144950959812
+      0.0002096725139656049
     ],
     [
       "minify CSS — animate.css (93 kB)",
       73788.0,
-      0.0006098935274015579,
+      0.0005756857632112163,
       75682.0,
-      0.00022064549447501727
+      0.0001040532709623676
     ],
     [
       "minify CSS — foundation.css (164 kB)",
-      132898.0,
-      0.001248614068875516,
+      133949.0,
+      0.0014089930866930445,
       136682.0,
-      0.00048533412052620406
+      0.00037322647414915385
     ],
     [
       "minify CSS — bootstrap.css (274 kB)",
-      229554.0,
-      0.001770760903733996,
+      231025.0,
+      0.0016461866464775692,
       233172.0,
-      0.0008058121210675987
+      0.0004749647304265636
     ],
     [
       "minify CSS — bulma.css (745 kB)",
-      681425.0,
-      0.003809295353372969,
+      683347.0,
+      0.005966805774975607,
       679974.0,
-      0.0023041306975149687
+      0.0024964020323144116
     ],
     [
-      "minify CSS — 8 reversed Unicode ranges",
-      57.0,
-      7.711609999461189e-07,
-      57.0,
-      1.543984082807981e-07
+      "minify CSS — 896 reversed Unicode ranges",
+      5265.0,
+      2.3790665603110975e-05,
+      5265.0,
+      3.4499675792313647e-06
     ],
     [
       "minify CSS — 1024 sorted Unicode ranges",
       6033.0,
-      5.29560428409089e-05,
+      1.8232571873018816e-05,
       6033.0,
-      6.2153053216699545e-06
+      5.614910092581009e-06
     ],
     [
       "minify CSS — 1024 reversed Unicode ranges",
       6033.0,
-      6.581793041012436e-05,
+      3.448224203973875e-05,
       6033.0,
-      6.422793499420247e-06
+      3.7014883158844232e-06
     ],
     [
-      "minify CSS — 1 rules, zero exponent 10000",
-      19.0,
-      5.052222139904453e-07,
-      37.0,
-      1.334220503708868e-07
+      "minify CSS — 160 rules, zero exponent 10000",
+      3464.0,
+      7.100410626369088e-05,
+      6344.0,
+      9.248347191241162e-06
     ],
     [
-      "minify CSS — 128 rules, zero exponent 10000",
-      2728.0,
-      3.5685902076920684e-05,
-      5032.0,
-      7.432376020706973e-06
+      "minify CSS — 320 rules, zero exponent 10000",
+      7144.0,
+      0.00011602919987817965,
+      12904.0,
+      1.7921698569504465e-05
     ],
     [
-      "minify CSS — 128 rules, zero exponent 2",
-      2728.0,
-      3.5648446835049676e-05,
-      4520.0,
-      6.778796092750857e-06
+      "minify CSS — 320 rules, zero exponent 2",
+      7144.0,
+      0.00013705232443896875,
+      11624.0,
+      9.048616753126737e-06
     ],
     [
-      "minify CSS — 128 rules, ordinary arithmetic",
-      2836.0,
-      3.5631027268815764e-05,
-      4520.0,
-      6.565181094468168e-06
+      "minify CSS — 320 rules, ordinary arithmetic",
+      7252.0,
+      9.526681739041957e-05,
+      11624.0,
+      9.629372632839287e-06
     ],
     [
       "minify CSS — 128 rules, negative exponent",
       3112.0,
-      3.7845581924026796e-05,
+      4.270353648342014e-05,
       4648.0,
-      7.234268837900497e-06
+      4.530562308779906e-06
     ],
     [
-      "minify CSS — 128 rules, large dimension exponent",
-      1316.0,
-      2.630970849300714e-05,
-      3348.0,
-      4.2137509457991955e-06
+      "minify CSS — 320 rules, large dimension exponent",
+      3428.0,
+      0.00010562799191404793,
+      8532.0,
+      7.918893409986083e-06
     ],
     [
-      "minify CSS — 128 rules, unitless exponent",
-      1314.0,
-      2.225701058951775e-05,
-      2836.0,
-      3.897503108400239e-06
+      "minify CSS — 320 rules, unitless exponent",
+      3424.0,
+      4.913074435061541e-05,
+      7252.0,
+      8.082332977347543e-06
     ],
     [
-      "minify CSS — 64 nested variable fallbacks",
-      588.0,
-      1.034994082497557e-05,
-      588.0,
-      7.333719462820909e-07
+      "minify CSS — 384 nested variable fallbacks",
+      3468.0,
+      0.00012103378531804764,
+      3468.0,
+      3.766326070249922e-06
     ],
     [
-      "minify CSS — 4 nested variable fallbacks",
-      48.0,
-      6.148530771928525e-07,
-      48.0,
-      1.3451017945772156e-07
+      "minify CSS — 320 nested variable fallbacks",
+      2892.0,
+      6.283957600838145e-05,
+      2892.0,
+      2.9677598400853117e-06
     ],
     [
       "minify CSS — shallow transform and font functions",
-      78.0,
-      8.980128505993908e-07,
-      85.0,
-      1.8436332555049617e-07
+      5216.0,
+      5.3000189567834846e-05,
+      5666.0,
+      3.939069089842207e-06
+    ],
+    [
+      "merge CSS rules across disjoint declarations — 32 rule pairs, 32 properties, 128 value bytes",
+      8818.0,
+      0.000470829707289037,
+      282176.0,
+      0.00047413374237521567
+    ],
+    [
+      "merge CSS rules across disjoint declarations — 32 rule pairs, 32 properties, 1 value bytes",
+      690.0,
+      0.0003690907007770268,
+      22080.0,
+      3.6690497471643844e-05
+    ],
+    [
+      "merge CSS rules across disjoint declarations — 1 rule pairs, 224 properties, 1 value bytes",
+      5162.0,
+      3.53950916294347e-05,
+      5162.0,
+      4.412466007982137e-06
+    ],
+    [
+      "batch CSS rule merges — 256 identical media blocks",
+      1451.0,
+      6.506049140616217e-05,
+      7826.0,
+      8.054693832389621e-06
+    ],
+    [
+      "batch CSS rule merges — 100 identical media blocks",
+      515.0,
+      1.9775864943127886e-05,
+      2990.0,
+      2.349333635202437e-06
+    ],
+    [
+      "batch CSS rule merges — 1000 identical media blocks",
+      5915.0,
+      0.0002665303778655925,
+      30890.0,
+      3.630365733660786e-05
+    ],
+    [
+      "batch CSS rule merges — 256 identical declaration bodies",
+      1436.0,
+      5.748627494834106e-05,
+      3986.0,
+      2.6423784866243713e-06
+    ],
+    [
+      "batch CSS rule merges — 100 identical declaration bodies",
+      500.0,
+      3.237148210430973e-05,
+      1490.0,
+      1.3143216542665924e-06
+    ],
+    [
+      "batch CSS rule merges — 1000 identical declaration bodies",
+      5900.0,
+      0.00019197213753917216,
+      15890.0,
+      1.0359792754144336e-05
+    ],
+    [
+      "batch CSS rule merges — 200 alternating media preludes",
+      5990.0,
+      4.84305896883086e-05,
+      5990.0,
+      4.4719392134832486e-06
+    ],
+    [
+      "batch CSS rule merges — 200 rules with comment barriers",
+      4881.0,
+      4.564850255187972e-05,
+      3090.0,
+      3.013474947355377e-06
     ]
   ],
   "spread": [
     [
       null,
       null,
-      0.09728764011828976,
+      0.11519889013147816,
       null,
-      0.07105855210195146
+      0.03899139987717114
     ],
     [
       null,
       null,
-      0.10598940421080025,
+      0.1841175041906125,
       null,
-      0.022144839124433217
+      0.07253588877366661
     ],
     [
       null,
       null,
-      0.07158741875788914,
+      0.033135127533529915,
       null,
-      0.018206653247167335
+      0.033912056569238
     ],
     [
       null,
       null,
-      0.07838358803696824,
+      0.03326762632342649,
       null,
-      0.021725472885592095
+      0.25527934003452996
     ],
     [
       null,
       null,
-      0.10694045427657661,
+      0.0682612859381891,
       null,
-      0.06589567367731815
+      0.10241775198554037
     ],
     [
       null,
       null,
-      0.12618949595325846,
+      0.11511144202440181,
       null,
-      0.03676125016636636
+      0.13384141298756877
     ],
     [
       null,
       null,
-      0.033998991065060304,
+      0.2729925613420311,
       null,
-      0.006586534407748629
+      0.09700350025730782
     ],
     [
       null,
       null,
-      0.011776467074972256,
+      0.03929632948935226,
       null,
-      0.030262714667866574
+      0.2996150836968161
     ],
     [
       null,
       null,
-      0.036145192230390887,
+      0.06110916350069771,
       null,
-      0.03144056580622263
+      0.016895217838625888
     ],
     [
       null,
       null,
-      0.011685570930659781,
+      0.07565016792628644,
       null,
-      0.006848568230730355
+      0.2370949666088364
     ],
     [
       null,
       null,
-      0.009737992841934454,
+      0.1930143197858653,
       null,
-      0.0054037750054607364
+      0.1310779094493398
     ],
     [
       null,
       null,
-      0.020681453435026666,
+      0.27510626627440027,
       null,
-      0.05642974163672919
+      0.03929914718112328
     ],
     [
       null,
       null,
-      0.011147349547324057,
+      0.02086278272329434,
       null,
-      0.008167588069482725
+      0.11301515455395866
     ],
     [
       null,
       null,
-      0.014938501764703004,
+      0.04071044512874726,
       null,
-      0.01515270993019563
+      0.3413769642971891
     ],
     [
       null,
       null,
-      0.04623363777835419,
+      0.23371982525433138,
       null,
-      0.017796798290531973
+      0.20751419048376823
     ],
     [
       null,
       null,
-      0.01063680141271138,
+      0.11686075462611983,
       null,
-      0.07105855210195146
+      0.10613551143797646
     ],
     [
       null,
       null,
-      0.01558472485725513,
+      0.22580558381065466,
       null,
-      0.022144839124433217
+      0.21085693124325594
     ],
     [
       null,
       null,
-      0.003640360458863284,
+      0.03386674618514764,
       null,
-      0.018206653247167335
+      0.061771564050754714
     ],
     [
       null,
       null,
-      0.007573112724886806,
+      0.10008943854050645,
       null,
-      0.021725472885592095
+      0.030233250412735734
     ],
     [
       null,
       null,
-      0.019466136713919738,
+      0.015126645574279387,
       null,
-      0.06589567367731815
+      0.24902983209261803
     ],
     [
       null,
       null,
-      0.003598908063063617,
+      0.1943117352978513,
       null,
-      0.03676125016636636
+      0.1957065346336199
     ],
     [
       null,
       null,
-      0.01100315932183741,
+      0.028929133781514065,
       null,
-      0.03313566020986
+      0.0392421693032451
     ],
     [
       null,
       null,
-      0.0194003506553918,
+      0.3194261396018764,
       null,
-      0.018406825902562606
+      0.29128554738375356
     ],
     [
       null,
       null,
-      0.011715588643424521,
+      0.029436629227679437,
       null,
-      0.08497271590698995
+      0.07810625233265847
     ],
     [
       null,
       null,
-      0.0198092369054692,
+      0.2407018073678862,
       null,
-      0.03174270750065367
+      0.10296031137089974
     ],
     [
       null,
       null,
-      0.007351186359079692,
+      0.26710627416028565,
       null,
-      0.007089691464495456
+      0.03117118332900001
     ],
     [
       null,
       null,
-      0.01202022457529664,
+      0.2458789640422665,
       null,
-      0.04621210104049188
+      0.20071792258698437
     ],
     [
       null,
       null,
-      0.018475152203959042,
+      0.2516167400966828,
       null,
-      0.030788013333906638
+      0.04574819835203854
     ],
     [
       null,
       null,
-      0.019963249845151198,
+      0.06032319938425592,
       null,
-      0.024978997863860774
+      0.056212518591765556
     ],
     [
       null,
       null,
-      0.015042530838987586,
+      0.21213351551050028,
       null,
-      0.01096170558972878
-    ],
-    [
-      null,
-      null,
-      0.013640960529223983,
-      null,
-      0.008033064925886391
-    ],
-    [
-      null,
-      null,
-      0.0066440605824997995,
-      null,
-      0.02233503359320142
-    ],
-    [
-      null,
-      null,
-      0.023852209079827807,
-      null,
-      0.0022320314102585014
-    ],
-    [
-      null,
-      null,
-      0.011689076626869094,
-      null,
-      0.010356952209421896
+      0.058189406580120444
     ]
   ],
   "row_notes": {
@@ -495,33 +439,29 @@
     "3": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
     "4": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
     "5": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
-    "6": "rcssmin: removes whitespace and comments; does not merge rules",
-    "7": "rcssmin: removes whitespace and comments; does not merge rules",
-    "8": "rcssmin: removes whitespace and comments; does not merge rules",
-    "9": "rcssmin: removes whitespace and comments; does not merge rules",
-    "10": "rcssmin: removes whitespace and comments; does not merge rules",
-    "11": "rcssmin: removes whitespace and comments; does not merge rules",
-    "12": "rcssmin: removes whitespace and comments; does not merge rules",
-    "13": "rcssmin: removes whitespace and comments; does not merge rules",
-    "14": "rcssmin: removes whitespace and comments; does not merge rules",
+    "6": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
+    "7": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
+    "8": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
+    "9": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
+    "10": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
+    "11": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
+    "12": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
+    "13": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
+    "14": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
     "15": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
     "16": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
     "17": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
     "18": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
-    "19": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
-    "20": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
-    "21": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
-    "22": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
-    "23": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
-    "24": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
-    "25": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
-    "26": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
-    "27": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
-    "28": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
-    "29": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
-    "30": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
-    "31": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
-    "32": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS",
-    "33": "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on bulma, so the structural shortenings change little on already-tight framework CSS"
+    "19": "removes whitespace and comments; does not merge rules",
+    "20": "removes whitespace and comments; does not merge rules",
+    "21": "removes whitespace and comments; does not merge rules",
+    "22": "removes whitespace and comments; does not merge rules",
+    "23": "removes whitespace and comments; does not merge rules",
+    "24": "removes whitespace and comments; does not merge rules",
+    "25": "removes whitespace and comments; does not merge rules",
+    "26": "removes whitespace and comments; does not merge rules",
+    "27": "removes whitespace and comments; does not merge rules",
+    "28": "removes whitespace and comments; does not merge rules",
+    "29": "removes whitespace and comments; does not merge rules"
   }
 }

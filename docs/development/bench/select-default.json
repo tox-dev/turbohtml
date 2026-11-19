@@ -9,90 +9,90 @@
   "metrics": [],
   "rows": [
     [
-      "1 forms, 4096 spans, 128 buttons, :default",
-      2.0103402055345516e-05,
+      "4 forms, 4096 spans, 128 buttons, :default",
+      8.155036722238644e-05,
       "SoupSieve requires explicit type=submit for default buttons",
       "SoupSieve requires explicit type=submit for default buttons",
       "SoupSieve requires explicit type=submit for default buttons"
     ],
     [
-      "1 forms, 512 spans, 64 buttons, :default",
-      2.401916927574632e-06,
+      "24 forms, 512 spans, 64 buttons, :default",
+      7.142056376115609e-05,
       "SoupSieve requires explicit type=submit for default buttons",
       "SoupSieve requires explicit type=submit for default buttons",
       "SoupSieve requires explicit type=submit for default buttons"
     ],
     [
-      "1 forms, 8 spans, 4 buttons, :default",
-      1.3221638076969336e-07,
+      "1024 forms, 8 spans, 4 buttons, :default",
+      7.437714955358388e-05,
       "SoupSieve requires explicit type=submit for default buttons",
       "SoupSieve requires explicit type=submit for default buttons",
       "SoupSieve requires explicit type=submit for default buttons"
     ],
     [
-      "128 forms, 0 spans, 1 buttons, :default",
-      2.05030240222707e-06,
+      "2560 forms, 0 spans, 1 buttons, :default",
+      4.489401378175254e-05,
       "SoupSieve requires explicit type=submit for default buttons",
       "SoupSieve requires explicit type=submit for default buttons",
       "SoupSieve requires explicit type=submit for default buttons"
     ],
     [
       "1 forms, 4096 spans, 128 buttons, button",
-      1.5261182796007706e-06,
-      0.002953177731797041,
-      0.0029190769858663166,
-      0.002362451066498276
+      4.636730359024455e-05,
+      0.16284419803414493,
+      0.11208932707183218,
+      0.11483703374882073
     ],
     [
-      "1 form, 4096 spans, 128 explicit submit buttons",
-      2.028047010564175e-05,
-      0.013879596376985623,
-      0.013895649734574059,
-      0.013097341121465433
+      "4 forms, 4096 spans, 128 explicit submit buttons",
+      0.00010962653867115553,
+      0.07198038680653554,
+      0.07050541647574088,
+      0.06888290467807869
     ]
   ],
   "spread": [
     [
       null,
-      0.01801487325684281,
+      0.02624947530546119,
       null,
       null,
       null
     ],
     [
       null,
-      0.005759862263887469,
+      0.11312525307305916,
       null,
       null,
       null
     ],
     [
       null,
-      0.009097903845630917,
+      0.30155071240511067,
       null,
       null,
       null
     ],
     [
       null,
-      0.01016188335276638,
+      0.037848823979168264,
       null,
       null,
       null
     ],
     [
       null,
-      0.018629330046011305,
-      0.0071221533776956395,
-      0.007189525635276154,
-      0.024947922055458194
+      0.07607716315550442,
+      0.16340813873331994,
+      0.019280498867421933,
+      0.06101143308666418
     ],
     [
       null,
-      0.01967096810184678,
-      0.008690219885874845,
-      0.02514394829426442,
-      0.00412187022234827
+      0.09536853053990942,
+      0.13692657173855302,
+      0.04594741488387009,
+      0.039607550671547836
     ]
   ],
   "notes": {}

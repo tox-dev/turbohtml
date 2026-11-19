@@ -8,1489 +8,1542 @@
   "rows": [
     [
       "parse to a tree — wpt tiny (0.6 kB)",
-      1.5334036621942697e-06,
-      6.18503347737942e-06
+      1.5062045098416613e-06,
+      7.201376543027512e-06
     ],
     [
       "parse to a tree — wpt small (4 kB)",
-      1.2224174712471836e-05,
-      3.839282816405406e-05
+      1.086535358982843e-05,
+      4.542256516918049e-05
     ],
     [
       "parse to a tree — wpt medium (9.6 kB)",
-      3.2532304601318174e-05,
-      0.00010101542487935451
+      2.7421395580518036e-05,
+      5.900857128816976e-05
     ],
     [
       "parse to a tree — wpt large (92 kB)",
-      0.0002764673595455254,
-      0.0008835874289161438
+      0.0004081811695641591,
+      0.0008357391938981588
     ],
     [
       "parse to a tree — wpt CJK (124 kB)",
-      0.0005315126403123335,
-      0.0020246459413707876
+      0.0004831533968134257,
+      0.0015259106593930483
     ],
     [
       "parse to a tree — whatwg spec (235 kB)",
-      0.0005188610162273714,
-      0.0016835466067277594
+      0.0007491914386794936,
+      0.002036504092454076
     ],
     [
       "parse to a tree — common tags (13 kB)",
-      7.847152885176456e-05,
-      0.00022494024659636125
-    ],
-    [
-      "find every anchor — daring fireball (10 kB)",
-      3.719253207819702e-07,
-      9.768118748828178e-06
-    ],
-    [
-      "find every anchor — ars technica (56 kB)",
-      8.108394947322258e-07,
-      2.0047743050829087e-05
-    ],
-    [
-      "find every anchor — mozilla blog (95 kB)",
-      1.1198305569504186e-06,
-      2.945713206277863e-05
-    ],
-    [
-      "find every anchor — whatwg spec (235 kB)",
-      1.2981219284687502e-06,
-      5.999396773385494e-05
-    ],
-    [
-      "select div a[href] — daring fireball (10 kB)",
-      8.664876313346781e-07,
-      5.0495817170788844e-05
-    ],
-    [
-      "select div a[href] — ars technica (56 kB)",
-      2.1007462445747175e-06,
-      0.00015730819228944407
-    ],
-    [
-      "select div a[href] — mozilla blog (95 kB)",
-      2.8595163991932774e-06,
-      0.0009970208374094605
-    ],
-    [
-      "select div a[href] — whatwg spec (235 kB)",
-      2.7027715044406856e-06,
-      0.0018674830712067584
-    ],
-    [
-      "match each anchor against div a[href] — daring fireball (10 kB)",
-      2.4205087439573467e-06,
-      0.0009133233499596827
-    ],
-    [
-      "match each anchor against div a[href] — ars technica (56 kB)",
-      7.21406046058822e-06,
-      0.0020876855065580457
-    ],
-    [
-      "match each anchor against div a[href] — mozilla blog (95 kB)",
-      7.816334018192113e-06,
-      0.002913907031567457
-    ],
-    [
-      "match each anchor against div a[href] — whatwg spec (235 kB)",
-      9.08245576927887e-06,
-      0.0026981796023998563
-    ],
-    [
-      "find by text content — daring fireball (10 kB)",
-      2.4398126384994612e-05,
-      5.062974218598507e-05
-    ],
-    [
-      "find by text content — ars technica (56 kB)",
-      0.0001733356257318519,
-      0.00023642566630617998
-    ],
-    [
-      "find by text content — mozilla blog (95 kB)",
-      0.0002782246370050719,
-      0.0004406198053175103
-    ],
-    [
-      "find by text content — whatwg spec (235 kB)",
-      0.0005559139003707969,
-      0.0011673262533046607
-    ],
-    [
-      "collect visible text — daring fireball (10 kB)",
-      1.726507028602479e-06,
-      0.00012950353666004352
-    ],
-    [
-      "collect visible text — ars technica (56 kB)",
-      8.818541625525237e-06,
-      0.00045621290291819605
-    ],
-    [
-      "collect visible text — mozilla blog (95 kB)",
-      1.6836218084866534e-05,
-      0.0009411679143340734
-    ],
-    [
-      "collect visible text — whatwg spec (235 kB)",
-      4.726010218310724e-05,
-      0.004865714730234079
-    ],
-    [
-      "serialize a parsed tree — daring fireball (10 kB)",
-      6.523800323658217e-06,
-      1.7212345539974194e-05
-    ],
-    [
-      "serialize a parsed tree — ars technica (56 kB)",
-      3.478643540214913e-05,
-      7.669867622913291e-05
-    ],
-    [
-      "serialize a parsed tree — mozilla blog (95 kB)",
-      6.740825052512871e-05,
-      0.00015492264470632713
-    ],
-    [
-      "serialize a parsed tree — whatwg spec (235 kB)",
-      0.00017435751010452805,
-      0.00037705112678546965
-    ],
-    [
-      "tag every link rel=nofollow — daring fireball (10 kB)",
-      4.737399288856636e-06,
-      3.794813355995075e-05
-    ],
-    [
-      "tag every link rel=nofollow — ars technica (56 kB)",
-      1.6592148648205313e-05,
-      0.00012203508831021281
-    ],
-    [
-      "tag every link rel=nofollow — mozilla blog (95 kB)",
-      2.537717535962732e-05,
-      0.0002211739348846701
-    ],
-    [
-      "tag every link rel=nofollow — whatwg spec (235 kB)",
-      5.1396041584439445e-05,
-      0.00038778119583563847
-    ],
-    [
-      "class add/remove on every link — daring fireball (10 kB)",
-      2.617203660607951e-06,
-      4.154216593832416e-05
-    ],
-    [
-      "class add/remove on every link — ars technica (56 kB)",
-      9.670571436378358e-06,
-      0.00010770863517943023
-    ],
-    [
-      "class add/remove on every link — mozilla blog (95 kB)",
-      1.0256608967769884e-05,
-      0.00013744813361427077
-    ],
-    [
-      "class add/remove on every link — whatwg spec (235 kB)",
-      1.0061702514718718e-05,
-      0.0001777837184041194
-    ],
-    [
-      "drop tags with content (remove) — daring fireball (10 kB)",
-      2.3156149128548503e-05,
-      0.00011526486532413098
-    ],
-    [
-      "drop tags with content (remove) — ars technica (56 kB)",
-      0.00011248178451713405,
-      0.000452967162762737
-    ],
-    [
-      "drop tags with content (remove) — mozilla blog (95 kB)",
-      0.0002522574055774385,
-      0.0008858116048789574
-    ],
-    [
-      "drop tags with content (remove) — whatwg spec (235 kB)",
-      0.0006502152237241413,
-      0.002195875327288377
-    ],
-    [
-      "unwrap tags keep content (strip_tags) — daring fireball (10 kB)",
-      2.43689617415536e-05,
-      0.0001324465602010605
-    ],
-    [
-      "unwrap tags keep content (strip_tags) — ars technica (56 kB)",
-      0.00011975541187325689,
-      0.0005249810101683275
-    ],
-    [
-      "unwrap tags keep content (strip_tags) — mozilla blog (95 kB)",
-      0.00026103048338654844,
-      0.0009733907891131821
-    ],
-    [
-      "unwrap tags keep content (strip_tags) — whatwg spec (235 kB)",
-      0.0006693713372669663,
-      0.0025939244778783177
-    ],
-    [
-      "replace body inner HTML — daring fireball (10 kB)",
-      2.118464625648168e-06,
-      1.7516660062000255e-05
-    ],
-    [
-      "replace body inner HTML — ars technica (56 kB)",
-      7.79618627433365e-06,
-      5.741313097000026e-05
-    ],
-    [
-      "replace body inner HTML — mozilla blog (95 kB)",
-      1.1678474513961609e-05,
-      0.00012279520737479288
-    ],
-    [
-      "replace body inner HTML — whatwg spec (235 kB)",
-      3.531063714253454e-05,
-      0.00036322871089093195
-    ],
-    [
-      "replace body text — daring fireball (10 kB)",
-      1.1327757913163576e-06,
-      1.4658424924836785e-05
-    ],
-    [
-      "replace body text — ars technica (56 kB)",
-      6.40489700742819e-06,
-      5.411218125080571e-05
-    ],
-    [
-      "replace body text — mozilla blog (95 kB)",
-      1.0476735281983451e-05,
-      0.00011760933560367448
-    ],
-    [
-      "replace body text — whatwg spec (235 kB)",
-      3.3027372064490614e-05,
-      0.0003574483208884279
-    ],
-    [
-      "walk every descendant — daring fireball (10 kB)",
-      3.3725729012464476e-06,
-      7.568959554760113e-05
-    ],
-    [
-      "walk every descendant — ars technica (56 kB)",
-      1.3316697001404995e-05,
-      0.0002776947768552418
-    ],
-    [
-      "walk every descendant — mozilla blog (95 kB)",
-      2.8539196437786057e-05,
-      0.0006155040143009197
-    ],
-    [
-      "walk every descendant — whatwg spec (235 kB)",
-      9.7467753012855e-05,
-      0.0021301298816069902
-    ],
-    [
-      "fluent jQuery-style chain — daring fireball (10 kB)",
-      1.7378286778502172e-06,
-      8.262169055702391e-05
-    ],
-    [
-      "fluent jQuery-style chain — ars technica (56 kB)",
-      5.339948232337595e-06,
-      0.00017523173706498105
-    ],
-    [
-      "fluent jQuery-style chain — mozilla blog (95 kB)",
-      8.087924316650211e-06,
-      0.00023783156300775468
-    ],
-    [
-      "fluent jQuery-style chain — whatwg spec (235 kB)",
-      1.725713049912277e-05,
-      0.0003018305869204596
-    ],
-    [
-      "extract every link — daring fireball (10 kB)",
-      1.3464031636563808e-05,
-      0.0003138677027815599
-    ],
-    [
-      "extract every link — ars technica (56 kB)",
-      4.56970487050512e-05,
-      0.000759260253857974
-    ],
-    [
-      "extract every link — mozilla blog (95 kB)",
-      7.54788005347488e-05,
-      0.0009935191236157455
-    ],
-    [
-      "extract every link — whatwg spec (235 kB)",
-      6.635500418402292e-05,
-      0.0009501940104807242
-    ],
-    [
-      "absolutize every link — daring fireball (10 kB)",
-      3.9356466906781407e-05,
-      0.00040999616032877384
-    ],
-    [
-      "absolutize every link — ars technica (56 kB)",
-      9.180021663250197e-05,
-      0.0009889522232242598
-    ],
-    [
-      "absolutize every link — mozilla blog (95 kB)",
-      0.00015685727829387966,
-      0.0014447408797574706
-    ],
-    [
-      "absolutize every link — whatwg spec (235 kB)",
-      0.00022430012273844113,
-      0.0018399412986885484
-    ],
-    [
-      "rewrite every link — daring fireball (10 kB)",
-      2.996172853079552e-06,
-      0.000377997809456095
-    ],
-    [
-      "rewrite every link — ars technica (56 kB)",
-      1.07103676191637e-05,
-      0.0007505117190855041
-    ],
-    [
-      "rewrite every link — mozilla blog (95 kB)",
-      1.986850784400455e-05,
-      0.0010356462663973314
-    ],
-    [
-      "rewrite every link — whatwg spec (235 kB)",
-      3.3264580665104404e-05,
-      0.0012034119750599832
-    ],
-    [
-      "social-card extraction — head",
-      1.6371414407837885e-06,
-      6.410353087934102e-05
-    ],
-    [
-      "social-card extraction — article 8 KiB",
-      2.237302314019492e-05,
-      0.0001328469036441978
-    ],
-    [
-      "extract @href per match — daring fireball (10 kB)",
-      3.5654627478602188e-06,
-      0.00023723246255258346
-    ],
-    [
-      "extract @href per match — ars technica (56 kB)",
-      9.062482401844818e-06,
-      0.0005421147598099196
-    ],
-    [
-      "extract @href per match — mozilla blog (95 kB)",
-      1.2465481220876503e-05,
-      0.0007639167343995723
-    ],
-    [
-      "extract @href per match — whatwg spec (235 kB)",
-      1.4419585355085474e-05,
-      0.0009394280605950674
-    ],
-    [
-      "extract text per match — daring fireball (10 kB)",
-      2.356617609796293e-06,
-      0.00014285158978092719
-    ],
-    [
-      "extract text per match — ars technica (56 kB)",
-      5.612442229481947e-06,
-      0.0003386562636933377
-    ],
-    [
-      "extract text per match — mozilla blog (95 kB)",
-      8.647442725144098e-06,
-      0.0005068354899625168
-    ],
-    [
-      "extract text per match — whatwg spec (235 kB)",
-      9.721350358186479e-06,
-      0.0005977523063999494
-    ],
-    [
-      "extract URL hints — base_url / get_base_url",
-      1.168028488374162e-06,
-      1.3026870309573724e-05
-    ],
-    [
-      "extract URL hints — meta_refresh / get_meta_refresh",
-      1.2121741238916666e-06,
-      2.0868882477505697e-05
-    ],
-    [
-      "extract filtered page links — daring fireball (10 kB)",
-      0.00014374658196440274,
-      0.000519150458671902
-    ],
-    [
-      "extract filtered page links — ars technica (56 kB)",
-      0.0003625916885994229,
-      0.0013566567936322826
-    ],
-    [
-      "extract filtered page links — mozilla blog (95 kB)",
-      0.0006187186553461288,
-      0.002153627226713676
-    ],
-    [
-      "extract filtered page links — whatwg spec (235 kB)",
-      0.0010619639210744936,
-      0.003185567546703775
-    ],
-    [
-      "serialize body children — daring fireball (10 kB)",
-      9.359944669995457e-06,
-      3.069794342991372e-05
-    ],
-    [
-      "serialize body children — ars technica (56 kB)",
-      4.2464491040542875e-05,
-      0.00016027161996134964
-    ],
-    [
-      "serialize body children — mozilla blog (95 kB)",
-      8.87867843175627e-05,
-      0.00031994748390692013
-    ],
-    [
-      "serialize body children — whatwg spec (235 kB)",
-      0.0002502627500386249,
-      0.0008959711372729847
-    ],
-    [
-      "encode body children as UTF-8 — daring fireball (10 kB)",
-      1.2011069808674316e-05,
-      3.351421355546336e-05
-    ],
-    [
-      "encode body children as UTF-8 — ars technica (56 kB)",
-      5.41490344403428e-05,
-      0.00016523825471873957
-    ],
-    [
-      "encode body children as UTF-8 — mozilla blog (95 kB)",
-      0.00010932817895081826,
-      0.00033330281636760145
-    ],
-    [
-      "encode body children as UTF-8 — whatwg spec (235 kB)",
-      0.0003043837621892938,
-      0.0009387204315013756
+      6.681876268051686e-05,
+      0.00020014363852567386
     ],
     [
       "parse under a formatting ancestor — 256 spans / 1,000 samp elements",
-      0.00030204172362573444,
-      "truncated output: 253/256 spans, 0/1,000 samp elements and no text"
+      0.00011332926520803236,
+      0.0003249090778316107
     ],
     [
       "parse under a formatting ancestor — 0 spans / 1,000 samp elements",
-      8.741940381848204e-05,
-      0.00018145343965443318
-    ],
-    [
-      "parse ignored block end tags — 256 spans / 1,000 ignored address end tags",
-      7.620852594527605e-05,
-      "truncated output: 253/256 spans and no text instead of two characters"
-    ],
-    [
-      "parse nested formatting attributes — 256 b elements / distinct attributes",
-      4.9955719771332954e-05,
-      "truncated output: 254/256 b elements and no text"
-    ],
-    [
-      "parse nested formatting attributes — 256 b elements / identical attributes",
-      4.9689298612065615e-05,
-      "truncated output: 254/256 b elements and no text"
-    ],
-    [
-      "parse text beside a NUL — 1,000 paragraphs / early NUL",
-      7.107561307672465e-05,
-      "different text: replaces U+0000 with U+FFFD instead of dropping it"
-    ],
-    [
-      "parse text beside a NUL — 1,000 paragraphs / no NUL",
-      7.09768120600529e-05,
-      0.000245551090574736
+      0.00012556228491196938,
+      0.0003153325360017334
     ],
     [
       "parse foster-parented text — 1,024 table rows / fostered text runs",
-      0.00016239688323670028,
-      "different tree: missing tbody and different fostered text placement"
+      0.00014678963237220918,
+      0.000484862877976866
     ],
     [
-      "parse foster-parented text — 1 table rows / fostered text runs",
-      9.250114873182724e-07,
-      "different tree: missing tbody and different fostered text placement"
+      "parse foster-parented text — 300 table rows / fostered text runs",
+      4.166622232896581e-05,
+      9.124967116444319e-05
     ],
     [
       "parse normalized newlines — 1,000 paragraphs / CRLF",
-      8.024827355560168e-05,
-      "different tree: adds a div wrapper around paragraph siblings"
+      7.432618808470201e-05,
+      0.0003370966290541825
     ],
     [
       "parse normalized newlines — 1,000 paragraphs / LF",
-      6.902340084025127e-05,
-      "different tree: adds a div wrapper around paragraph siblings"
+      6.164213648342335e-05,
+      0.00017577411202580607
     ],
     [
-      "collect selected nodes' siblings — 1024 siblings, one selected",
-      1.1217695530045072e-05,
-      4.766030679851004e-05
+      "parse text beside a NUL — 1,000 paragraphs / early NUL",
+      9.33035842038521e-05,
+      0.0002390423015943573
     ],
     [
-      "collect closest matching ancestors — 1024 children, distinct ancestors",
-      3.30035854972266e-05,
-      0.008992374120862224
+      "parse text beside a NUL — 1,000 paragraphs / no NUL",
+      0.0001236047585820188,
+      0.00017543306708963277
     ],
     [
-      "collect selected nodes' parents — 1024 children, shared parent",
-      3.543244466897022e-06,
-      3.3878582782638963e-05
+      "parse nested formatting attributes — 256 b elements / distinct attributes",
+      2.441232747791844e-05,
+      0.00012448381464385722
     ],
     [
-      "collect selected nodes' parents — 1024 children, distinct parents",
-      1.8144916635757604e-05,
-      0.0029544495622152076
+      "parse nested formatting attributes — 256 b elements / identical attributes",
+      4.738928103407147e-05,
+      0.00010818621186719687
     ],
     [
-      "select child and sibling relationships — 8 nested elements, > a",
-      1.3885563943105694e-07,
-      1.4068037247720136e-05
+      "parse ignored block end tags — 256 spans / 1,000 ignored address end tags",
+      6.202046070148033e-05,
+      0.0004789671575470796
     ],
     [
-      "select child and sibling relationships — 8 nested elements, + a",
-      1.0681020538398182e-07,
-      1.47594333318087e-05
+      "find every anchor — daring fireball (10 kB)",
+      6.341729149594855e-07,
+      1.8945459144840508e-05
     ],
     [
-      "select child and sibling relationships — 8 nested elements, ~ a",
-      1.1013886006920141e-07,
-      1.4091996519027816e-05
+      "find every anchor — ars technica (56 kB)",
+      9.916807835648929e-07,
+      2.0829248112500902e-05
     ],
     [
-      "select child and sibling relationships — 8 nested elements, a",
-      2.77636203471765e-07,
-      1.4085534838651862e-05
+      "find every anchor — mozilla blog (95 kB)",
+      1.2974177060476322e-06,
+      5.1222347928122265e-05
     ],
     [
-      "select child and sibling relationships — 100 nested elements, > a",
-      7.404537988679275e-07,
-      2.350804562685956e-05
+      "find every anchor — whatwg spec (235 kB)",
+      1.759690947585509e-06,
+      8.966279287344983e-05
     ],
     [
-      "select child and sibling relationships — 100 nested elements, + a",
-      6.391629377618576e-07,
-      2.1818913353399694e-05
+      "select div a[href] — daring fireball (10 kB)",
+      6.787300494489242e-07,
+      3.002046423408918e-05
     ],
     [
-      "select child and sibling relationships — 100 nested elements, ~ a",
-      6.399140752103941e-07,
-      2.0722343447706255e-05
+      "select div a[href] — ars technica (56 kB)",
+      1.4927145260227685e-06,
+      9.020737068775967e-05
     ],
     [
-      "select child and sibling relationships — 100 nested elements, a",
-      6.734320119032115e-06,
-      5.1269900798918876e-05
+      "select div a[href] — mozilla blog (95 kB)",
+      3.5908673405711983e-06,
+      0.00018645331035334797
     ],
     [
-      "select child and sibling relationships — 64 siblings with 0 descendants, + a",
-      4.928978808808419e-07,
-      0.00020405565048046506
-    ],
-    [
-      "select child and sibling relationships — 64 siblings with 0 descendants, ~ a",
-      3.672821787740569e-06,
-      2.500191156210955e-05
-    ],
-    [
-      "select child and sibling relationships — 64 siblings with 64 descendants, + a",
-      4.909409281328436e-07,
-      0.0002222760076241078
-    ],
-    [
-      "select child and sibling relationships — 64 siblings with 64 descendants, ~ a",
-      3.6347832121919055e-06,
-      4.291325042042141e-05
-    ],
-    [
-      "find by exact descendant text — flat matches",
-      1.465933229383154e-05,
-      0.0010544909385619878
-    ],
-    [
-      "find by exact descendant text — nested matches",
-      9.168320977674208e-06,
-      0.0008188680020187652
-    ],
-    [
-      "find by exact descendant text — nested short expectation",
-      4.34875593965008e-06,
-      0.0008706396195824103
-    ],
-    [
-      "find by exact descendant text — wide early mismatch",
-      4.503052817147098e-06,
-      0.0002875287749096363
-    ],
-    [
-      "find by exact descendant text — wide match",
-      8.224252063371296e-06,
-      0.0003018298135278504
-    ],
-    [
-      "find by exact descendant text — wide late mismatch",
-      7.881415903909783e-06,
-      0.00029350617804387486
-    ],
-    [
-      "find by attribute presence — 1,000 attributes, 0 characters, True",
-      1.2635586178551724e-05,
-      0.00029324431678408774
-    ],
-    [
-      "find by attribute presence — 1,000 attributes, 0 characters, False",
-      1.2651004373272675e-05,
-      0.0003448299559067891
-    ],
-    [
-      "find by attribute presence — 1,000 attributes, 16 characters, True",
-      1.2784605222767217e-05,
-      0.00029622155739161826
-    ],
-    [
-      "find by attribute presence — 1,000 attributes, 16 characters, False",
-      1.2986442989415536e-05,
-      0.00035654633938975167
-    ],
-    [
-      "find by attribute presence — 1,000 attributes, 4,096 characters, True",
-      1.304712465355351e-05,
-      0.00029822118434215855
-    ],
-    [
-      "find by attribute presence — 1,000 attributes, 4,096 characters, False",
-      1.3004546701722575e-05,
-      0.00034314253078567464
+      "select div a[href] — whatwg spec (235 kB)",
+      2.987775723302851e-06,
+      0.00010581277719836634
     ],
     [
       "select sibling positions in wide trees — li:nth-child(odd) (100 siblings)",
-      1.058463864408073e-06,
-      7.223749796973304e-05
+      1.841417760939379e-06,
+      0.00012872685040387448
     ],
     [
       "select sibling positions in wide trees — li:nth-child(odd) (1,000 siblings)",
-      9.717604965449786e-06,
-      0.0028491268449215568
+      1.497660085192365e-05,
+      0.002420917879165548
     ],
     [
       "select sibling positions in wide trees — li:nth-child(odd) (10,000 siblings)",
-      0.00012419139263405063,
-      0.24291483665971705
+      0.00011469434726526136,
+      0.17592415972127734
+    ],
+    [
+      "select child and sibling relationships — 8 nested elements, > a",
+      4.105295527310204e-05,
+      0.010070826476173049
+    ],
+    [
+      "select child and sibling relationships — 8 nested elements, + a",
+      1.6766383980071354e-07,
+      3.0025779349903323e-05
+    ],
+    [
+      "select child and sibling relationships — 8 nested elements, ~ a",
+      2.269305189428472e-07,
+      2.9120391409994303e-05
+    ],
+    [
+      "select child and sibling relationships — 8 nested elements, a",
+      3.3017498312267374e-07,
+      1.8822590681940216e-05
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, > a",
+      3.2011286031045456e-05,
+      0.0017362400364466643
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, + a",
+      5.57293335201603e-07,
+      2.2579704281019038e-05
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, ~ a",
+      1.930080566599675e-06,
+      3.189667481962033e-05
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, a",
+      7.731835783886253e-06,
+      0.00010369416995151445
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 0 descendants, + a",
+      4.5582763499307786e-07,
+      2.9914226163896274e-05
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 0 descendants, ~ a",
+      4.672409986857436e-06,
+      4.5018342789167794e-05
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 0 descendants, + section a",
+      3.137714117773527e-06,
+      4.5134465112302756e-05
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 64 descendants, + a",
+      6.337996563227458e-05,
+      0.006774816306460707
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 64 descendants, ~ a",
+      3.626103136156189e-06,
+      4.552727535767076e-05
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 64 descendants, + section a",
+      9.117219454068959e-06,
+      8.139538823191591e-05
+    ],
+    [
+      "match each anchor against div a[href] — daring fireball (10 kB)",
+      1.9102546343259994e-06,
+      0.0009396612698083118
+    ],
+    [
+      "match each anchor against div a[href] — ars technica (56 kB)",
+      5.3951642560316294e-06,
+      0.0013945125726953242
+    ],
+    [
+      "match each anchor against div a[href] — mozilla blog (95 kB)",
+      6.253246518935403e-06,
+      0.0019207101325264375
+    ],
+    [
+      "match each anchor against div a[href] — whatwg spec (235 kB)",
+      1.1463091108214011e-05,
+      0.0025473642107044724
+    ],
+    [
+      "find by text content — daring fireball (10 kB)",
+      4.407617166393152e-05,
+      5.318207400767013e-05
+    ],
+    [
+      "find by text content — ars technica (56 kB)",
+      0.00016981182050794055,
+      0.0001821818648096496
+    ],
+    [
+      "find by text content — mozilla blog (95 kB)",
+      0.00026176039564234087,
+      0.0003243099646150919
+    ],
+    [
+      "find by text content — whatwg spec (235 kB)",
+      0.000715929849419202,
+      0.0016084442699517846
+    ],
+    [
+      "find by exact descendant text — flat matches",
+      9.212484353137522e-05,
+      0.0060736900145457184
+    ],
+    [
+      "find by exact descendant text — nested matches",
+      9.234269485247638e-06,
+      0.0007037909185517795
+    ],
+    [
+      "find by exact descendant text — nested short expectation",
+      0.00011120613743287322,
+      0.0180719401226573
+    ],
+    [
+      "find by exact descendant text — wide early mismatch",
+      3.7965735708430276e-06,
+      0.000642999117197481
+    ],
+    [
+      "find by exact descendant text — wide match",
+      5.120805357279323e-05,
+      0.002940701012751864
+    ],
+    [
+      "find by exact descendant text — wide late mismatch",
+      7.435660279260977e-06,
+      0.0003841656895720765
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 0 characters, True",
+      1.5439166806885395e-05,
+      0.0004401028970467754
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 0 characters, False",
+      1.2371722396646116e-05,
+      0.0003105737305910831
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 16 characters, True",
+      1.0498189497868774e-05,
+      0.0002590381189842598
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 16 characters, False",
+      1.0446114714627679e-05,
+      0.00028192205589334663
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 4,096 characters, True",
+      1.7886513543648637e-05,
+      0.0002588969179024995
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 4,096 characters, False",
+      1.0630931891538372e-05,
+      0.00028850819237694243
+    ],
+    [
+      "collect visible text — daring fireball (10 kB)",
+      1.4449838189545262e-06,
+      0.00016221872301305968
+    ],
+    [
+      "collect visible text — ars technica (56 kB)",
+      6.6041096077403456e-06,
+      0.0005370293583837338
+    ],
+    [
+      "collect visible text — mozilla blog (95 kB)",
+      1.798483004217625e-05,
+      0.0010661826655071613
+    ],
+    [
+      "collect visible text — whatwg spec (235 kB)",
+      6.125418689038043e-05,
+      0.005513767408774584
     ],
     [
       "collect visible text — 4,096 short Text descendants",
-      1.263131269505872e-05,
-      0.0015548861762605763
+      1.2245065507994942e-05,
+      0.0025050350174751655
     ],
     [
       "collect visible text — one Text descendant (256 KiB)",
-      2.888353814493409e-05,
-      0.0013119612629755768
+      4.630742640401309e-05,
+      0.0025089552770320247
     ],
     [
-      "collect visible text — tiny Text descendant",
-      8.439071808030718e-08,
-      5.900425168903212e-06
+      "collect visible text — Text descendant (385k chars)",
+      6.212255881337115e-05,
+      0.0031178503573149404
     ],
     [
-      "collect visible text — Latin-1 Text descendant (16 Ki chars)",
-      1.7945577314530208e-06,
-      0.00011790313025509629
+      "collect visible text — Latin-1 Text descendant (360k chars)",
+      6.26834991673301e-05,
+      0.0037342879687760917
     ],
     [
-      "collect visible text — BMP Text descendant (16 Ki chars)",
-      1.9026723950451203e-06,
-      0.00013932286585334927
+      "collect visible text — BMP Text descendant (360k chars)",
+      5.839627204456595e-05,
+      0.002729874107020199
     ],
     [
-      "collect visible text — astral Text descendant (16 Ki chars)",
-      2.273537794472702e-06,
-      0.00015812299278650244
+      "collect visible text — astral Text descendant (210k chars)",
+      4.3006471770231274e-05,
+      0.0029834632650211764
+    ],
+    [
+      "serialize body children — daring fireball (10 kB)",
+      7.666890910288751e-06,
+      2.2181265373196386e-05
+    ],
+    [
+      "serialize body children — ars technica (56 kB)",
+      2.717296123506685e-05,
+      0.0001106874983245613
+    ],
+    [
+      "serialize body children — mozilla blog (95 kB)",
+      9.640706118100677e-05,
+      0.00022890726838416717
+    ],
+    [
+      "serialize body children — whatwg spec (235 kB)",
+      0.00021812494166510986,
+      0.0008200289078104106
+    ],
+    [
+      "encode body children as UTF-8 — daring fireball (10 kB)",
+      1.091687557064347e-05,
+      3.852822264486614e-05
+    ],
+    [
+      "encode body children as UTF-8 — ars technica (56 kB)",
+      4.008666779427017e-05,
+      0.0002494660131655261
+    ],
+    [
+      "encode body children as UTF-8 — mozilla blog (95 kB)",
+      7.771507063220421e-05,
+      0.0002492312560927227
+    ],
+    [
+      "encode body children as UTF-8 — whatwg spec (235 kB)",
+      0.0002578569745499711,
+      0.0009211604056190481
+    ],
+    [
+      "serialize a parsed tree — daring fireball (10 kB)",
+      6.032475449006351e-06,
+      1.5617208339335777e-05
+    ],
+    [
+      "serialize a parsed tree — ars technica (56 kB)",
+      2.9801759121757718e-05,
+      6.578426946598862e-05
+    ],
+    [
+      "serialize a parsed tree — mozilla blog (95 kB)",
+      9.571102495158357e-05,
+      0.00013063065128164907
+    ],
+    [
+      "serialize a parsed tree — whatwg spec (235 kB)",
+      0.0001743907279925831,
+      0.0003219460222927258
+    ],
+    [
+      "tag every link rel=nofollow — daring fireball (10 kB)",
+      7.465165245908641e-06,
+      4.294489863999236e-05
+    ],
+    [
+      "tag every link rel=nofollow — ars technica (56 kB)",
+      1.63340359894922e-05,
+      6.904091511993708e-05
+    ],
+    [
+      "tag every link rel=nofollow — mozilla blog (95 kB)",
+      3.158317499393585e-05,
+      8.845212350934162e-05
+    ],
+    [
+      "tag every link rel=nofollow — whatwg spec (235 kB)",
+      5.915473454554861e-05,
+      0.00014119259211232323
+    ],
+    [
+      "class add/remove on every link — daring fireball (10 kB)",
+      3.0261326082451727e-06,
+      7.8566403506386e-05
+    ],
+    [
+      "class add/remove on every link — ars technica (56 kB)",
+      1.1153718441884545e-05,
+      0.00020150192382667836
+    ],
+    [
+      "class add/remove on every link — mozilla blog (95 kB)",
+      3.252520780859432e-05,
+      0.00015998286191442427
+    ],
+    [
+      "class add/remove on every link — whatwg spec (235 kB)",
+      1.5277053473520635e-05,
+      0.0003323822002850344
+    ],
+    [
+      "drop tags with content (remove) — daring fireball (10 kB)",
+      2.4884046047427926e-05,
+      0.0001594747715093566
+    ],
+    [
+      "drop tags with content (remove) — ars technica (56 kB)",
+      0.0001366617947278807,
+      0.0006425832171771617
+    ],
+    [
+      "drop tags with content (remove) — mozilla blog (95 kB)",
+      0.00043097069844103925,
+      0.0018440632525350035
+    ],
+    [
+      "drop tags with content (remove) — whatwg spec (235 kB)",
+      0.0014061955857111268,
+      0.003695562417154482
+    ],
+    [
+      "unwrap tags keep content (strip_tags) — daring fireball (10 kB)",
+      3.9441203649914766e-05,
+      0.0003203491654952965
+    ],
+    [
+      "unwrap tags keep content (strip_tags) — ars technica (56 kB)",
+      0.0002128860095372905,
+      0.0012243046606045028
+    ],
+    [
+      "unwrap tags keep content (strip_tags) — mozilla blog (95 kB)",
+      0.00033274414791814404,
+      0.0016274764691312762
+    ],
+    [
+      "unwrap tags keep content (strip_tags) — whatwg spec (235 kB)",
+      0.0010938072740676338,
+      0.004010577132779265
+    ],
+    [
+      "replace body inner HTML — daring fireball (10 kB)",
+      8.206552796726404e-06,
+      4.3683293677077016e-05
+    ],
+    [
+      "replace body inner HTML — ars technica (56 kB)",
+      1.5166148387872152e-05,
+      9.804385241902006e-05
+    ],
+    [
+      "replace body inner HTML — mozilla blog (95 kB)",
+      1.8981359651585687e-05,
+      0.0001855644641940065
+    ],
+    [
+      "replace body inner HTML — whatwg spec (235 kB)",
+      5.631291681614433e-05,
+      0.0006767679992966198
+    ],
+    [
+      "replace body text — daring fireball (10 kB)",
+      4.3639645639359514e-06,
+      4.098741757161406e-05
+    ],
+    [
+      "replace body text — ars technica (56 kB)",
+      1.03164093990434e-05,
+      8.319716276522134e-05
+    ],
+    [
+      "replace body text — mozilla blog (95 kB)",
+      1.6319957919108673e-05,
+      0.0001574999753074735
+    ],
+    [
+      "replace body text — whatwg spec (235 kB)",
+      4.8905641203115614e-05,
+      0.0005453428232613077
+    ],
+    [
+      "collect closest matching ancestors — 1024 children, distinct ancestors",
+      1.7003210294911733e-05,
+      0.010245391524464745
+    ],
+    [
+      "collect selected nodes' parents — 32,768 children, shared parent",
+      0.00014118144404164922,
+      0.001059372647409873
+    ],
+    [
+      "collect selected nodes' parents — 1024 children, distinct parents",
+      9.560167383604324e-06,
+      0.0013201490764155703
+    ],
+    [
+      "collect selected nodes' siblings — 1024 siblings, one selected",
+      1.567883479710967e-05,
+      6.97976052980683e-05
+    ],
+    [
+      "walk every descendant — daring fireball (10 kB)",
+      7.3219775423775484e-06,
+      9.613406677241679e-05
+    ],
+    [
+      "walk every descendant — ars technica (56 kB)",
+      1.942116749743169e-05,
+      0.0007182433530526093
+    ],
+    [
+      "walk every descendant — mozilla blog (95 kB)",
+      4.117254234638305e-05,
+      0.0012262651968967474
+    ],
+    [
+      "walk every descendant — whatwg spec (235 kB)",
+      0.00013949208138797076,
+      0.00444738443178115
+    ],
+    [
+      "fluent jQuery-style chain — daring fireball (10 kB)",
+      3.706247443672576e-06,
+      9.36831596590082e-05
+    ],
+    [
+      "fluent jQuery-style chain — ars technica (56 kB)",
+      6.370065999365219e-06,
+      0.0002055580078121011
+    ],
+    [
+      "fluent jQuery-style chain — mozilla blog (95 kB)",
+      1.099162271813725e-05,
+      0.00042983445301463994
+    ],
+    [
+      "fluent jQuery-style chain — whatwg spec (235 kB)",
+      2.0919655287462053e-05,
+      0.0003435904075426303
+    ],
+    [
+      "extract every link — daring fireball (10 kB)",
+      4.126489566195583e-06,
+      0.00011876968865938882
+    ],
+    [
+      "extract every link — ars technica (56 kB)",
+      1.200515113938631e-05,
+      0.00039224196067758993
+    ],
+    [
+      "extract every link — mozilla blog (95 kB)",
+      2.3204871616637017e-05,
+      0.001134371564421599
+    ],
+    [
+      "extract every link — whatwg spec (235 kB)",
+      3.519293633876449e-05,
+      0.002142611873508334
+    ],
+    [
+      "absolutize every link — daring fireball (10 kB)",
+      2.2828974529905584e-05,
+      0.0005052504836385197
+    ],
+    [
+      "absolutize every link — ars technica (56 kB)",
+      5.1398215710681446e-05,
+      0.0011860990452381278
+    ],
+    [
+      "absolutize every link — mozilla blog (95 kB)",
+      7.948569746455784e-05,
+      0.001665442639872102
+    ],
+    [
+      "absolutize every link — whatwg spec (235 kB)",
+      0.0001208477509938651,
+      0.0017534222729106356
+    ],
+    [
+      "rewrite every link — daring fireball (10 kB)",
+      6.2739880981747355e-06,
+      0.00028004621877168273
+    ],
+    [
+      "rewrite every link — ars technica (56 kB)",
+      1.1111665823015926e-05,
+      0.0007086064746355684
+    ],
+    [
+      "rewrite every link — mozilla blog (95 kB)",
+      2.1317453017388745e-05,
+      0.0010241727856888853
+    ],
+    [
+      "rewrite every link — whatwg spec (235 kB)",
+      4.4462364432481157e-05,
+      0.0010924187688791183
+    ],
+    [
+      "social-card extraction — head",
+      3.059711224058977e-06,
+      6.962612023026319e-05
+    ],
+    [
+      "social-card extraction — article 8 KiB",
+      2.748777912676322e-05,
+      0.00013349346807747982
+    ],
+    [
+      "social-card extraction — 1,024 OpenGraph properties",
+      0.0001981659202300534,
+      0.012016217654915333
+    ],
+    [
+      "social-card extraction — 1,024 Twitter properties",
+      0.00011098664493734608,
+      0.00805629792612308
+    ],
+    [
+      "social-card extraction — mixed duplicate properties",
+      0.0003364606194376544,
+      0.010652594658010155
+    ],
+    [
+      "extract @href per match — daring fireball (10 kB)",
+      2.4693471769735948e-06,
+      0.00028642278935725094
+    ],
+    [
+      "extract @href per match — ars technica (56 kB)",
+      1.2698153851194623e-05,
+      0.0003669814237298397
+    ],
+    [
+      "extract @href per match — mozilla blog (95 kB)",
+      9.79432344182148e-06,
+      0.0006844860674921923
+    ],
+    [
+      "extract @href per match — whatwg spec (235 kB)",
+      1.0272463034037098e-05,
+      0.0009378252306078139
+    ],
+    [
+      "extract text per match — daring fireball (10 kB)",
+      1.650311965188204e-06,
+      0.00019999193587333746
+    ],
+    [
+      "extract text per match — ars technica (56 kB)",
+      3.830285449050545e-06,
+      0.00039017108969877274
+    ],
+    [
+      "extract text per match — mozilla blog (95 kB)",
+      6.925367144579771e-06,
+      0.0006939374802148753
+    ],
+    [
+      "extract text per match — whatwg spec (235 kB)",
+      7.773743037849575e-06,
+      0.0007417191189460937
+    ],
+    [
+      "extract URL hints — base_url / get_base_url",
+      2.4027845271075893e-06,
+      2.2830807349076092e-05
+    ],
+    [
+      "extract URL hints — meta_refresh / get_meta_refresh",
+      1.8539110320829147e-06,
+      4.398449805904647e-05
+    ],
+    [
+      "extract filtered page links — daring fireball (10 kB)",
+      4.954737102854286e-05,
+      0.0005395056391572932
+    ],
+    [
+      "extract filtered page links — ars technica (56 kB)",
+      0.0001597173068518032,
+      0.0012100610126556906
+    ],
+    [
+      "extract filtered page links — mozilla blog (95 kB)",
+      0.00028917336672217665,
+      0.0028894206653906924
+    ],
+    [
+      "extract filtered page links — whatwg spec (235 kB)",
+      0.0009143084248648848,
+      0.0022149343309289787
     ]
   ],
   "spread": [
     [
       null,
-      0.017811865698954474,
-      0.028836005600347568
+      0.055687664085884596,
+      0.20819725940261896
     ],
     [
       null,
-      0.01685403719786021,
-      0.031056056813625728
+      0.14501934660167712,
+      0.21947521570528877
     ],
     [
       null,
-      0.06175512673196942,
-      0.02450093729005545
+      0.08141380216934119,
+      0.018733651451798186
     ],
     [
       null,
-      0.012307617305106688,
-      0.025084376410609194
+      0.2786151095572327,
+      0.14177445535752115
     ],
     [
       null,
-      0.05211193990106708,
-      0.04109578547648373
+      0.04721965606914756,
+      0.14954839871384243
     ],
     [
       null,
-      0.025296079551833082,
-      0.023341042601135256
+      0.2226383832698468,
+      0.18203056058233064
     ],
     [
       null,
-      0.0198834288564672,
-      0.028169031895030935
+      0.19977648282764995,
+      0.2309728821001868
     ],
     [
       null,
-      0.010131395007331392,
-      0.010091493108414677
+      0.21933346381146127,
+      0.24049674726863957
     ],
     [
       null,
-      0.016578541949531143,
-      0.01862416594811334
+      0.11150018539811962,
+      0.237563489449297
     ],
     [
       null,
-      0.01258883737531283,
-      0.012189697566511844
+      0.0479696538282434,
+      0.28900931351620995
     ],
     [
       null,
-      0.009174080971691142,
-      0.01530713501429531
+      0.03169189951033185,
+      0.048158542144450825
     ],
     [
       null,
-      0.08007343365790227,
-      0.21369261528298356
+      0.1255100671608167,
+      0.12900295748640547
     ],
     [
       null,
-      0.07057413649928163,
-      0.11331107034905318
+      0.040479226228163294,
+      0.031383178893471926
     ],
     [
       null,
-      0.05584284915618356,
-      0.21764341912300644
+      0.2444151129547714,
+      0.15193351133857427
     ],
     [
       null,
-      0.1556131246490548,
-      0.24050819020106617
+      0.22116328682328842,
+      0.0289796734620808
     ],
     [
       null,
-      0.06830492577658687,
-      0.06772515110058275
+      0.040538486592402424,
+      0.23895861030665125
     ],
     [
       null,
-      0.17721965946904594,
-      0.14030554625586572
+      0.25963211740332315,
+      0.06924420887370138
     ],
     [
       null,
-      0.06420801860744194,
-      0.08803661726404828
+      0.28025241371999604,
+      0.088565999766094
     ],
     [
       null,
-      0.1434731292744555,
-      0.09402756459700355
+      0.3813238707611686,
+      0.17375231762212134
     ],
     [
       null,
-      0.005211805572633598,
-      0.016738179867542547
+      0.20763275158482747,
+      0.030674319264420755
     ],
     [
       null,
-      0.0017025216847600924,
-      0.012767045537921804
+      0.2067222748976698,
+      0.21643983655032717
     ],
     [
       null,
-      0.007154794881897219,
-      0.00801928308702624
+      0.14673607356009966,
+      0.19346486707771174
     ],
     [
       null,
-      0.004892786090762265,
-      0.012259595351736463
+      0.03182734137822275,
+      0.02336453751517361
     ],
     [
       null,
-      0.016122630775452614,
-      0.008145338243305046
+      0.032255714822820615,
+      0.22380112587832865
     ],
     [
       null,
-      0.013343117303871551,
-      0.005500403276945411
+      0.1948876755361878,
+      0.16223037716595923
     ],
     [
       null,
-      0.013183863526580197,
-      0.014321403543527381
+      0.15297972897364942,
+      0.03603656187954668
     ],
     [
       null,
-      0.011289263519976833,
-      0.008650447217275545
+      0.11134334253748951,
+      0.24087083311307886
     ],
     [
       null,
-      0.015177318267175655,
-      0.0114089255311616
+      0.17931298297875747,
+      0.09962828693330886
     ],
     [
       null,
-      0.005332215142755112,
-      0.019919775648043373
+      0.03148307887715197,
+      0.08111179034290027
     ],
     [
       null,
-      0.010047381565456441,
-      0.026519813406540537
+      0.04553869007616984,
+      0.2297067929264942
     ],
     [
       null,
-      0.010026722339847716,
-      0.012605678084602803
+      0.0380895961084378,
+      0.3026500626155259
     ],
     [
       null,
-      0.02540442015288737,
-      0.07315527834494258
+      0.04804851478165104,
+      0.18674900484451404
     ],
     [
       null,
-      0.03128630963943776,
-      0.2527079027531315
+      0.05621863441030258,
+      0.18528603047631798
     ],
     [
       null,
-      0.0186942590684637,
-      0.16242156514905884
+      0.023011313231102733,
+      0.2245460241278639
     ],
     [
       null,
-      0.014153470477669563,
-      0.06167775948210557
+      0.10430406736434975,
+      0.15151887943975526
     ],
     [
       null,
-      0.007978698612384906,
-      0.019822128618120688
+      0.20559964458891578,
+      0.14998155749974823
     ],
     [
       null,
-      0.010601219026823873,
-      0.01711665299518703
+      0.030563190552256522,
+      0.3159388281509588
     ],
     [
       null,
-      0.011227036136653152,
-      0.011392530334610015
+      0.10380668415046201,
+      0.23585819041554318
     ],
     [
       null,
-      0.012636124119458764,
-      0.015313215440104486
+      0.1744424353149384,
+      0.14427348536979437
     ],
     [
       null,
-      0.005744019000053145,
-      0.05645704471135147
+      0.1583342943068193,
+      0.18627621314733525
     ],
     [
       null,
-      0.0031552845379490863,
-      0.010128124651134655
+      0.06652640195693231,
+      0.1458469399104438
     ],
     [
       null,
-      0.010592167560543656,
-      0.0038269563255252078
+      0.21155286404938972,
+      0.019024229326312467
     ],
     [
       null,
-      0.014782318765917714,
-      0.00939021220579453
+      0.03224185886576057,
+      0.10843033038158514
     ],
     [
       null,
-      0.011543161655518372,
-      0.015984626408231697
+      0.03115417984981591,
+      0.09011429356602027
     ],
     [
       null,
-      0.006555953032075775,
-      0.015127065411125337
+      0.2587501527702032,
+      0.033655651380829044
     ],
     [
       null,
-      0.008039615175072675,
-      0.035568638151024526
+      0.061765697032136,
+      0.05431087174137192
     ],
     [
       null,
-      0.01640851559748922,
-      0.021963806740855612
+      0.1926779184624898,
+      0.15310101005406676
     ],
     [
       null,
-      0.013513370583761621,
-      0.009587214545415406
+      0.3345776423024697,
+      0.22990919100187798
     ],
     [
       null,
-      0.06097882005859096,
-      0.013300072279854643
+      0.17086629532505215,
+      0.04257726714666424
     ],
     [
       null,
-      0.01425365540164162,
-      0.012467036575581297
+      0.05893212650740593,
+      0.05695546896678023
     ],
     [
       null,
-      0.02202236371996262,
-      0.010776356883638713
+      0.12234683469061845,
+      0.24590274404291798
     ],
     [
       null,
-      0.01439063626503002,
-      0.0075900994233928255
+      0.14359490666415994,
+      0.17414654326214962
     ],
     [
       null,
-      0.010259170396571617,
-      0.005856120090014029
+      0.010348404531338746,
+      0.02263285481477451
     ],
     [
       null,
-      0.009478294888514104,
-      0.009794238021822697
+      0.10776490172901759,
+      0.07642370819466171
     ],
     [
       null,
-      0.006354426830144802,
-      0.008239215968492777
+      0.08317051027361672,
+      0.1156033378071182
     ],
     [
       null,
-      0.004488011967059775,
-      0.005738359246451039
+      0.012313956295159138,
+      0.06352978199273943
     ],
     [
       null,
-      0.004021419209960253,
-      0.02559213426174641
+      0.12797753819045674,
+      0.03443779971777386
     ],
     [
       null,
-      0.005285788396780298,
-      0.025163869498065802
+      0.20010774981093213,
+      0.09177679297108775
     ],
     [
       null,
-      0.005285593721732434,
-      0.01138728382268574
+      0.16540754375224703,
+      0.1339719882795657
     ],
     [
       null,
-      0.009654234615469692,
-      0.009902333633598923
+      0.018366630270392866,
+      0.14371008756763168
     ],
     [
       null,
-      0.01274340645596938,
-      0.007558875287856638
+      0.021427425147862614,
+      0.0494915944851891
     ],
     [
       null,
-      0.02081489896319505,
-      0.016164041598234247
+      0.07277241220522625,
+      0.1933812877167418
     ],
     [
       null,
-      0.009621856370480042,
-      0.029359115681049996
+      0.03340191194552815,
+      0.10412330476999482
     ],
     [
       null,
-      0.1905638942872358,
-      0.09626079076033368
+      0.03523659409947232,
+      0.2268119309734522
     ],
     [
       null,
-      0.13979209516180388,
-      0.10844328620105656
+      0.03582255813306203,
+      0.0339067268690126
     ],
     [
       null,
-      0.09227398650154403,
-      0.0994675158765982
+      0.3144170935682769,
+      0.012929403732241915
     ],
     [
       null,
-      0.04344184305052661,
-      0.04952645743644296
+      0.15054495646891072,
+      0.014840762334427418
     ],
     [
       null,
-      0.033531589420485355,
-      0.05293479393063974
+      0.03036470040520642,
+      0.14145269695588356
     ],
     [
       null,
-      0.009126761347801857,
-      0.03240088513209726
+      0.08764512059356946,
+      0.20837417258277768
     ],
     [
       null,
-      0.018904092332618992,
-      0.02683016582508581
+      0.060420968361885805,
+      0.1206608641846521
     ],
     [
       null,
-      0.012208253570299738,
-      0.046222957523014585
+      0.05400238421881993,
+      0.25032417873094587
     ],
     [
       null,
-      0.025611308465656468,
-      0.24629390122961012
+      0.0686269134026911,
+      0.1366807805987246
     ],
     [
       null,
-      0.012653954590904381,
-      0.05540787554018989
+      0.17263815940928723,
+      0.18779316447182365
     ],
     [
       null,
-      0.004280553044310928,
-      0.05034219665700394
+      0.19018497257129457,
+      0.03530912207434241
     ],
     [
       null,
-      0.01749493908665723,
-      0.031074925454776758
+      0.02336079180375167,
+      0.028500164855883792
     ],
     [
       null,
-      0.024163395539074976,
-      0.022504109232070642
+      0.06097542953955258,
+      0.02833668905653995
     ],
     [
       null,
-      0.004701463761076492,
-      0.010677923434217359
+      0.21699308924109145,
+      0.024790414202541737
     ],
     [
       null,
-      0.037853606550318206,
-      0.036012023098416
+      0.2153662000700901,
+      0.39001101570082053
     ],
     [
       null,
-      0.02137658482041069,
-      0.040705015827531686
+      0.1470695310784037,
+      0.23969459838956667
     ],
     [
       null,
-      0.034786146640059676,
-      0.02131516234375596
+      0.032441456615962,
+      0.03919342012332366
     ],
     [
       null,
-      0.11753613148970057,
-      0.037617611586490914
+      0.2298559462789041,
+      0.05911917557712701
     ],
     [
       null,
-      0.020652478279308554,
-      0.11100104598808323
+      0.031954042922584365,
+      0.1681293587145751
     ],
     [
       null,
-      0.023955880361958906,
-      0.034395960638663126
+      0.012317185842724966,
+      0.14942444646022876
     ],
     [
       null,
-      0.054432153274647316,
-      0.03540277152368059
+      0.13528279921529227,
+      0.07596686092100131
     ],
     [
       null,
-      0.05906567539011922,
-      0.12069037214920053
+      0.10453980211782403,
+      0.021247916811945693
     ],
     [
       null,
-      0.021444005623188087,
-      0.023328813006615705
+      0.21168979409328897,
+      0.15477134549282445
     ],
     [
       null,
-      0.018687318291240693,
-      0.024632905051460333
+      0.06799496423299568,
+      0.11839349941678418
     ],
     [
       null,
-      0.016529254132972147,
-      0.1548508345091371
+      0.1615331461588357,
+      0.09897951924264457
     ],
     [
       null,
-      0.030487043860911212,
-      0.10023359791906923
+      0.041090650077220764,
+      0.07113067406482267
     ],
     [
       null,
-      0.06359342029387884,
-      0.05121286092087061
+      0.025516143392252957,
+      0.19147825285874834
     ],
     [
       null,
-      0.1209415112126743,
-      0.037910575804407244
+      0.17793675152941454,
+      0.06812706086430875
     ],
     [
       null,
-      0.04900239483383481,
-      0.022230086122139406
+      0.33227375111198254,
+      0.01804059854784545
     ],
     [
       null,
-      0.02085759777073082,
-      0.049187479449605755
+      0.5225497014307835,
+      0.15446440140734358
     ],
     [
       null,
-      0.021612543940447097,
-      0.035112558064907415
+      0.03591428751548619,
+      0.32981479775907285
     ],
     [
       null,
-      0.02304510266877739,
-      0.019986889130573796
+      0.2281469236263829,
+      0.1648156459629692
     ],
     [
       null,
-      0.011500230389031871,
-      0.007855413617598754
+      0.30147258804337274,
+      0.26465083490925506
     ],
     [
       null,
-      0.014436976112573876,
-      0.006597681332889434
+      0.32153250770268244,
+      0.16925189239780458
     ],
     [
       null,
-      0.009369529991274703,
-      0.007804687261849634
+      0.13755307586325985,
+      0.2726627263266373
     ],
     [
       null,
-      0.008444578746948619,
-      0.012543935917040349
+      0.10084227140022364,
+      0.22998122474186747
     ],
     [
       null,
-      0.007107456068145223,
-      null
+      0.039368720777730466,
+      0.09166696875909448
     ],
     [
       null,
-      0.0100350789478704,
-      0.018884751965343692
+      0.037297573799911506,
+      0.17967219415988095
     ],
     [
       null,
-      0.022101797675473427,
-      null
+      0.2521107702924842,
+      0.1538349652306301
     ],
     [
       null,
-      0.009435383797476665,
-      null
+      0.20123072103031708,
+      0.10023689499788364
     ],
     [
       null,
-      0.020709800396554418,
-      null
+      0.10750780289938645,
+      0.14355248318948502
     ],
     [
       null,
-      0.016635002923066876,
-      null
+      0.0594126765743067,
+      0.12392158737752422
     ],
     [
       null,
-      0.016115265561391097,
-      0.060711043535211826
+      0.22544901630017572,
+      0.1525321822218503
     ],
     [
       null,
-      0.04770622171924298,
-      null
+      0.20486972443277793,
+      0.09006923913555828
     ],
     [
       null,
-      0.026844825446522138,
-      null
+      0.11860247027626895,
+      0.06020406546832982
     ],
     [
       null,
-      0.029713806092820295,
-      null
+      0.028639343078726842,
+      0.17951002813451433
     ],
     [
       null,
-      0.016147480479929033,
-      null
+      0.01808827952315493,
+      0.06879582091776217
     ],
     [
       null,
-      0.00850065501833793,
-      0.013889415118836674
+      0.10159672378718645,
+      0.03215171596361115
     ],
     [
       null,
-      0.012270255589286072,
-      0.010174383113537723
+      0.07761638356170585,
+      0.043030159851224485
     ],
     [
       null,
-      0.0022773708210177407,
-      0.007392727859271202
+      0.23302794342517963,
+      0.08266687230927541
     ],
     [
       null,
-      0.0074493507514251205,
-      0.016638820076204264
+      0.24356829212889272,
+      0.03600826860008106
     ],
     [
       null,
-      0.02314786359323234,
-      0.011487283528560675
+      0.1396954530989766,
+      0.1723571828023081
     ],
     [
       null,
-      0.030784628890710524,
-      0.015149211656908733
+      0.1686899319322529,
+      0.1899814737462763
     ],
     [
       null,
-      0.059736174292059976,
-      0.022197706015417304
+      0.14432055661955553,
+      0.07366079201293914
     ],
     [
       null,
-      0.008852151016689598,
-      0.008706275652995935
+      0.24294054682784902,
+      0.024274595826259127
     ],
     [
       null,
-      0.025870209813203208,
-      0.12984852835152116
+      0.11696322510300561,
+      0.10486483613368387
     ],
     [
       null,
-      0.04388805631356805,
-      0.017665870999329574
+      0.13064453585843794,
+      0.5795768123367189
     ],
     [
       null,
-      0.05860303187818175,
-      0.014887375802601495
+      0.09945378523257678,
+      0.06133134868091173
     ],
     [
       null,
-      0.006424903220778169,
-      0.007633901764493497
+      0.025644548246994362,
+      0.27834691250391524
     ],
     [
       null,
-      0.028210449952114074,
-      0.02238821276660181
+      0.0704847634361351,
+      0.6497849687318429
     ],
     [
       null,
-      0.020437377963544757,
-      0.007843703959219104
+      0.057087568671782496,
+      0.20759561632171106
     ],
     [
       null,
-      0.02973841127722554,
-      0.026050629773566005
+      0.05215253062314683,
+      0.2397455098598837
     ],
     [
       null,
-      0.0010004073034455116,
-      0.01335696433472527
+      0.1446471339195343,
+      0.19031369903024706
     ],
     [
       null,
-      0.021414629544893777,
-      0.017561169771263516
+      0.1331394611419305,
+      0.16151287501315137
     ],
     [
       null,
-      0.005410608575666442,
-      0.01602385203977207
+      0.06547204930460322,
+      0.21677916329853322
     ],
     [
       null,
-      0.01596707712913634,
-      0.01436961776668667
+      0.036174133000745505,
+      0.21527441510215956
     ],
     [
       null,
-      0.0067346086808015805,
-      0.007702113079781476
+      0.07417482355898374,
+      0.030043527059269406
     ],
     [
       null,
-      0.011275564790704882,
-      0.09455875816505337
+      0.024667655900962766,
+      0.09877664414826888
     ],
     [
       null,
-      0.013426924511193756,
-      0.025704973135176206
+      0.06116670350353729,
+      0.12563751050007751
     ],
     [
       null,
-      0.013719477605957672,
-      0.005063538785604923
+      0.16607102664686538,
+      0.03557148094412317
     ],
     [
       null,
-      0.01017204520649642,
-      0.0168744654929906
+      0.1804099404441867,
+      0.19939839757152303
     ],
     [
       null,
-      0.0050139250400081355,
-      0.008472743032879908
+      0.06701942699375979,
+      0.10234163170831492
     ],
     [
       null,
-      0.01200418082093439,
-      0.03809604565241963
+      0.07363971187351767,
+      0.2197797361858532
     ],
     [
       null,
-      0.010811846894094968,
-      0.022066192657246582
+      0.13297201477119125,
+      0.01694819905092568
     ],
     [
       null,
-      0.008923983467745537,
-      0.009548104730281443
+      0.3165891390896922,
+      0.03601323491364704
     ],
     [
       null,
-      0.01647151667934757,
-      0.01598586352302171
+      0.016209743529786706,
+      0.28585641760588626
     ],
     [
       null,
-      0.016482107866996942,
-      0.020361509449324158
+      0.2730170276187416,
+      0.05960498027027733
     ],
     [
       null,
-      0.026028702535503465,
-      0.015437855733263776
+      0.20580932518538128,
+      0.1654932811986477
     ],
     [
       null,
-      0.02253638814726071,
-      0.02242151393223091
+      0.1747534748049404,
+      0.242321109930496
     ],
     [
       null,
-      0.014065356470422239,
-      0.016477113273807607
+      0.024230779198142267,
+      0.23802018476122622
     ],
     [
       null,
-      0.015305599806628578,
-      0.02603507778299933
+      0.02980584576443957,
+      0.2128380067219351
     ],
     [
       null,
-      0.028107770129741538,
-      0.006735877102401443
+      0.171282345083181,
+      0.19430500178303342
     ],
     [
       null,
-      0.01914409199944166,
-      0.0062546282446872235
+      0.19181325501919066,
+      0.09673994226464361
     ],
     [
       null,
-      0.012152912395178213,
-      0.009946738591501856
+      0.1139145067531272,
+      0.21616637070902062
+    ],
+    [
+      null,
+      0.2213850691309612,
+      0.17478652187331103
+    ],
+    [
+      null,
+      0.029301900950104365,
+      0.1732486234810416
+    ],
+    [
+      null,
+      0.078354582219063,
+      0.25997703139385625
+    ],
+    [
+      null,
+      0.03176778727056635,
+      0.22805089491175606
+    ],
+    [
+      null,
+      0.2521842642648206,
+      0.03864063987031203
     ]
   ],
   "row_notes": {
-    "75": "reads property/content attributes without building an OpenGraph result",
-    "76": "reads property/content attributes without building an OpenGraph result",
-    "23": "collects body or fragment-root text with pyquery's whitespace handling",
-    "24": "collects body or fragment-root text with pyquery's whitespace handling",
-    "25": "collects body or fragment-root text with pyquery's whitespace handling",
-    "26": "collects body or fragment-root text with pyquery's whitespace handling",
-    "141": "collects body or fragment-root text with pyquery's whitespace handling",
-    "142": "collects body or fragment-root text with pyquery's whitespace handling",
-    "143": "collects body or fragment-root text with pyquery's whitespace handling",
-    "144": "collects body or fragment-root text with pyquery's whitespace handling",
-    "145": "collects body or fragment-root text with pyquery's whitespace handling",
-    "146": "collects body or fragment-root text with pyquery's whitespace handling"
+    "63": "collects body or fragment-root text with pyquery's whitespace handling",
+    "64": "collects body or fragment-root text with pyquery's whitespace handling",
+    "65": "collects body or fragment-root text with pyquery's whitespace handling",
+    "66": "collects body or fragment-root text with pyquery's whitespace handling",
+    "67": "collects body or fragment-root text with pyquery's whitespace handling",
+    "68": "collects body or fragment-root text with pyquery's whitespace handling",
+    "69": "collects body or fragment-root text with pyquery's whitespace handling",
+    "70": "collects body or fragment-root text with pyquery's whitespace handling",
+    "71": "collects body or fragment-root text with pyquery's whitespace handling",
+    "72": "collects body or fragment-root text with pyquery's whitespace handling",
+    "133": "reads property/content attributes without building an OpenGraph result",
+    "134": "reads property/content attributes without building an OpenGraph result",
+    "135": "reads property/content attributes without building an OpenGraph result",
+    "136": "reads property/content attributes without building an OpenGraph result",
+    "137": "reads property/content attributes without building an OpenGraph result"
   }
 }

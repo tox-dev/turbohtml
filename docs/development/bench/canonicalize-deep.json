@@ -8,36 +8,38 @@
   "rows": [
     [
       "deep tree (150 deep)",
-      1.5708761253563353e-05,
-      "different HTML infoset"
+      1.1170645134879938e-05,
+      0.00010437996863477868
     ],
     [
       "sparse xlink (150 deep)",
-      9.907305305271544e-06,
-      "different HTML infoset"
+      1.238843263754082e-05,
+      6.33411712300358e-05
     ],
     [
       "shallow ordinary",
-      2.5364455385664305e-07,
-      "different HTML infoset"
+      3.561734056158154e-05,
+      0.00019462980777499675
     ]
   ],
   "spread": [
     [
       null,
-      0.01390137407846425,
-      null
+      0.04564264987390115,
+      0.03481086819296478
     ],
     [
       null,
-      0.019098772271180568,
-      null
+      0.08484886031070907,
+      0.06614401986403408
     ],
     [
       null,
-      0.020425949166036714,
-      null
+      0.0490610972986522,
+      0.2479873131621856
     ]
   ],
-  "notes": {}
+  "notes": {
+    "lxml method=c14n": "HTML parsing omits the empty head element and SVG/xlink namespace declarations"
+  }
 }

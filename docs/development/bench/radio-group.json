@@ -7,40 +7,38 @@
   "rows": [
     [
       "document radios, index build and 64 changes",
-      3.165803360995293e-05
+      3.071165780662947e-05
     ],
     [
-      "small form, one unindexed change",
-      1.3538285202230329e-06
+      "small form, 250 unindexed changes",
+      4.597892658845618e-05
     ],
     [
       "one form among 256, index build and 64 changes",
-      0.00010453122655841677
+      9.993120127849882e-05
     ],
     [
-      "eight changes with index invalidation",
-      1.5086418594970988e-05
+      "50 changes with index invalidation",
+      7.81106581750161e-05
     ]
   ],
   "spread": [
     [
       null,
-      0.01900906250242281
+      0.22317629620693558
     ],
     [
       null,
-      0.01921524041069647
+      0.14719481071378318
     ],
     [
       null,
-      0.016678666763577446
+      0.03959320931196362
     ],
     [
       null,
-      0.016359389031159428
+      0.03517054600291685
     ]
   ],
-  "notes": {
-    "turbohtml": "Document and many-form cases include selection-index construction in the timed call; the mutation case rebuilds after each append. Parsing occurs in untimed setup."
-  }
+  "notes": {}
 }

@@ -8,381 +8,383 @@
   "rows": [
     [
       "find every anchor — daring fireball (10 kB)",
-      3.719253207819702e-07,
-      7.245460001570336e-05
+      6.341729149594855e-07,
+      7.801009737420372e-05
     ],
     [
       "find every anchor — ars technica (56 kB)",
-      8.108394947322258e-07,
-      0.0002700032683454386
+      9.916807835648929e-07,
+      0.0003259608621173508
     ],
     [
       "find every anchor — mozilla blog (95 kB)",
-      1.1198305569504186e-06,
-      0.0005739728460033197
+      1.2974177060476322e-06,
+      0.0006403660858344058
     ],
     [
       "find every anchor — whatwg spec (235 kB)",
-      1.2981219284687502e-06,
-      0.0019351867983156505
+      1.759690947585509e-06,
+      0.0019708910398245887
     ],
     [
       "select div a[href] — daring fireball (10 kB)",
-      8.664876313346781e-07,
-      0.00020128947474707578
+      6.787300494489242e-07,
+      0.00016271101182970446
     ],
     [
       "select div a[href] — ars technica (56 kB)",
-      2.1007462445747175e-06,
-      0.0006807959437840813
+      1.4927145260227685e-06,
+      0.0004961703560487271
     ],
     [
       "select div a[href] — mozilla blog (95 kB)",
-      2.8595163991932774e-06,
-      0.0012473404545744415
+      3.5908673405711983e-06,
+      0.0008656263818465959
     ],
     [
       "select div a[href] — whatwg spec (235 kB)",
-      2.7027715044406856e-06,
-      0.003270034374872921
+      2.987775723302851e-06,
+      0.002307875418182448
     ],
     [
       "select div:has(a) — daring fireball (10 kB)",
-      4.0998681492728415e-07,
-      0.00017419874129700474
+      4.92403097740457e-07,
+      0.00011144039804757236
     ],
     [
       "select div:has(a) — ars technica (56 kB)",
-      1.8435001391499858e-06,
-      0.0005983151041315675
+      1.2340909073242183e-06,
+      0.000526387108864886
     ],
     [
       "select div:has(a) — mozilla blog (95 kB)",
-      9.496353133423933e-06,
-      0.0025191046040466364
+      9.208676529700217e-06,
+      0.0015637549869855624
     ],
     [
       "select div:has(a) — whatwg spec (235 kB)",
-      6.917382136369573e-06,
-      0.0031275526004416556
-    ],
-    [
-      "match each anchor against div a[href] — daring fireball (10 kB)",
-      2.4205087439573467e-06,
-      0.00021685951614927034
-    ],
-    [
-      "match each anchor against div a[href] — ars technica (56 kB)",
-      7.21406046058822e-06,
-      0.0008130047292070231
-    ],
-    [
-      "match each anchor against div a[href] — mozilla blog (95 kB)",
-      7.816334018192113e-06,
-      0.0009222629760188283
-    ],
-    [
-      "match each anchor against div a[href] — whatwg spec (235 kB)",
-      9.08245576927887e-06,
-      0.0011172988270118367
-    ],
-    [
-      "escape 1,000 raw CSS identifiers — mixed shapes (1,000)",
-      6.690426293687324e-05,
-      0.001079754202616338
-    ],
-    [
-      "select child and sibling relationships — 8 nested elements, > a",
-      1.3885563943105694e-07,
-      1.6842321175640034e-05
-    ],
-    [
-      "select child and sibling relationships — 8 nested elements, + a",
-      1.0681020538398182e-07,
-      1.2365750627907346e-05
-    ],
-    [
-      "select child and sibling relationships — 8 nested elements, ~ a",
-      1.1013886006920141e-07,
-      1.2300208188283554e-05
-    ],
-    [
-      "select child and sibling relationships — 8 nested elements, a",
-      2.77636203471765e-07,
-      3.315442313578387e-05
-    ],
-    [
-      "select child and sibling relationships — 100 nested elements, > a",
-      7.404537988679275e-07,
-      0.0001792730543570542
-    ],
-    [
-      "select child and sibling relationships — 100 nested elements, + a",
-      6.391629377618576e-07,
-      0.0001325200806453116
-    ],
-    [
-      "select child and sibling relationships — 100 nested elements, ~ a",
-      6.399140752103941e-07,
-      0.00013025326544872465
-    ],
-    [
-      "select child and sibling relationships — 100 nested elements, a",
-      6.734320119032115e-06,
-      0.0022917296567660137
-    ],
-    [
-      "select child and sibling relationships — 64 siblings with 0 descendants, + a",
-      4.928978808808419e-07,
-      0.0001443306545828212
-    ],
-    [
-      "select child and sibling relationships — 64 siblings with 0 descendants, ~ a",
-      3.672821787740569e-06,
-      0.0010475216464935027
-    ],
-    [
-      "select child and sibling relationships — 64 siblings with 0 descendants, + section a",
-      1.890920160600255e-06,
-      0.0002396097545442899
-    ],
-    [
-      "select child and sibling relationships — 64 siblings with 64 descendants, + a",
-      4.909409281328436e-07,
-      0.002201493814936839
-    ],
-    [
-      "select child and sibling relationships — 64 siblings with 64 descendants, ~ a",
-      3.6347832121919055e-06,
-      0.0031003527001303155
-    ],
-    [
-      "select child and sibling relationships — 64 siblings with 64 descendants, + section a",
-      2.8901645237056073e-05,
-      0.0038663697881323364
+      6.548822431480991e-06,
+      0.0034416608458741394
     ],
     [
       "select default form controls — 1 forms, 4096 spans, 128 buttons, button",
-      1.5261182796007706e-06,
-      0.002362451066498276
+      4.636730359024455e-05,
+      0.11483703374882073
     ],
     [
-      "select default form controls — 1 form, 4096 spans, 128 explicit submit buttons",
-      2.028047010564175e-05,
-      0.013097341121465433
+      "select default form controls — 4 forms, 4096 spans, 128 explicit submit buttons",
+      0.00010962653867115553,
+      0.06888290467807869
     ],
     [
       "select sibling positions in wide trees — li:nth-child(odd) (100 siblings)",
-      1.058463864408073e-06,
-      0.0037711985648153736
+      1.841417760939379e-06,
+      0.0002503533829743295
     ],
     [
       "select sibling positions in wide trees — li:nth-child(odd) (1,000 siblings)",
-      9.717604965449786e-06,
-      0.363368524160857
+      1.497660085192365e-05,
+      0.0024532761079171907
+    ],
+    [
+      "select sibling positions in wide trees — li:nth-child(odd) (10,000 siblings)",
+      0.00011469434726526136,
+      0.025865004919614874
     ],
     [
       "select sibling positions in wide trees — li:nth-child(odd of .x) (100 siblings)",
-      1.4514325199499467e-06,
-      0.006094040471604482
+      1.4655384854345143e-06,
+      0.0003366050518271398
     ],
     [
       "select sibling positions in wide trees — li:nth-child(odd of .x) (1,000 siblings)",
-      1.37065455092511e-05,
-      0.5825016493326984
+      1.2102379968167062e-05,
+      0.0029033752175109838
+    ],
+    [
+      "select sibling positions in wide trees — li:nth-child(odd of .x) (10,000 siblings)",
+      0.0001532453893910694,
+      0.031221141758336065
+    ],
+    [
+      "select child and sibling relationships — 8 nested elements, > a",
+      4.105295527310204e-05,
+      0.011866311506431278
+    ],
+    [
+      "select child and sibling relationships — 8 nested elements, + a",
+      1.6766383980071354e-07,
+      2.9666214343038178e-05
+    ],
+    [
+      "select child and sibling relationships — 8 nested elements, ~ a",
+      2.269305189428472e-07,
+      2.9283608227596385e-05
+    ],
+    [
+      "select child and sibling relationships — 8 nested elements, a",
+      3.3017498312267374e-07,
+      2.9509529455632824e-05
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, > a",
+      3.2011286031045456e-05,
+      0.020491061806266468
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, + a",
+      5.57293335201603e-07,
+      0.00018789132511282485
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, ~ a",
+      1.930080566599675e-06,
+      0.0002838823822287395
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, a",
+      7.731835783886253e-06,
+      0.00032352365752975253
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 0 descendants, + a",
+      4.5582763499307786e-07,
+      0.0001851424620298303
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 0 descendants, ~ a",
+      4.672409986857436e-06,
+      0.0003166436117207165
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 64 descendants, + a",
+      6.337996563227458e-05,
+      0.21020097598375287
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 64 descendants, ~ a",
+      3.626103136156189e-06,
+      0.002189157924491762
+    ],
+    [
+      "match each anchor against div a[href] — daring fireball (10 kB)",
+      1.9102546343259994e-06,
+      0.0002154991252931874
+    ],
+    [
+      "match each anchor against div a[href] — ars technica (56 kB)",
+      5.3951642560316294e-06,
+      0.0007741716013091112
+    ],
+    [
+      "match each anchor against div a[href] — mozilla blog (95 kB)",
+      6.253246518935403e-06,
+      0.0009103824705486356
+    ],
+    [
+      "match each anchor against div a[href] — whatwg spec (235 kB)",
+      1.1463091108214011e-05,
+      0.0014186973292150166
+    ],
+    [
+      "escape 1,000 raw CSS identifiers — mixed shapes (1,000)",
+      5.0874263385480846e-05,
+      0.0013527518130255582
     ]
   ],
   "spread": [
     [
       null,
-      0.010131395007331392,
-      0.006662757773402529
+      0.3813238707611686,
+      0.013080770916352189
     ],
     [
       null,
-      0.016578541949531143,
-      0.0073655984430128045
+      0.20763275158482747,
+      0.23215693748995603
     ],
     [
       null,
-      0.01258883737531283,
-      0.010388995786079004
+      0.2067222748976698,
+      0.09252463769289404
     ],
     [
       null,
-      0.009174080971691142,
-      0.017912632571107777
+      0.14673607356009966,
+      0.025653005022538807
     ],
     [
       null,
-      0.08007343365790227,
-      0.10901020083531142
+      0.03182734137822275,
+      0.114791536614447
     ],
     [
       null,
-      0.07057413649928163,
-      0.07665386013642549
+      0.032255714822820615,
+      0.06767096438309274
     ],
     [
       null,
-      0.05584284915618356,
-      0.06802152751962719
+      0.1948876755361878,
+      0.0350678679237516
     ],
     [
       null,
-      0.1556131246490548,
-      0.0745399613510057
+      0.15297972897364942,
+      0.038818075669321536
     ],
     [
       null,
-      0.06894724265122638,
-      0.16376152547260223
+      0.21997162972647585,
+      0.03680905805645647
     ],
     [
       null,
-      0.1448027412135076,
-      0.08951647771555647
+      0.04309275082208852,
+      0.05682845694663084
     ],
     [
       null,
-      0.11141782021323693,
-      0.10965048134000048
+      0.1401508273029499,
+      0.15999911008218407
     ],
     [
       null,
-      0.05905790423527478,
-      0.12122587200916307
+      0.4046974297060601,
+      0.13502211429158792
     ],
     [
       null,
-      0.06830492577658687,
-      0.1238601731186286
+      0.07607716315550442,
+      0.06101143308666418
     ],
     [
       null,
-      0.17721965946904594,
-      0.41977963513669575
+      0.09536853053990942,
+      0.039607550671547836
     ],
     [
       null,
-      0.06420801860744194,
-      0.0797544693483635
+      0.11134334253748951,
+      0.015364885004535587
     ],
     [
       null,
-      0.1434731292744555,
-      0.09643295985212431
+      0.17931298297875747,
+      0.02141045700851587
     ],
     [
       null,
-      0.018333627446141816,
-      0.007448910606025241
+      0.03148307887715197,
+      0.039739615952953854
     ],
     [
       null,
-      0.02314786359323234,
-      0.020450303682472467
+      0.11658818161916687,
+      0.14241359026154965
     ],
     [
       null,
-      0.030784628890710524,
-      0.005521281895904502
+      0.019075275482018348,
+      0.032697964012968456
     ],
     [
       null,
-      0.059736174292059976,
-      0.007007208455894854
+      0.06942065970711737,
+      0.13133395089706154
     ],
     [
       null,
-      0.008852151016689598,
-      0.004363402368136092
+      0.04553869007616984,
+      0.032162719176623715
     ],
     [
       null,
-      0.025870209813203208,
-      0.006299690285009781
+      0.0380895961084378,
+      0.24099516429589843
     ],
     [
       null,
-      0.04388805631356805,
-      0.01056361736684167
+      0.04804851478165104,
+      0.18358448460450325
     ],
     [
       null,
-      0.05860303187818175,
-      0.005927478610661847
+      0.05621863441030258,
+      0.015075182410695213
     ],
     [
       null,
-      0.006424903220778169,
-      0.008074768156847831
+      0.023011313231102733,
+      0.3048082089055554
     ],
     [
       null,
-      0.028210449952114074,
-      0.005870719616673203
+      0.10430406736434975,
+      0.046766755508523015
     ],
     [
       null,
-      0.020437377963544757,
-      0.010176993128239093
+      0.20559964458891578,
+      0.021770089552719196
     ],
     [
       null,
-      0.010683879761689257,
-      0.00924736320267648
+      0.030563190552256522,
+      0.012356544884538042
     ],
     [
       null,
-      0.02973841127722554,
-      0.022638544524819816
+      0.10380668415046201,
+      0.05354355386707531
     ],
     [
       null,
-      0.0010004073034455116,
-      0.012756430230160687
+      0.1744424353149384,
+      0.10370990214455762
     ],
     [
       null,
-      0.017949384350110092,
-      0.003662131360603463
+      0.06652640195693231,
+      0.07340739812126011
     ],
     [
       null,
-      0.018629330046011305,
-      0.024947922055458194
+      0.21155286404938972,
+      0.17848162490897246
     ],
     [
       null,
-      0.01967096810184678,
-      0.00412187022234827
+      0.03115417984981591,
+      0.025147352814860337
     ],
     [
       null,
-      0.01647151667934757,
-      0.01589883996536962
+      0.2587501527702032,
+      0.24250228757421072
     ],
     [
       null,
-      0.016482107866996942,
-      0.003548493934181583
+      0.061765697032136,
+      0.06231755864207926
     ],
     [
       null,
-      0.007544874315735023,
-      0.009535950261662107
+      0.1926779184624898,
+      0.32062723632068446
     ],
     [
       null,
-      0.013001379470947901,
-      0.006738032964279711
+      0.0246225902691666,
+      0.0642204034081431
     ]
   ],
   "row_notes": {
-    "33": "10,000-sibling cases exceed the sampling budget; no timings collected",
-    "34": "10,000-sibling cases exceed the sampling budget; no timings collected",
-    "35": "10,000-sibling cases exceed the sampling budget; no timings collected",
-    "36": "10,000-sibling cases exceed the sampling budget; no timings collected"
+    "14": "10,000-sibling cases exceed the sampling budget; no timings collected",
+    "15": "10,000-sibling cases exceed the sampling budget; no timings collected",
+    "16": "10,000-sibling cases exceed the sampling budget; no timings collected",
+    "17": "10,000-sibling cases exceed the sampling budget; no timings collected",
+    "18": "10,000-sibling cases exceed the sampling budget; no timings collected",
+    "19": "10,000-sibling cases exceed the sampling budget; no timings collected"
   }
 }

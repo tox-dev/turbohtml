@@ -8,136 +8,191 @@
   "rows": [
     [
       "social-card extraction — head",
-      1.6371414407837885e-06,
-      0.000631909383173479
+      3.059711224058977e-06,
+      0.0007745565752619161
     ],
     [
       "social-card extraction — article 8 KiB",
-      2.237302314019492e-05,
-      0.013539740876391685
-    ],
-    [
-      "article extraction — post (4 KiB)",
-      1.1995847065312168e-05,
-      0.002384047582745552
-    ],
-    [
-      "article extraction — longform (16 KiB)",
-      3.4235055985239644e-05,
-      0.007283071860244187
-    ],
-    [
-      "publication-date extraction — post (4 KiB)",
-      5.9304065735214335e-06,
-      0.0025007032345456537
-    ],
-    [
-      "publication-date extraction — longform (16 KiB)",
-      1.030123477659591e-05,
-      0.008274378248340023
-    ],
-    [
-      "publication-date extraction — 100 meta candidates",
-      1.828077740384515e-05,
-      0.004187224176651701
-    ],
-    [
-      "main-content text — main (4 KiB)",
-      7.358195418897632e-06,
-      0.002519497774907601
+      2.748777912676322e-05,
+      0.027098108167410827
     ],
     [
       "social-card extraction — 1,024 OpenGraph properties",
-      0.00018019057896860127,
-      0.25787673954619095
+      0.0001981659202300534,
+      0.2179436368343886
     ],
     [
       "social-card extraction — 1,024 Twitter properties",
-      0.00010993975140157393,
-      0.2687971942553607
+      0.00011098664493734608,
+      0.216909602030258
     ],
     [
       "social-card extraction — mixed duplicate properties",
-      0.00014086051756597348,
-      0.021256937907310203
+      0.0003364606194376544,
+      0.039670821963227354
+    ],
+    [
+      "article extraction — post (4 KiB)",
+      1.5154897756038584e-05,
+      0.0024918836224211796
+    ],
+    [
+      "article extraction — longform (16 KiB)",
+      4.3527467668506384e-05,
+      0.012725191541903769
+    ],
+    [
+      "publication-date extraction — post (4 KiB)",
+      6.37737470248941e-06,
+      0.0032931070112226734
+    ],
+    [
+      "publication-date extraction — longform (16 KiB)",
+      9.429415504058625e-06,
+      0.00947875664254146
+    ],
+    [
+      "publication-date extraction — 100 meta candidates",
+      1.7254572367401502e-05,
+      0.00418089395067606
+    ],
+    [
+      "publication-date extraction — early temporal ISO date, 36 KiB text",
+      9.101228019995726e-06,
+      0.008205896626168396
+    ],
+    [
+      "publication-date extraction — late temporal ISO date, 36 KiB text",
+      9.721754576534163e-06,
+      0.009758118025274598
     ],
     [
       "publication-date extraction — temporal text without dates, 36 KiB",
-      0.0035919474806481353,
-      0.003461894203307262
+      3.623316302399834e-05,
+      0.008615977397797299
+    ],
+    [
+      "publication-date extraction — single temporal ISO date, 72 KiB text",
+      1.8134315863467993e-05,
+      0.0184303581561835
+    ],
+    [
+      "publication-date extraction — early temporal numeric date, 36 KiB text",
+      1.1300630794271645e-05,
+      0.016141583816352067
+    ],
+    [
+      "publication-date extraction — early temporal written date, 36 KiB text",
+      1.3121247840193935e-05,
+      0.008407252509702328
+    ],
+    [
+      "main-content text — main (4 KiB)",
+      7.124869835273273e-06,
+      0.0034974462647824112
     ]
   ],
   "spread": [
     [
       null,
-      0.024163395539074976,
-      0.010762897958972882
+      0.1804099404441867,
+      0.05627974945318033
     ],
     [
       null,
-      0.004701463761076492,
-      0.007389187327435384
+      0.06701942699375979,
+      0.17347416583152445
     ],
     [
       null,
-      0.32069268491373526,
-      0.14364470763367662
+      0.07363971187351767,
+      0.14245276571820953
     ],
     [
       null,
-      0.004134567035208854,
-      0.009965403842758389
+      0.13297201477119125,
+      0.031037160788491634
     ],
     [
       null,
-      0.004697496985019512,
-      0.15902130549302607
+      0.3165891390896922,
+      0.1069554677715415
     ],
     [
       null,
-      0.007721833090606347,
-      0.008266166525272227
+      0.2065899687789125,
+      0.03001658118249842
     ],
     [
       null,
-      0.008026401759229225,
-      0.017919851624633977
+      0.22936050406511246,
+      0.07670086194150394
     ],
     [
       null,
-      0.045501129435955946,
-      0.056976880840888505
+      0.16943869461981187,
+      0.20492521885298878
     ],
     [
       null,
-      0.08874189628280753,
-      0.004951341926574744
+      0.05081050958111361,
+      0.2528546320422596
     ],
     [
       null,
-      0.0068774349035082664,
-      0.010694213506711094
+      0.030243788249143876,
+      0.0444542276499166
     ],
     [
       null,
-      0.010887075479064178,
-      0.017643860328408534
+      0.2024782543193889,
+      0.024920386567060932
     ],
     [
       null,
-      0.01238570704891151,
-      0.023926681705484426
+      0.023711459471425812,
+      0.2596914894543565
+    ],
+    [
+      null,
+      0.22630802117115748,
+      0.10045284319499118
+    ],
+    [
+      null,
+      0.04608330267504372,
+      0.2280596509562865
+    ],
+    [
+      null,
+      0.18091766728654848,
+      0.39850425286951174
+    ],
+    [
+      null,
+      0.027993068720450154,
+      0.025186982793474214
+    ],
+    [
+      null,
+      0.22739392121764565,
+      0.31808456189594686
     ]
   ],
   "row_notes": {
     "0": "runs full article extraction; repeated properties become lists, not last-value dictionary entries",
     "1": "runs full article extraction; repeated properties become lists, not last-value dictionary entries",
-    "8": "runs full article extraction; repeated properties become lists, not last-value dictionary entries",
-    "9": "runs full article extraction; repeated properties become lists, not last-value dictionary entries",
-    "10": "runs full article extraction; repeated properties become lists, not last-value dictionary entries",
-    "4": "runs article extraction; misses visible <time> dates that turbohtml reports as 2024-05-06",
-    "5": "runs article extraction; misses visible <time> dates that turbohtml reports as 2024-05-06",
-    "6": "runs article extraction; misses visible <time> dates that turbohtml reports as 2024-05-06",
-    "11": "runs article extraction; misses visible <time> dates that turbohtml reports as 2024-05-06"
+    "2": "runs full article extraction; repeated properties become lists, not last-value dictionary entries",
+    "3": "runs full article extraction; repeated properties become lists, not last-value dictionary entries",
+    "4": "runs full article extraction; repeated properties become lists, not last-value dictionary entries",
+    "7": "runs article extraction; misses visible <time> dates that turbohtml reports as 2024-05-06",
+    "8": "runs article extraction; misses visible <time> dates that turbohtml reports as 2024-05-06",
+    "9": "runs article extraction; misses visible <time> dates that turbohtml reports as 2024-05-06",
+    "10": "runs article extraction; misses visible <time> dates that turbohtml reports as 2024-05-06",
+    "11": "runs article extraction; misses visible <time> dates that turbohtml reports as 2024-05-06",
+    "12": "runs article extraction; misses visible <time> dates that turbohtml reports as 2024-05-06",
+    "13": "runs article extraction; misses visible <time> dates that turbohtml reports as 2024-05-06",
+    "14": "runs article extraction; misses visible <time> dates that turbohtml reports as 2024-05-06",
+    "15": "runs article extraction; misses visible <time> dates that turbohtml reports as 2024-05-06"
   }
 }

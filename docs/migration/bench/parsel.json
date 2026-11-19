@@ -8,2190 +8,2230 @@
   "rows": [
     [
       "parse to a tree — wpt tiny (0.6 kB)",
-      1.5334036621942697e-06,
-      9.568442870625896e-06
+      1.5062045098416613e-06,
+      9.373954597021357e-06
     ],
     [
       "parse to a tree — wpt small (4 kB)",
-      1.2224174712471836e-05,
-      4.387577054624595e-05
+      1.086535358982843e-05,
+      2.6430160794651177e-05
     ],
     [
       "parse to a tree — wpt medium (9.6 kB)",
-      3.2532304601318174e-05,
-      0.00010821124610060906
+      2.7421395580518036e-05,
+      0.00010444253504715562
     ],
     [
       "parse to a tree — wpt large (92 kB)",
-      0.0002764673595455254,
-      0.0008670125613813676
+      0.0004081811695641591,
+      0.0008971796834581861
     ],
     [
       "parse to a tree — wpt CJK (124 kB)",
-      0.0005315126403123335,
-      0.0019402755001465266
+      0.0004831533968134257,
+      0.0014730878173319676
     ],
     [
       "parse to a tree — whatwg spec (235 kB)",
-      0.0005188610162273714,
-      0.001740036786638181
+      0.0007491914386794936,
+      0.0022583381703194997
     ],
     [
       "parse to a tree — common tags (13 kB)",
-      7.847152885176456e-05,
-      0.00022048637597057072
-    ],
-    [
-      "find every anchor — daring fireball (10 kB)",
-      3.719253207819702e-07,
-      2.063065379450298e-05
-    ],
-    [
-      "find every anchor — ars technica (56 kB)",
-      8.108394947322258e-07,
-      4.6500811277401986e-05
-    ],
-    [
-      "find every anchor — mozilla blog (95 kB)",
-      1.1198305569504186e-06,
-      6.767446557394881e-05
-    ],
-    [
-      "find every anchor — whatwg spec (235 kB)",
-      1.2981219284687502e-06,
-      0.00010459900918628288
-    ],
-    [
-      "select div a[href] — daring fireball (10 kB)",
-      8.664876313346781e-07,
-      4.5163983880532514e-05
-    ],
-    [
-      "select div a[href] — ars technica (56 kB)",
-      2.1007462445747175e-06,
-      0.00019099419493310657
-    ],
-    [
-      "select div a[href] — mozilla blog (95 kB)",
-      2.8595163991932774e-06,
-      0.0012144940978032538
-    ],
-    [
-      "select div a[href] — whatwg spec (235 kB)",
-      2.7027715044406856e-06,
-      0.001975050612721437
-    ],
-    [
-      "select div:has(a) — daring fireball (10 kB)",
-      4.0998681492728415e-07,
-      1.248806491389587e-05
-    ],
-    [
-      "select div:has(a) — ars technica (56 kB)",
-      1.8435001391499858e-06,
-      6.111812600693157e-05
-    ],
-    [
-      "select div:has(a) — mozilla blog (95 kB)",
-      9.496353133423933e-06,
-      0.00011940008685087377
-    ],
-    [
-      "select div:has(a) — whatwg spec (235 kB)",
-      6.917382136369573e-06,
-      0.0002211317980709282
-    ],
-    [
-      "find by text content — daring fireball (10 kB)",
-      2.4398126384994612e-05,
-      4.5302331687461596e-05
-    ],
-    [
-      "find by text content — ars technica (56 kB)",
-      0.0001733356257318519,
-      0.00024009261070053375
-    ],
-    [
-      "find by text content — mozilla blog (95 kB)",
-      0.0002782246370050719,
-      0.00045536256216867815
-    ],
-    [
-      "find by text content — whatwg spec (235 kB)",
-      0.0005559139003707969,
-      0.0012568086209891287
-    ],
-    [
-      "collect visible text — daring fireball (10 kB)",
-      1.726507028602479e-06,
-      0.00029569839155859273
-    ],
-    [
-      "collect visible text — ars technica (56 kB)",
-      8.818541625525237e-06,
-      0.0013329409186250512
-    ],
-    [
-      "collect visible text — mozilla blog (95 kB)",
-      1.6836218084866534e-05,
-      0.003182836258019961
-    ],
-    [
-      "collect visible text — whatwg spec (235 kB)",
-      4.726010218310724e-05,
-      0.012057314666283977
-    ],
-    [
-      "serialize a parsed tree — daring fireball (10 kB)",
-      6.523800323658217e-06,
-      3.403052011918817e-05
-    ],
-    [
-      "serialize a parsed tree — ars technica (56 kB)",
-      3.478643540214913e-05,
-      0.00016765611100784858
-    ],
-    [
-      "serialize a parsed tree — mozilla blog (95 kB)",
-      6.740825052512871e-05,
-      0.00036593659765079184
-    ],
-    [
-      "serialize a parsed tree — whatwg spec (235 kB)",
-      0.00017435751010452805,
-      0.0006866706679981386
-    ],
-    [
-      "extract every link — daring fireball (10 kB)",
-      1.3464031636563808e-05,
-      9.973011774870126e-05
-    ],
-    [
-      "extract every link — ars technica (56 kB)",
-      4.56970487050512e-05,
-      0.00021189110598622088
-    ],
-    [
-      "extract every link — mozilla blog (95 kB)",
-      7.54788005347488e-05,
-      0.0003283788316821301
-    ],
-    [
-      "extract every link — whatwg spec (235 kB)",
-      6.635500418402292e-05,
-      0.0004924321832125619
-    ],
-    [
-      "extract @href per match — daring fireball (10 kB)",
-      3.5654627478602188e-06,
-      9.576819189286805e-05
-    ],
-    [
-      "extract @href per match — ars technica (56 kB)",
-      9.062482401844818e-06,
-      0.00020849772132199482
-    ],
-    [
-      "extract @href per match — mozilla blog (95 kB)",
-      1.2465481220876503e-05,
-      0.0002988467068310759
-    ],
-    [
-      "extract @href per match — whatwg spec (235 kB)",
-      1.4419585355085474e-05,
-      0.00038562037466742066
-    ],
-    [
-      "extract text per match — daring fireball (10 kB)",
-      2.356617609796293e-06,
-      9.480372786185853e-05
-    ],
-    [
-      "extract text per match — ars technica (56 kB)",
-      5.612442229481947e-06,
-      0.0001932303535928289
-    ],
-    [
-      "extract text per match — mozilla blog (95 kB)",
-      8.647442725144098e-06,
-      0.0002857991061091525
-    ],
-    [
-      "extract text per match — whatwg spec (235 kB)",
-      9.721350358186479e-06,
-      0.0003377339750916993
-    ],
-    [
-      "extract URL hints — base_url / get_base_url",
-      1.168028488374162e-06,
-      1.2138777633433998e-05
-    ],
-    [
-      "extract URL hints — meta_refresh / get_meta_refresh",
-      1.2121741238916666e-06,
-      1.2765728017190744e-05
-    ],
-    [
-      "xpath_path for every element — daring fireball (10 kB)",
-      2.3772182870137235e-05,
-      0.0001112660539092758
-    ],
-    [
-      "xpath_path for every element — ars technica (56 kB)",
-      0.00012597286237602627,
-      0.0007845473520622666
-    ],
-    [
-      "xpath_path for every element — mozilla blog (95 kB)",
-      0.00023665491507927073,
-      0.002016890279871101
-    ],
-    [
-      "xpath_path for every element — whatwg spec (235 kB)",
-      0.0007282851363318817,
-      0.0082918836841903
-    ],
-    [
-      "CSS selector to XPath 1.0 — type",
-      2.0119749516434027e-07,
-      1.0677278040975107e-06
-    ],
-    [
-      "CSS selector to XPath 1.0 — compound",
-      3.414177563998422e-07,
-      1.3213808706780128e-05
-    ],
-    [
-      "CSS selector to XPath 1.0 — structural",
-      3.0487344630329244e-07,
-      1.2415352742323194e-05
-    ],
-    [
-      "CSS selector to XPath 1.0 — complex",
-      5.416443613626143e-07,
-      2.323691008617364e-05
-    ],
-    [
-      "CSS selector to XPath 1.0 — group",
-      4.5421139390396564e-07,
-      1.529403176903088e-05
-    ],
-    [
-      "XPath feature surface (9.6 kB) — ``//div``",
-      9.523478350222566e-07,
-      3.2748442248594264e-05
-    ],
-    [
-      "XPath feature surface (9.6 kB) — ``//a[@href]``",
-      3.7708558635607404e-07,
-      3.7194074839301075e-06
-    ],
-    [
-      "XPath feature surface (9.6 kB) — ``//div//a[@href]``",
-      8.164884723956452e-07,
-      9.81228438113509e-06
-    ],
-    [
-      "XPath feature surface (9.6 kB) — ``/html/body/div``",
-      5.96437743124086e-07,
-      1.5890974762082048e-05
-    ],
-    [
-      "XPath feature surface (9.6 kB) — ``//div//a[1]``",
-      1.7430945294346264e-06,
-      9.822957945774629e-06
-    ],
-    [
-      "XPath feature surface (9.6 kB) — ``//a[contains(@href, '/')]``",
-      3.7765430091207807e-07,
-      3.7289777537659794e-06
-    ],
-    [
-      "XPath feature surface (9.6 kB) — ``//div[position() <= 3]``",
-      4.189791677881397e-06,
-      2.56785273233362e-05
-    ],
-    [
-      "XPath feature surface (9.6 kB) — ``//a/ancestor::div``",
-      3.934955331167759e-07,
-      2.0356866938575634e-06
-    ],
-    [
-      "XPath feature surface (9.6 kB) — ``//a | //span``",
-      6.28784584807048e-07,
-      2.794143084180097e-06
-    ],
-    [
-      "XPath feature surface (9.6 kB) — ``//*[local-name() = 'a']``",
-      3.5265459061554576e-06,
-      1.2661731376232647e-05
-    ],
-    [
-      "XPath feature surface (9.6 kB) — ``count(//a)``",
-      3.823176014281874e-07,
-      2.445771132641994e-06
-    ],
-    [
-      "XPath feature surface (9.6 kB) — //a[@href=$x] (variable)",
-      5.062655132948013e-07,
-      3.93793826852414e-06
-    ],
-    [
-      "XPath feature surface (9.6 kB) — //a[re:test(@href, ...)] (EXSLT)",
-      3.878605232265908e-07,
-      3.720573654201568e-06
-    ],
-    [
-      "XPath feature surface (9.6 kB) — set:distinct(//a) (EXSLT)",
-      4.384279886952373e-07,
-      4.437043549139948e-06
-    ],
-    [
-      "XPath feature surface (9.6 kB) — //a/@href (smart_strings)",
-      4.91762998141206e-07,
-      2.0289254300272693e-06
-    ],
-    [
-      "XPath feature surface (9.6 kB) — ext(//a) (extensions)",
-      1.0365366400681233e-06,
-      "XPath error: Unknown return type: dict in ext_count(//a)"
-    ],
-    [
-      "XPath feature surface (9.6 kB) — ext(//a)/@href (node-set extension)",
-      1.1260434103636344e-06,
-      "XPath error: Unknown return type: dict in ext_first_two(//a)/@href"
-    ],
-    [
-      "XPath feature surface (9.6 kB) — //svg:rect (namespaces=)",
-      5.742202492386994e-07,
-      2.1705129832276054e-06
-    ],
-    [
-      "XPath feature surface (9.6 kB) — $rows/div (node-set variable)",
-      1.4598031308691675e-06,
-      1.5654027720065263e-05
-    ],
-    [
-      "XPath feature surface (9.6 kB) — //a[@href] (precompiled, reused)",
-      3.2719436105499435e-07,
-      2.993979771674186e-06
-    ],
-    [
-      "extract filtered page links — daring fireball (10 kB)",
-      0.00014374658196440274,
-      0.00031386787206126127
-    ],
-    [
-      "extract filtered page links — ars technica (56 kB)",
-      0.0003625916885994229,
-      0.0009077950169663987
-    ],
-    [
-      "extract filtered page links — mozilla blog (95 kB)",
-      0.0006187186553461288,
-      0.0015391715760415536
-    ],
-    [
-      "extract filtered page links — whatwg spec (235 kB)",
-      0.0010619639210744936,
-      0.0024546149131007646
-    ],
-    [
-      "deduplicate XPath string values — 100 nodes, 1 values",
-      6.444697745659292e-06,
-      8.862923543044114e-06
-    ],
-    [
-      "deduplicate XPath string values — 100 nodes, 10 values",
-      7.047422599271158e-06,
-      1.3450713457056433e-05
-    ],
-    [
-      "deduplicate XPath string values — 100 nodes, 100 values",
-      7.744746898197264e-06,
-      7.463034667883524e-05
-    ],
-    [
-      "deduplicate XPath string values — 1,000 nodes, 1 values",
-      6.12383382152378e-05,
-      4.104764397728407e-05
-    ],
-    [
-      "deduplicate XPath string values — 1,000 nodes, 10 values",
-      9.240561804138755e-05,
-      5.868322083036522e-05
-    ],
-    [
-      "deduplicate XPath string values — 1,000 nodes, 1000 values",
-      9.327189703374945e-05,
-      0.0011158239353486958
-    ],
-    [
-      "deduplicate XPath string values — 10,000 nodes, 1 values",
-      0.0005695380428733188,
-      0.00034062573704432
-    ],
-    [
-      "deduplicate XPath string values — 10,000 nodes, 10 values",
-      0.0005677400823212035,
-      0.0003420757265909439
-    ],
-    [
-      "deduplicate XPath string values — 10,000 nodes, 10000 values",
-      0.0008037047739586948,
-      0.006530322916417693
-    ],
-    [
-      "deduplicate XPath string values — 0 nodes, 0 values",
-      1.9825591522545e-07,
-      3.7324542688565997e-06
-    ],
-    [
-      "deduplicate XPath string values — 1 node, 1 value",
-      2.1734399817674445e-07,
-      4.591179068806165e-06
-    ],
-    [
-      "compare XPath node-set membership — intersection, 10 nodes per set",
-      3.5347572217384976e-07,
-      4.8298573043818275e-06
-    ],
-    [
-      "compare XPath node-set membership — intersection, 100 nodes per set",
-      1.3083588176717361e-06,
-      1.0307651245966554e-05
-    ],
-    [
-      "compare XPath node-set membership — intersection, 1,000 nodes per set",
-      1.210832657913367e-05,
-      0.00029780800784161933
-    ],
-    [
-      "compare XPath node-set membership — intersection, 10,000 nodes per set",
-      0.00010557256658406307,
-      0.026717786110627154
-    ],
-    [
-      "compare XPath node-set membership — difference, 10 nodes per set",
-      4.406416943917672e-07,
-      1.0004516419333716e-05
-    ],
-    [
-      "compare XPath node-set membership — difference, 100 nodes per set",
-      2.1927175112068652e-06,
-      5.721008152856181e-05
-    ],
-    [
-      "compare XPath node-set membership — difference, 1,000 nodes per set",
-      2.0888916333205997e-05,
-      0.0008971260336693377
-    ],
-    [
-      "compare XPath node-set membership — difference, 10,000 nodes per set",
-      0.0002652416597508515,
-      0.03184910555719398
-    ],
-    [
-      "compare XPath node-set membership — has-same-node, 10 nodes per set",
-      3.676997342457374e-07,
-      5.9288092112789554e-06
-    ],
-    [
-      "compare XPath node-set membership — has-same-node, 100 nodes per set",
-      1.331935830724736e-06,
-      1.19284571458896e-05
-    ],
-    [
-      "compare XPath node-set membership — has-same-node, 1,000 nodes per set",
-      1.2506582424975932e-05,
-      0.00030370140933276465
-    ],
-    [
-      "compare XPath node-set membership — has-same-node, 10,000 nodes per set",
-      0.00011642360089657208,
-      0.025889144098618998
-    ],
-    [
-      "compare XPath node-set membership — first-node overlap, 10 nodes",
-      2.96874592701594e-07,
-      5.673597722003858e-06
-    ],
-    [
-      "compare XPath node-set membership — first-node overlap, 100 nodes",
-      8.413315905878942e-07,
-      7.767032366245985e-06
-    ],
-    [
-      "compare XPath node-set membership — first-node overlap, 1,000 nodes",
-      5.420474917627871e-06,
-      2.3862509988248348e-05
-    ],
-    [
-      "compare XPath node-set membership — first-node overlap, 10,000 nodes",
-      5.3951055936825774e-05,
-      0.00017281769930074613
-    ],
-    [
-      "compare XPath values — =, 10 nodes per set",
-      4.343799886541433e-06,
-      5.826025153510273e-06
-    ],
-    [
-      "compare XPath values — =, 100 nodes per set",
-      9.110775620987017e-06,
-      1.7883665471648176e-05
-    ],
-    [
-      "compare XPath values — =, 1,000 nodes per set",
-      8.808331719289224e-05,
-      0.0008194506731039534
-    ],
-    [
-      "compare XPath values — =, 2,000 nodes per set",
-      0.0001823819572261224,
-      0.0031633607829765725
-    ],
-    [
-      "compare XPath values — !=, 10 nodes per set",
-      9.26044109898309e-07,
-      6.144109647721052e-06
-    ],
-    [
-      "compare XPath values — !=, 100 nodes per set",
-      7.468749148150285e-06,
-      3.269340668339282e-05
-    ],
-    [
-      "compare XPath values — !=, 1,000 nodes per set",
-      7.574931660201401e-05,
-      0.0018532350659370422
-    ],
-    [
-      "compare XPath values — !=, 2,000 nodes per set",
-      0.0001483409646122406,
-      0.007261712841379146
-    ],
-    [
-      "compare XPath values — scalar equality, 32 characters",
-      3.2794242426822014e-07,
-      5.790649447590113e-06
-    ],
-    [
-      "compare XPath values — scalar equality, 32,768 characters",
-      6.960693611546276e-06,
-      1.7302766597519318e-05
-    ],
-    [
-      "compare XPath values — first-node equality, 1,000 nodes",
-      1.0618402545029918e-05,
-      2.5526726191552976e-05
-    ],
-    [
-      "translate XPath characters — 32 map characters, 32 KiB text",
-      2.449975290801376e-05,
-      0.0014732225689537395
-    ],
-    [
-      "translate XPath characters — 128 map characters, 32 KiB text",
-      2.4762047390443818e-05,
-      0.00461190234515622
-    ],
-    [
-      "translate XPath characters — 512 map characters, 32 KiB text",
-      2.469524498944035e-05,
-      0.01776884620679387
-    ],
-    [
-      "translate XPath characters — ASCII case folding, short text",
-      4.313384398102471e-07,
-      6.19135284007181e-06
-    ],
-    [
-      "compare numeric XPath node sets — <, 10 nodes per set",
-      5.064925062470138e-06,
-      6.4784583325187365e-06
-    ],
-    [
-      "compare numeric XPath node sets — <, 100 nodes per set",
-      8.509709732607008e-06,
-      1.624723469528059e-05
-    ],
-    [
-      "compare numeric XPath node sets — <, 1,000 nodes per set",
-      8.608369680587202e-05,
-      0.00034711943299043925
-    ],
-    [
-      "compare numeric XPath node sets — <=, 10 nodes per set",
-      5.117705829131106e-06,
-      5.968059607160588e-06
-    ],
-    [
-      "compare numeric XPath node sets — <=, 100 nodes per set",
-      8.382267939547697e-06,
-      1.634200937890758e-05
-    ],
-    [
-      "compare numeric XPath node sets — <=, 1,000 nodes per set",
-      8.436107406547913e-05,
-      0.00034740139284015944
-    ],
-    [
-      "compare numeric XPath node sets — >, 10 nodes per set",
-      5.213532131165266e-06,
-      5.948607577010989e-06
-    ],
-    [
-      "compare numeric XPath node sets — >, 100 nodes per set",
-      8.801037135223547e-06,
-      1.7466651236948867e-05
-    ],
-    [
-      "compare numeric XPath node sets — >, 1,000 nodes per set",
-      8.486493316013366e-05,
-      0.0003475083513573433
-    ],
-    [
-      "compare numeric XPath node sets — >=, 10 nodes per set",
-      5.084712756797671e-06,
-      6.068749159264068e-06
-    ],
-    [
-      "compare numeric XPath node sets — >=, 100 nodes per set",
-      9.101726269970338e-06,
-      1.736424940948685e-05
-    ],
-    [
-      "compare numeric XPath node sets — >=, 1,000 nodes per set",
-      8.855695098948975e-05,
-      0.00047266078375590346
-    ],
-    [
-      "compare numeric XPath node sets — first-pair match, 1,000 nodes",
-      1.6178490477614103e-05,
-      4.0575358434580265e-05
-    ],
-    [
-      "serialize body children — daring fireball (10 kB)",
-      9.359944669995457e-06,
-      4.147376762375643e-05
-    ],
-    [
-      "serialize body children — ars technica (56 kB)",
-      4.2464491040542875e-05,
-      0.0001911168901642668
-    ],
-    [
-      "serialize body children — mozilla blog (95 kB)",
-      8.87867843175627e-05,
-      0.0003350556366209882
-    ],
-    [
-      "serialize body children — whatwg spec (235 kB)",
-      0.0002502627500386249,
-      0.001619801432298118
-    ],
-    [
-      "encode body children as UTF-8 — daring fireball (10 kB)",
-      1.2011069808674316e-05,
-      4.4734809231764906e-05
-    ],
-    [
-      "encode body children as UTF-8 — ars technica (56 kB)",
-      5.41490344403428e-05,
-      0.000203173935688028
-    ],
-    [
-      "encode body children as UTF-8 — mozilla blog (95 kB)",
-      0.00010932817895081826,
-      0.00035593641534129955
-    ],
-    [
-      "encode body children as UTF-8 — whatwg spec (235 kB)",
-      0.0003043837621892938,
-      0.0016715732969411572
-    ],
-    [
-      "translate XPath characters — early match, 32 KiB text",
-      2.4445144985444735e-05,
-      0.0001952646646714129
-    ],
-    [
-      "translate XPath characters — duplicate map, 32 KiB text",
-      2.430860932918222e-05,
-      0.00020138422837590042
-    ],
-    [
-      "translate XPath characters — long map, 64 character text",
-      1.2062032582823198e-06,
-      2.460073582521242e-05
-    ],
-    [
-      "translate XPath characters — second entry, 32 KiB text",
-      2.4422989256815222e-05,
-      0.0002263223794367756
-    ],
-    [
-      "translate XPath characters — ASCII cycling",
-      3.6092168428088675e-05,
-      0.000572287239144013
-    ],
-    [
-      "translate XPath characters — Unicode cycling",
-      2.9246365155207362e-05,
-      0.004071899472425381
+      6.681876268051686e-05,
+      0.00017786047152223243
     ],
     [
       "parse under a formatting ancestor — 256 spans / 1,000 samp elements",
-      0.00030204172362573444,
-      0.00022512670924091556
+      0.00011332926520803236,
+      0.00020988800808557546
     ],
     [
       "parse under a formatting ancestor — 0 spans / 1,000 samp elements",
-      8.741940381848204e-05,
-      0.00018266087240590423
-    ],
-    [
-      "concatenate XPath node strings — 10,000 nodes, 32 characters",
-      0.00016334846314218035,
-      0.00035559515536078836
-    ],
-    [
-      "concatenate XPath node strings — 10 nodes, 32768 characters",
-      9.707069242873938e-05,
-      5.2980478149796305e-05
-    ],
-    [
-      "parse ignored block end tags — 256 spans / 1,000 ignored address end tags",
-      7.620852594527605e-05,
-      0.00037924657644907713
-    ],
-    [
-      "resolve XPath ID argument nodes — 10,000 ID argument nodes",
-      0.000716319585050466,
-      0.0012160625223259559
-    ],
-    [
-      "resolve XPath ID argument nodes — 10 long ID argument nodes",
-      0.0003118277181935506,
-      0.000702275260634148
-    ],
-    [
-      "parse nested formatting attributes — 256 b elements / distinct attributes",
-      4.9955719771332954e-05,
-      7.356498883837048e-05
-    ],
-    [
-      "parse nested formatting attributes — 256 b elements / identical attributes",
-      4.9689298612065615e-05,
-      7.331802164192899e-05
-    ],
-    [
-      "parse text beside a NUL — 1,000 paragraphs / early NUL",
-      7.107561307672465e-05,
-      0.00025515722113595985
-    ],
-    [
-      "parse text beside a NUL — 1,000 paragraphs / no NUL",
-      7.09768120600529e-05,
-      0.00024864267005189806
+      0.00012556228491196938,
+      0.0003090058930676302
     ],
     [
       "parse foster-parented text — 1,024 table rows / fostered text runs",
-      0.00016239688323670028,
-      "different tree: missing tbody and different fostered text placement"
+      0.00014678963237220918,
+      0.0003105173839874927
     ],
     [
-      "parse foster-parented text — 1 table rows / fostered text runs",
-      9.250114873182724e-07,
-      "different tree: missing tbody and different fostered text placement"
+      "parse foster-parented text — 300 table rows / fostered text runs",
+      4.166622232896581e-05,
+      9.322531283260105e-05
     ],
     [
       "parse normalized newlines — 1,000 paragraphs / CRLF",
-      8.024827355560168e-05,
-      0.00030054562183371065
+      7.432618808470201e-05,
+      0.0003184996731154873
     ],
     [
       "parse normalized newlines — 1,000 paragraphs / LF",
-      6.902340084025127e-05,
-      0.00025395493697336253
+      6.164213648342335e-05,
+      0.0003146361036177344
     ],
     [
-      "select child and sibling relationships — 8 nested elements, > a",
-      1.3885563943105694e-07,
-      5.778931824925356e-06
+      "parse text beside a NUL — 1,000 paragraphs / early NUL",
+      9.33035842038521e-05,
+      0.00026440751954150225
     ],
     [
-      "select child and sibling relationships — 8 nested elements, + a",
-      1.0681020538398182e-07,
-      5.501672742861767e-06
+      "parse text beside a NUL — 1,000 paragraphs / no NUL",
+      0.0001236047585820188,
+      0.0003189873855357443
     ],
     [
-      "select child and sibling relationships — 8 nested elements, ~ a",
-      1.1013886006920141e-07,
-      5.161547131630566e-06
+      "parse nested formatting attributes — 256 b elements / distinct attributes",
+      2.441232747791844e-05,
+      6.617526080058649e-05
     ],
     [
-      "select child and sibling relationships — 8 nested elements, a",
-      2.77636203471765e-07,
-      9.61660872178527e-06
+      "parse nested formatting attributes — 256 b elements / identical attributes",
+      4.738928103407147e-05,
+      6.693268423655734e-05
     ],
     [
-      "select child and sibling relationships — 100 nested elements, > a",
-      7.404537988679275e-07,
-      1.3547553161667262e-05
+      "parse ignored block end tags — 256 spans / 1,000 ignored address end tags",
+      6.202046070148033e-05,
+      0.0006926750593909977
     ],
     [
-      "select child and sibling relationships — 100 nested elements, + a",
-      6.391629377618576e-07,
-      1.2503139492044587e-05
+      "find every anchor — daring fireball (10 kB)",
+      6.341729149594855e-07,
+      2.3710024631995454e-05
     ],
     [
-      "select child and sibling relationships — 100 nested elements, ~ a",
-      6.399140752103941e-07,
-      1.2038354440117397e-05
+      "find every anchor — ars technica (56 kB)",
+      9.916807835648929e-07,
+      7.928786535084479e-05
     ],
     [
-      "select child and sibling relationships — 100 nested elements, a",
-      6.734320119032115e-06,
-      7.633549835380411e-05
+      "find every anchor — mozilla blog (95 kB)",
+      1.2974177060476322e-06,
+      7.699611777098881e-05
     ],
     [
-      "select child and sibling relationships — 64 siblings with 0 descendants, + a",
-      4.928978808808419e-07,
-      0.00019421607779198288
+      "find every anchor — whatwg spec (235 kB)",
+      1.759690947585509e-06,
+      0.00016337213654272394
     ],
     [
-      "select child and sibling relationships — 64 siblings with 0 descendants, ~ a",
-      3.672821787740569e-06,
-      1.6311294994390362e-05
+      "select div a[href] — daring fireball (10 kB)",
+      6.787300494489242e-07,
+      5.875629167017375e-05
     ],
     [
-      "select child and sibling relationships — 64 siblings with 64 descendants, + a",
-      4.909409281328436e-07,
-      0.00021218542481922972
+      "select div a[href] — ars technica (56 kB)",
+      1.4927145260227685e-06,
+      8.645659959446068e-05
     ],
     [
-      "select child and sibling relationships — 64 siblings with 64 descendants, ~ a",
-      3.6347832121919055e-06,
-      3.3779582561047995e-05
+      "select div a[href] — mozilla blog (95 kB)",
+      3.5908673405711983e-06,
+      0.00015663482329178653
     ],
     [
-      "find by exact descendant text — flat matches",
-      1.465933229383154e-05,
-      0.0006643642717184169
+      "select div a[href] — whatwg spec (235 kB)",
+      2.987775723302851e-06,
+      0.0001468692776181039
     ],
     [
-      "find by exact descendant text — nested matches",
-      9.168320977674208e-06,
-      7.73172964064391e-05
+      "select div:has(a) — daring fireball (10 kB)",
+      4.92403097740457e-07,
+      9.452909022063713e-06
     ],
     [
-      "find by exact descendant text — nested short expectation",
-      4.34875593965008e-06,
-      6.33472036402812e-05
+      "select div:has(a) — ars technica (56 kB)",
+      1.2340909073242183e-06,
+      3.982921567384779e-05
     ],
     [
-      "find by exact descendant text — wide early mismatch",
-      4.503052817147098e-06,
-      3.607434586191024e-05
+      "select div:has(a) — mozilla blog (95 kB)",
+      9.208676529700217e-06,
+      0.0001402736238058348
     ],
     [
-      "find by exact descendant text — wide match",
-      8.224252063371296e-06,
-      4.016809928468016e-05
-    ],
-    [
-      "find by exact descendant text — wide late mismatch",
-      7.881415903909783e-06,
-      3.8336283409989846e-05
-    ],
-    [
-      "find by attribute presence — 1,000 attributes, 0 characters, True",
-      1.2635586178551724e-05,
-      0.0007022129987035441
-    ],
-    [
-      "find by attribute presence — 1,000 attributes, 0 characters, False",
-      1.2651004373272675e-05,
-      0.0007447062711586719
-    ],
-    [
-      "find by attribute presence — 1,000 attributes, 16 characters, True",
-      1.2784605222767217e-05,
-      0.0007515838481898148
-    ],
-    [
-      "find by attribute presence — 1,000 attributes, 16 characters, False",
-      1.2986442989415536e-05,
-      0.0007513856878631486
-    ],
-    [
-      "find by attribute presence — 1,000 attributes, 4,096 characters, True",
-      1.304712465355351e-05,
-      0.0007032598189956237
-    ],
-    [
-      "find by attribute presence — 1,000 attributes, 4,096 characters, False",
-      1.3004546701722575e-05,
-      0.0007466209039345509
-    ],
-    [
-      "CSS selector to XPath 1.0 — 1 ID literals",
-      1.9952590616748958e-07,
-      1.4721522876293136e-06
-    ],
-    [
-      "CSS selector to XPath 1.0 — 1 equality literals",
-      2.3470946786119384e-07,
-      6.732393265688567e-06
-    ],
-    [
-      "CSS selector to XPath 1.0 — 1 long equality literals",
-      4.492632553384131e-07,
-      1.2324993987770464e-05
-    ],
-    [
-      "CSS selector to XPath 1.0 — 1 mixed quotes literals",
-      2.641246058162257e-07,
-      8.215194913674395e-06
-    ],
-    [
-      "CSS selector to XPath 1.0 — 1 class token literals",
-      2.3072563278455269e-07,
-      1.6829010105468e-06
-    ],
-    [
-      "CSS selector to XPath 1.0 — 1 dash match literals",
-      2.6453470495605796e-07,
-      7.347847829445679e-06
-    ],
-    [
-      "CSS selector to XPath 1.0 — 16 ID literals",
-      1.3807733845183634e-06,
-      4.829239314574352e-05
-    ],
-    [
-      "CSS selector to XPath 1.0 — 16 equality literals",
-      2.206421690686966e-06,
-      0.00010102200301768487
-    ],
-    [
-      "CSS selector to XPath 1.0 — 16 long equality literals",
-      5.423091782456406e-06,
-      0.00018386965950867307
-    ],
-    [
-      "CSS selector to XPath 1.0 — 16 mixed quotes literals",
-      2.705383566651657e-06,
-      0.00012158444544259812
-    ],
-    [
-      "CSS selector to XPath 1.0 — 16 class token literals",
-      1.9247076785688932e-06,
-      6.008356214692867e-05
-    ],
-    [
-      "CSS selector to XPath 1.0 — 16 dash match literals",
-      2.7555940933510215e-06,
-      0.00010829735303256409
-    ],
-    [
-      "CSS selector to XPath 1.0 — 128 ID literals",
-      1.0450036159663037e-05,
-      0.00038487550860584935
-    ],
-    [
-      "CSS selector to XPath 1.0 — 128 equality literals",
-      1.66680738497386e-05,
-      0.0008123464895106736
-    ],
-    [
-      "CSS selector to XPath 1.0 — 128 long equality literals",
-      4.312655302859033e-05,
-      0.0014625101716774225
-    ],
-    [
-      "CSS selector to XPath 1.0 — 128 mixed quotes literals",
-      2.0991664046713748e-05,
-      0.0009521716848818566
-    ],
-    [
-      "CSS selector to XPath 1.0 — 128 class token literals",
-      1.4360437617710886e-05,
-      0.0004882452395425692
-    ],
-    [
-      "CSS selector to XPath 1.0 — 128 dash match literals",
-      2.1817126774218803e-05,
-      0.0009404061947861919
+      "select div:has(a) — whatwg spec (235 kB)",
+      6.548822431480991e-06,
+      0.00017722795375997672
     ],
     [
       "select sibling positions in wide trees — li:nth-child(odd) (100 siblings)",
-      1.058463864408073e-06,
-      8.032730102058849e-05
+      1.841417760939379e-06,
+      6.619010918124483e-05
     ],
     [
       "select sibling positions in wide trees — li:nth-child(odd) (1,000 siblings)",
-      9.717604965449786e-06,
-      0.0029962154397556637
+      1.497660085192365e-05,
+      0.002558079448681383
     ],
     [
       "select sibling positions in wide trees — li:nth-child(odd) (10,000 siblings)",
-      0.00012419139263405063,
-      0.24968303825395802
+      0.00011469434726526136,
+      0.18483115906904762
     ],
     [
-      "concatenate XPath node strings — 10 nodes, 32 characters",
-      4.596288865066356e-07,
-      6.597286651791971e-06
+      "select child and sibling relationships — 8 nested elements, > a",
+      4.105295527310204e-05,
+      0.0022666468484355087
+    ],
+    [
+      "select child and sibling relationships — 8 nested elements, + a",
+      1.6766383980071354e-07,
+      2.8477686842591035e-06
+    ],
+    [
+      "select child and sibling relationships — 8 nested elements, ~ a",
+      2.269305189428472e-07,
+      3.1223270930080816e-06
+    ],
+    [
+      "select child and sibling relationships — 8 nested elements, a",
+      3.3017498312267374e-07,
+      1.3015919078659029e-05
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, > a",
+      3.2011286031045456e-05,
+      0.0007129184815160746
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, + a",
+      5.57293335201603e-07,
+      1.054995695592235e-05
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, ~ a",
+      1.930080566599675e-06,
+      8.292824377479728e-06
+    ],
+    [
+      "select child and sibling relationships — 100 nested elements, a",
+      7.731835783886253e-06,
+      9.391554891872526e-05
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 0 descendants, + a",
+      4.5582763499307786e-07,
+      1.2780966554615248e-05
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 0 descendants, ~ a",
+      4.672409986857436e-06,
+      2.189760634969673e-05
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 0 descendants, + section a",
+      3.137714117773527e-06,
+      5.793655409836636e-05
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 64 descendants, + a",
+      6.337996563227458e-05,
+      0.00336367447456117
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 64 descendants, ~ a",
+      3.626103136156189e-06,
+      4.791918686161504e-05
+    ],
+    [
+      "select child and sibling relationships — 64 siblings with 64 descendants, + section a",
+      9.117219454068959e-06,
+      9.15884461742659e-05
+    ],
+    [
+      "deduplicate XPath string values — 1,400 nodes, 1 values",
+      3.083494673129887e-05,
+      7.666737928767968e-05
+    ],
+    [
+      "deduplicate XPath string values — 1,400 nodes, 10 values",
+      2.842929613559401e-05,
+      8.222158937769564e-05
+    ],
+    [
+      "deduplicate XPath string values — 1,400 nodes, 1400 values",
+      4.387912631003133e-05,
+      0.0016247099947577226
+    ],
+    [
+      "deduplicate XPath string values — 1,000 nodes, 1 values",
+      2.7126269030238368e-05,
+      5.097197047163604e-05
+    ],
+    [
+      "deduplicate XPath string values — 1,000 nodes, 10 values",
+      2.786725549270841e-05,
+      4.8030651509378686e-05
+    ],
+    [
+      "deduplicate XPath string values — 1,000 nodes, 1000 values",
+      5.079254116229966e-05,
+      0.0008249181328816728
+    ],
+    [
+      "deduplicate XPath string values — 10,000 nodes, 1 values",
+      0.00020311115632694056,
+      0.0003174471690461663
+    ],
+    [
+      "deduplicate XPath string values — 10,000 nodes, 10 values",
+      0.0001875587738879858,
+      0.000330205176991664
+    ],
+    [
+      "deduplicate XPath string values — 10,000 nodes, 10000 values",
+      0.0008444213581318157,
+      0.011230775126993347
+    ],
+    [
+      "deduplicate XPath string values — 0 nodes, 0 values",
+      5.141001970088155e-05,
+      0.0013695273357143378
+    ],
+    [
+      "deduplicate XPath string values — 1 node, 1 value",
+      8.423217816755368e-05,
+      0.0011086694102535452
+    ],
+    [
+      "compare XPath node-set membership — intersection, 10 nodes per set",
+      6.425109238317184e-07,
+      4.7105390850769405e-06
+    ],
+    [
+      "compare XPath node-set membership — intersection, 3,800 nodes per set",
+      4.1454174755983786e-05,
+      0.004156198592742536
+    ],
+    [
+      "compare XPath node-set membership — intersection, 1,000 nodes per set",
+      1.0824378644732254e-05,
+      0.00024284249980534393
+    ],
+    [
+      "compare XPath node-set membership — intersection, 10,000 nodes per set",
+      0.0003929949851851688,
+      0.035584605993547784
+    ],
+    [
+      "compare XPath node-set membership — difference, 10 nodes per set",
+      7.904805159997253e-07,
+      1.0531946169282473e-05
+    ],
+    [
+      "compare XPath node-set membership — difference, 3,800 nodes per set",
+      8.749655226362545e-05,
+      0.009470342857336314
+    ],
+    [
+      "compare XPath node-set membership — difference, 1,000 nodes per set",
+      3.536671431495127e-05,
+      0.001337487702069969
+    ],
+    [
+      "compare XPath node-set membership — difference, 10,000 nodes per set",
+      0.0005603805790315164,
+      0.026640778355067597
+    ],
+    [
+      "compare XPath node-set membership — has-same-node, 10 nodes per set",
+      7.882639168473501e-07,
+      8.240223429586043e-06
+    ],
+    [
+      "compare XPath node-set membership — has-same-node, 3,800 nodes per set",
+      7.131760953029697e-05,
+      0.005755873714633708
+    ],
+    [
+      "compare XPath node-set membership — has-same-node, 1,000 nodes per set",
+      1.5773115996135328e-05,
+      0.000247209181211853
+    ],
+    [
+      "compare XPath node-set membership — has-same-node, 10,000 nodes per set",
+      0.0003970782531932097,
+      0.02812251752038719
+    ],
+    [
+      "compare XPath node-set membership — first-node overlap, 10 nodes",
+      7.563111990793736e-07,
+      5.260478883902427e-06
+    ],
+    [
+      "compare XPath node-set membership — first-node overlap, 100 nodes",
+      1.0831483983582876e-06,
+      1.0421458994258614e-05
+    ],
+    [
+      "compare XPath node-set membership — first-node overlap, 9,000 nodes",
+      4.228859248556205e-05,
+      0.0001434106908381712
+    ],
+    [
+      "compare XPath node-set membership — first-node overlap, 10,000 nodes",
+      4.722461949432007e-05,
+      0.00027262005586029165
+    ],
+    [
+      "compare XPath values — =, 10 nodes per set",
+      2.178629696662308e-06,
+      4.1646325041592524e-06
+    ],
+    [
+      "compare XPath values — =, 850 nodes per set",
+      4.0584029727597225e-05,
+      0.0003716814392608588
+    ],
+    [
+      "compare XPath values — =, 1,000 nodes per set",
+      9.041550626657606e-05,
+      0.0011177619115869675
+    ],
+    [
+      "compare XPath values — =, 2,000 nodes per set",
+      0.00020183975367539612,
+      0.0028403056603565346
+    ],
+    [
+      "compare XPath values — !=, 10 nodes per set",
+      1.5646061116481035e-06,
+      5.184057682268891e-06
+    ],
+    [
+      "compare XPath values — !=, 850 nodes per set",
+      4.728750236466794e-05,
+      0.00136190239284133
+    ],
+    [
+      "compare XPath values — !=, 1,000 nodes per set",
+      5.297830322348318e-05,
+      0.0029207430445088297
+    ],
+    [
+      "compare XPath values — !=, 2,000 nodes per set",
+      0.00012162341142385458,
+      0.010552494838460309
+    ],
+    [
+      "compare XPath values — scalar equality, 32 characters",
+      6.923972045935755e-07,
+      4.002423795738489e-06
+    ],
+    [
+      "compare XPath values — scalar equality, 32,768 characters",
+      4.210188587923843e-06,
+      2.1996843967523696e-05
+    ],
+    [
+      "compare XPath values — first-node equality, 1,000 nodes",
+      8.661425792588773e-06,
+      1.7052354307030745e-05
+    ],
+    [
+      "resolve XPath ID argument nodes — 10,000 ID argument nodes",
+      0.0004162078016444563,
+      0.0007530441573673367
+    ],
+    [
+      "resolve XPath ID argument nodes — 10 long ID argument nodes",
+      0.0002204021688460974,
+      0.0006375277024896301
+    ],
+    [
+      "concatenate XPath node strings — 10,000 nodes, 32 characters",
+      0.0001671625295917541,
+      0.0002971738803656384
+    ],
+    [
+      "concatenate XPath node strings — 10 nodes, 32768 characters",
+      9.012154237571697e-05,
+      9.802173052548823e-05
+    ],
+    [
+      "concatenate XPath node strings — 2,200 nodes, 32 characters",
+      3.429515174223259e-05,
+      6.464642365623755e-05
     ],
     [
       "concatenate XPath node strings — 10 nested nodes, 32768 characters",
-      0.00011718958201830294,
-      5.340083996922355e-05
+      8.902715135832296e-05,
+      5.417778079390701e-05
     ],
     [
       "concatenate XPath node strings — mixed nodes and attributes",
-      1.5864628283660902e-05,
-      3.900360194108998e-05
+      9.828779764890308e-06,
+      4.488134068481031e-05
+    ],
+    [
+      "translate XPath characters — 32 map characters, 32 KiB text",
+      1.5936445839178267e-05,
+      0.00186389309662142
+    ],
+    [
+      "translate XPath characters — 128 map characters, 32 KiB text",
+      2.329452490208439e-05,
+      0.006268126098924161
+    ],
+    [
+      "translate XPath characters — 512 map characters, 32 KiB text",
+      2.3820142454411554e-05,
+      0.03676162167563841
+    ],
+    [
+      "translate XPath characters — ASCII case folding, short text",
+      0.00011910273593779645,
+      0.000505605019138026
+    ],
+    [
+      "translate XPath characters — early match, 32 KiB text",
+      2.422531376377416e-05,
+      0.0004674634887010143
+    ],
+    [
+      "translate XPath characters — duplicate map, 32 KiB text",
+      2.698441046741588e-05,
+      0.00039786507933285974
+    ],
+    [
+      "translate XPath characters — long map, 64 character text",
+      0.00032845320077020307,
+      0.0019487996942568013
+    ],
+    [
+      "translate XPath characters — second entry, 32 KiB text",
+      2.1276909743050963e-05,
+      0.00032870496556067035
+    ],
+    [
+      "translate XPath characters — ASCII cycling",
+      5.3059397444125504e-05,
+      0.0013935720624810226
+    ],
+    [
+      "translate XPath characters — Unicode cycling",
+      5.214677603362361e-05,
+      0.009302182579206904
+    ],
+    [
+      "compare numeric XPath node sets — <, 10 nodes per set",
+      8.108133622730662e-07,
+      5.3348039111907514e-06
+    ],
+    [
+      "compare numeric XPath node sets — <, 800 nodes per set",
+      5.847626267817911e-05,
+      0.0006939246316960635
+    ],
+    [
+      "compare numeric XPath node sets — <, 1,000 nodes per set",
+      4.196271350333329e-05,
+      0.0010771259319123298
+    ],
+    [
+      "compare numeric XPath node sets — <=, 10 nodes per set",
+      8.231477779322797e-07,
+      4.6189372824301245e-06
+    ],
+    [
+      "compare numeric XPath node sets — <=, 800 nodes per set",
+      6.0520203657669454e-05,
+      0.0006900060236262106
+    ],
+    [
+      "compare numeric XPath node sets — <=, 1,000 nodes per set",
+      6.421909799409301e-05,
+      0.001082132917084285
+    ],
+    [
+      "compare numeric XPath node sets — >, 10 nodes per set",
+      7.811153846404295e-07,
+      4.635099146632626e-06
+    ],
+    [
+      "compare numeric XPath node sets — >, 800 nodes per set",
+      5.381867396655101e-05,
+      0.0008121077153077749
+    ],
+    [
+      "compare numeric XPath node sets — >, 1,000 nodes per set",
+      4.147673019261333e-05,
+      0.0016157884119972247
+    ],
+    [
+      "compare numeric XPath node sets — >=, 10 nodes per set",
+      8.045627768016317e-07,
+      4.920009159903316e-06
+    ],
+    [
+      "compare numeric XPath node sets — >=, 800 nodes per set",
+      6.185847532501991e-05,
+      0.0007025779036553103
+    ],
+    [
+      "compare numeric XPath node sets — >=, 1,000 nodes per set",
+      4.315738655786087e-05,
+      0.0015969054185006825
+    ],
+    [
+      "compare numeric XPath node sets — first-pair match, 1,000 nodes",
+      1.510048732680976e-05,
+      5.298210341753891e-05
+    ],
+    [
+      "find by text content — daring fireball (10 kB)",
+      4.407617166393152e-05,
+      3.147398566506847e-05
+    ],
+    [
+      "find by text content — ars technica (56 kB)",
+      0.00016981182050794055,
+      0.00017053493906094748
+    ],
+    [
+      "find by text content — mozilla blog (95 kB)",
+      0.00026176039564234087,
+      0.0003337058765604676
+    ],
+    [
+      "find by text content — whatwg spec (235 kB)",
+      0.000715929849419202,
+      0.0020140913210980214
+    ],
+    [
+      "find by exact descendant text — flat matches",
+      9.212484353137522e-05,
+      0.00418387046990271
+    ],
+    [
+      "find by exact descendant text — nested matches",
+      9.234269485247638e-06,
+      8.749037098993994e-05
+    ],
+    [
+      "find by exact descendant text — nested short expectation",
+      0.00011120613743287322,
+      0.0007673835502563027
+    ],
+    [
+      "find by exact descendant text — wide early mismatch",
+      3.7965735708430276e-06,
+      4.9449919849564594e-05
+    ],
+    [
+      "find by exact descendant text — wide match",
+      5.120805357279323e-05,
+      0.00030493650963308027
+    ],
+    [
+      "find by exact descendant text — wide late mismatch",
+      7.435660279260977e-06,
+      3.564895417037898e-05
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 0 characters, True",
+      1.5439166806885395e-05,
+      0.000893190500653418
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 0 characters, False",
+      1.2371722396646116e-05,
+      0.0007419103940833338
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 16 characters, True",
+      1.0498189497868774e-05,
+      0.0007391792816482241
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 16 characters, False",
+      1.0446114714627679e-05,
+      0.0008365691190003115
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 4,096 characters, True",
+      1.7886513543648637e-05,
+      0.0009626247451137715
+    ],
+    [
+      "find by attribute presence — 1,000 attributes, 4,096 characters, False",
+      1.0630931891538372e-05,
+      0.0007416419444590853
+    ],
+    [
+      "collect visible text — daring fireball (10 kB)",
+      1.4449838189545262e-06,
+      0.0003112689638290552
+    ],
+    [
+      "collect visible text — ars technica (56 kB)",
+      6.6041096077403456e-06,
+      0.0009533167106913728
+    ],
+    [
+      "collect visible text — mozilla blog (95 kB)",
+      1.798483004217625e-05,
+      0.0028968570062109698
+    ],
+    [
+      "collect visible text — whatwg spec (235 kB)",
+      6.125418689038043e-05,
+      0.007989968802212389
     ],
     [
       "collect visible text — 4,096 short Text descendants",
-      1.263131269505872e-05,
-      0.007834034079375366
+      1.2245065507994942e-05,
+      0.004485406708378529
     ],
     [
       "collect visible text — one Text descendant (256 KiB)",
-      2.888353814493409e-05,
-      2.4742076467039926e-05
+      4.630742640401309e-05,
+      2.4228919866568315e-05
     ],
     [
-      "collect visible text — tiny Text descendant",
-      8.439071808030718e-08,
-      7.292775669280142e-06
+      "collect visible text — Text descendant (385k chars)",
+      6.212255881337115e-05,
+      3.496298939088168e-05
     ],
     [
-      "collect visible text — Latin-1 Text descendant (16 Ki chars)",
-      1.7945577314530208e-06,
-      2.397461616728454e-05
+      "collect visible text — Latin-1 Text descendant (360k chars)",
+      6.26834991673301e-05,
+      0.0003425779120258691
     ],
     [
-      "collect visible text — BMP Text descendant (16 Ki chars)",
-      1.9026723950451203e-06,
-      2.944360689601429e-05
+      "collect visible text — BMP Text descendant (360k chars)",
+      5.839627204456595e-05,
+      0.00043417935389697957
     ],
     [
-      "collect visible text — astral Text descendant (16 Ki chars)",
-      2.273537794472702e-06,
-      3.492220218959119e-05
+      "collect visible text — astral Text descendant (210k chars)",
+      4.3006471770231274e-05,
+      0.0004678361936271358
+    ],
+    [
+      "serialize body children — daring fireball (10 kB)",
+      7.666890910288751e-06,
+      4.393349205547755e-05
+    ],
+    [
+      "serialize body children — ars technica (56 kB)",
+      2.717296123506685e-05,
+      0.00022894152050980665
+    ],
+    [
+      "serialize body children — mozilla blog (95 kB)",
+      9.640706118100677e-05,
+      0.00046530892694439293
+    ],
+    [
+      "serialize body children — whatwg spec (235 kB)",
+      0.00021812494166510986,
+      0.0016785156846253813
+    ],
+    [
+      "encode body children as UTF-8 — daring fireball (10 kB)",
+      1.091687557064347e-05,
+      3.8005972206652436e-05
+    ],
+    [
+      "encode body children as UTF-8 — ars technica (56 kB)",
+      4.008666779427017e-05,
+      0.00015653993395214154
+    ],
+    [
+      "encode body children as UTF-8 — mozilla blog (95 kB)",
+      7.771507063220421e-05,
+      0.0003116070531613483
+    ],
+    [
+      "encode body children as UTF-8 — whatwg spec (235 kB)",
+      0.0002578569745499711,
+      0.0013579083648664891
+    ],
+    [
+      "serialize a parsed tree — daring fireball (10 kB)",
+      6.032475449006351e-06,
+      2.6202424601962095e-05
+    ],
+    [
+      "serialize a parsed tree — ars technica (56 kB)",
+      2.9801759121757718e-05,
+      0.00012685642353271002
+    ],
+    [
+      "serialize a parsed tree — mozilla blog (95 kB)",
+      9.571102495158357e-05,
+      0.0003059856931959833
+    ],
+    [
+      "serialize a parsed tree — whatwg spec (235 kB)",
+      0.0001743907279925831,
+      0.0009841570983629329
+    ],
+    [
+      "extract every link — daring fireball (10 kB)",
+      4.126489566195583e-06,
+      7.736921373577844e-05
+    ],
+    [
+      "extract every link — ars technica (56 kB)",
+      1.200515113938631e-05,
+      0.000251550287828195
+    ],
+    [
+      "extract every link — mozilla blog (95 kB)",
+      2.3204871616637017e-05,
+      0.0011214705078221717
+    ],
+    [
+      "extract every link — whatwg spec (235 kB)",
+      3.519293633876449e-05,
+      0.0015095339583088693
+    ],
+    [
+      "extract @href per match — daring fireball (10 kB)",
+      2.4693471769735948e-06,
+      4.269171675967224e-05
+    ],
+    [
+      "extract @href per match — ars technica (56 kB)",
+      1.2698153851194623e-05,
+      0.00013974314553403625
+    ],
+    [
+      "extract @href per match — mozilla blog (95 kB)",
+      9.79432344182148e-06,
+      0.00018497098778216998
+    ],
+    [
+      "extract @href per match — whatwg spec (235 kB)",
+      1.0272463034037098e-05,
+      0.00017380545551001585
+    ],
+    [
+      "extract text per match — daring fireball (10 kB)",
+      1.650311965188204e-06,
+      3.736366739133245e-05
+    ],
+    [
+      "extract text per match — ars technica (56 kB)",
+      3.830285449050545e-06,
+      0.00015634702965788467
+    ],
+    [
+      "extract text per match — mozilla blog (95 kB)",
+      6.925367144579771e-06,
+      0.00018157735963673834
+    ],
+    [
+      "extract text per match — whatwg spec (235 kB)",
+      7.773743037849575e-06,
+      0.00022849099064880344
+    ],
+    [
+      "extract URL hints — base_url / get_base_url",
+      2.4027845271075893e-06,
+      1.0491138261177941e-05
+    ],
+    [
+      "extract URL hints — meta_refresh / get_meta_refresh",
+      1.8539110320829147e-06,
+      2.045715612197796e-05
+    ],
+    [
+      "xpath_path for every element — daring fireball (10 kB)",
+      2.9921917398212373e-05,
+      0.00013352514660027736
+    ],
+    [
+      "xpath_path for every element — ars technica (56 kB)",
+      8.691702010897492e-05,
+      0.0003800435758724537
+    ],
+    [
+      "xpath_path for every element — mozilla blog (95 kB)",
+      0.00021502167248854676,
+      0.0010568967053662466
+    ],
+    [
+      "xpath_path for every element — whatwg spec (235 kB)",
+      0.0008793903366949962,
+      0.010768886819702554
+    ],
+    [
+      "CSS selector to XPath 1.0 — type",
+      5.499660483584042e-05,
+      0.0006862952951185737
+    ],
+    [
+      "CSS selector to XPath 1.0 — compound",
+      4.886028648232176e-07,
+      1.8297873477616613e-05
+    ],
+    [
+      "CSS selector to XPath 1.0 — structural",
+      5.196634047817857e-07,
+      3.1261332330719446e-05
+    ],
+    [
+      "CSS selector to XPath 1.0 — complex",
+      7.68297421316344e-07,
+      3.499022004357736e-05
+    ],
+    [
+      "CSS selector to XPath 1.0 — group",
+      5.651149247369129e-07,
+      2.3927073712215473e-05
+    ],
+    [
+      "CSS selector to XPath 1.0 — 1 ID literals",
+      2.8533792093739703e-07,
+      2.984231971477532e-06
+    ],
+    [
+      "CSS selector to XPath 1.0 — 1 equality literals",
+      3.281088506612573e-07,
+      8.319289713417296e-06
+    ],
+    [
+      "CSS selector to XPath 1.0 — 1 long equality literals",
+      5.086708754320491e-07,
+      1.3130984566345205e-05
+    ],
+    [
+      "CSS selector to XPath 1.0 — 1 mixed quotes literals",
+      4.053453581194984e-07,
+      1.8163724696051987e-05
+    ],
+    [
+      "CSS selector to XPath 1.0 — 1 case folded literals",
+      3.9544953489197473e-07,
+      2.0078317624694365e-05
+    ],
+    [
+      "CSS selector to XPath 1.0 — 1 class token literals",
+      3.460808026267692e-07,
+      2.9629065503300467e-06
+    ],
+    [
+      "CSS selector to XPath 1.0 — 1 dash match literals",
+      3.778321769028666e-07,
+      2.3524777913290032e-05
+    ],
+    [
+      "CSS selector to XPath 1.0 — 16 ID literals",
+      1.2785359406815763e-06,
+      6.534401012459057e-05
+    ],
+    [
+      "CSS selector to XPath 1.0 — 16 equality literals",
+      2.7133010889635047e-06,
+      0.00019440905456349355
+    ],
+    [
+      "CSS selector to XPath 1.0 — 16 long equality literals",
+      4.280921195013813e-06,
+      0.0001921486972785639
+    ],
+    [
+      "CSS selector to XPath 1.0 — 16 mixed quotes literals",
+      2.1552824564619042e-06,
+      0.00021095715405200128
+    ],
+    [
+      "CSS selector to XPath 1.0 — 16 case folded literals",
+      2.3047838663655304e-06,
+      0.00024027647630570453
+    ],
+    [
+      "CSS selector to XPath 1.0 — 16 class token literals",
+      1.9022580129165097e-06,
+      0.0001080178136902532
+    ],
+    [
+      "CSS selector to XPath 1.0 — 16 dash match literals",
+      3.5119068011309667e-06,
+      0.00023685419577645916
+    ],
+    [
+      "CSS selector to XPath 1.0 — 1024 ID literals",
+      0.00014001145408523523,
+      0.005637152742201579
+    ],
+    [
+      "CSS selector to XPath 1.0 — 1024 equality literals",
+      0.0001631525036647948,
+      0.00856916304067757
+    ],
+    [
+      "CSS selector to XPath 1.0 — 1024 long equality literals",
+      0.0007946680330746858,
+      0.019469544070549696
+    ],
+    [
+      "CSS selector to XPath 1.0 — 1024 mixed quotes literals",
+      0.0002102172628895005,
+      0.010020655484549935
+    ],
+    [
+      "CSS selector to XPath 1.0 — 1024 case folded literals",
+      0.000351903457779675,
+      0.0118421754668816
+    ],
+    [
+      "CSS selector to XPath 1.0 — 1024 class token literals",
+      0.0001998613424840793,
+      0.008865200903771134
+    ],
+    [
+      "CSS selector to XPath 1.0 — 1024 dash match literals",
+      0.0003115072423232353,
+      0.01194603681354541
+    ],
+    [
+      "XPath feature surface (9.6 kB) — ``//div``",
+      1.5201093198265643e-06,
+      7.193245585928783e-05
+    ],
+    [
+      "XPath feature surface (9.6 kB) — ``//a[@href]``",
+      7.438144707198427e-07,
+      3.926005527906303e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — ``//div//a[@href]``",
+      1.4030726347646905e-06,
+      8.85134484374106e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — ``/html/body/div``",
+      1.360459205497951e-06,
+      3.411324081383782e-05
+    ],
+    [
+      "XPath feature surface (9.6 kB) — ``//div//a[1]``",
+      2.774895815497539e-06,
+      1.379034603458488e-05
+    ],
+    [
+      "XPath feature surface (9.6 kB) — ``//a[contains(@href, '/')]``",
+      1.2648742898117385e-06,
+      4.609945654928301e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — ``//div[position() <= 3]``",
+      6.671548925041293e-06,
+      5.620783373648426e-05
+    ],
+    [
+      "XPath feature surface (9.6 kB) — ``//a/ancestor::div``",
+      8.605393925960788e-07,
+      2.537247681940376e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — ``//a | //span``",
+      1.81106091384405e-06,
+      4.155153417636133e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — ``//*[local-name() = 'a']``",
+      5.946806799942787e-06,
+      9.815828364108844e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — ``count(//a)``",
+      2.609928128298004e-06,
+      3.1018803292444846e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — //a[@href=$x] (variable)",
+      1.0212655470853705e-06,
+      4.088230435724446e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — //a[re:test(@href, ...)] (EXSLT)",
+      0.00011714384310721471,
+      0.0005107922087821255
+    ],
+    [
+      "XPath feature surface (9.6 kB) — set:distinct(//a) (EXSLT)",
+      1.0655057342730718e-06,
+      5.106136079469081e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — //a/@href (smart_strings)",
+      1.6542615418835283e-06,
+      2.596186694632981e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — //svg:rect (namespaces=)",
+      1.5013254722380982e-06,
+      3.0254404050911177e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — $rows/div (node-set variable)",
+      1.7844969927516275e-06,
+      1.934187172037601e-05
+    ],
+    [
+      "XPath feature surface (9.6 kB) — //a[@href] (precompiled, reused)",
+      6.648734398928547e-07,
+      4.283536528978023e-06
+    ],
+    [
+      "XPath feature surface (9.6 kB) — article classes (EXSLT)",
+      4.592135953842558e-05,
+      7.412263784990121e-05
+    ],
+    [
+      "extract filtered page links — daring fireball (10 kB)",
+      4.954737102854286e-05,
+      0.00028255198775658147
+    ],
+    [
+      "extract filtered page links — ars technica (56 kB)",
+      0.0001597173068518032,
+      0.0011103767039003288
+    ],
+    [
+      "extract filtered page links — mozilla blog (95 kB)",
+      0.00028917336672217665,
+      0.001883690259486078
+    ],
+    [
+      "extract filtered page links — whatwg spec (235 kB)",
+      0.0009143084248648848,
+      0.0026476818424574352
     ]
   ],
   "spread": [
     [
       null,
-      0.017811865698954474,
-      0.037683300538218
+      0.055687664085884596,
+      0.2465837821717245
     ],
     [
       null,
-      0.01685403719786021,
-      0.0374200520930441
+      0.14501934660167712,
+      0.030699306857561882
     ],
     [
       null,
-      0.06175512673196942,
-      0.047707068589144246
+      0.08141380216934119,
+      0.28345817565160264
     ],
     [
       null,
-      0.012307617305106688,
-      0.021672076318495347
+      0.2786151095572327,
+      0.0985198745711114
     ],
     [
       null,
-      0.05211193990106708,
-      0.04605038357916481
+      0.04721965606914756,
+      0.04686015220908824
     ],
     [
       null,
-      0.025296079551833082,
-      0.01871494459127638
+      0.2226383832698468,
+      0.20959710494125172
     ],
     [
       null,
-      0.0198834288564672,
-      0.076221092285612
+      0.19977648282764995,
+      0.3023100036832653
     ],
     [
       null,
-      0.010131395007331392,
-      0.008625343268997606
+      0.21933346381146127,
+      0.06051685219119098
     ],
     [
       null,
-      0.016578541949531143,
-      0.012769658679505996
+      0.11150018539811962,
+      0.1473545251553627
     ],
     [
       null,
-      0.01258883737531283,
-      0.016252344982394012
+      0.0479696538282434,
+      0.06818127235285552
     ],
     [
       null,
-      0.009174080971691142,
-      0.015933312593258295
+      0.03169189951033185,
+      0.030496769350084784
     ],
     [
       null,
-      0.08007343365790227,
-      0.07835975895164228
+      0.1255100671608167,
+      0.21593400113030467
     ],
     [
       null,
-      0.07057413649928163,
-      0.05412339480002897
+      0.040479226228163294,
+      0.09205024535803664
     ],
     [
       null,
-      0.05584284915618356,
-      0.07456452334496629
+      0.2444151129547714,
+      0.44405860052659435
     ],
     [
       null,
-      0.1556131246490548,
-      0.05273674656312505
+      0.22116328682328842,
+      0.091832728961428
     ],
     [
       null,
-      0.06894724265122638,
-      0.028762263049998092
+      0.040538486592402424,
+      0.019619816608207864
     ],
     [
       null,
-      0.1448027412135076,
-      0.09081370062585051
+      0.25963211740332315,
+      0.06019787428947297
     ],
     [
       null,
-      0.11141782021323693,
-      0.05586084157730204
+      0.28025241371999604,
+      0.07927115462301883
     ],
     [
       null,
-      0.05905790423527478,
-      0.10528474528645017
+      0.3813238707611686,
+      0.10585356370325062
     ],
     [
       null,
-      0.005211805572633598,
-      0.0117147717905853
+      0.20763275158482747,
+      0.27805672633537604
     ],
     [
       null,
-      0.0017025216847600924,
-      0.007711788571318055
+      0.2067222748976698,
+      0.026252229495382782
     ],
     [
       null,
-      0.007154794881897219,
-      0.010246594574577791
+      0.14673607356009966,
+      0.17709011194781904
     ],
     [
       null,
-      0.004892786090762265,
-      0.006437497031808057
+      0.03182734137822275,
+      0.2920244011224894
     ],
     [
       null,
-      0.016122630775452614,
-      0.011863153144738459
+      0.032255714822820615,
+      0.16224882461038792
     ],
     [
       null,
-      0.013343117303871551,
-      0.007254723348578527
+      0.1948876755361878,
+      0.035510694467753595
     ],
     [
       null,
-      0.013183863526580197,
-      0.016542878235094267
+      0.15297972897364942,
+      0.18572278789794688
     ],
     [
       null,
-      0.011289263519976833,
-      0.015084340455599747
+      0.21997162972647585,
+      0.0260928772675235
     ],
     [
       null,
-      0.015177318267175655,
-      0.021613499849754865
+      0.04309275082208852,
+      0.034458556265242704
     ],
     [
       null,
-      0.005332215142755112,
-      0.009917028469805331
+      0.1401508273029499,
+      0.1688241829539459
     ],
     [
       null,
-      0.010047381565456441,
-      0.009068585930265065
+      0.4046974297060601,
+      0.05541358233880518
     ],
     [
       null,
-      0.010026722339847716,
-      0.015126906452761043
+      0.11134334253748951,
+      0.031076252543894203
     ],
     [
       null,
-      0.1905638942872358,
-      0.05908721604046851
+      0.17931298297875747,
+      0.039709338940343654
     ],
     [
       null,
-      0.13979209516180388,
-      0.05260820873932838
+      0.03148307887715197,
+      0.1140629981160605
     ],
     [
       null,
-      0.09227398650154403,
-      0.15167755894071033
+      0.04553869007616984,
+      0.10503482459469
     ],
     [
       null,
-      0.04344184305052661,
-      0.06490956049840732
+      0.0380895961084378,
+      0.1890298948554698
     ],
     [
       null,
-      0.037853606550318206,
-      0.03181522473182087
+      0.04804851478165104,
+      0.14451881318469384
     ],
     [
       null,
-      0.02137658482041069,
-      0.045589929869275375
+      0.05621863441030258,
+      0.2567817517685436
     ],
     [
       null,
-      0.034786146640059676,
-      0.032412421026791184
+      0.023011313231102733,
+      0.14825301898738666
     ],
     [
       null,
-      0.11753613148970057,
-      0.06201229327391395
+      0.10430406736434975,
+      0.08835235391920997
     ],
     [
       null,
-      0.020652478279308554,
-      0.03147186500222947
+      0.20559964458891578,
+      0.1803341556195099
     ],
     [
       null,
-      0.023955880361958906,
-      0.07341711135521371
+      0.030563190552256522,
+      0.20793803277950482
     ],
     [
       null,
-      0.054432153274647316,
-      0.10510857293565441
+      0.10380668415046201,
+      0.2547691074677621
     ],
     [
       null,
-      0.05906567539011922,
-      0.05761745031125985
+      0.1744424353149384,
+      0.2610367345698772
     ],
     [
       null,
-      0.021444005623188087,
-      0.010440533587834915
+      0.1583342943068193,
+      0.1522959791314971
     ],
     [
       null,
-      0.018687318291240693,
-      0.01080911671653363
+      0.06652640195693231,
+      0.2375892512569181
     ],
     [
       null,
-      0.11043829777788142,
-      0.09583719592417642
+      0.21155286404938972,
+      0.10236383350208673
     ],
     [
       null,
-      0.10467555785237453,
-      0.13562987165103751
+      0.03224185886576057,
+      0.1906022955334966
     ],
     [
       null,
-      0.07730837960181292,
-      0.15367005439017067
+      0.25786064272264503,
+      0.18337992648266452
     ],
     [
       null,
-      0.11036378523831425,
-      0.09906031922907282
+      0.10534684848222102,
+      0.09803646101873463
     ],
     [
       null,
-      0.0769825125197662,
-      0.03456627716605327
+      0.020983633630087185,
+      0.07959781964496974
     ],
     [
       null,
-      0.017957314487265615,
-      0.022845796330113508
+      0.07717156924837112,
+      0.07330965681534053
     ],
     [
       null,
-      0.017010465615871443,
-      0.014485356321453464
+      0.11230509612172535,
+      0.2518496071691989
     ],
     [
       null,
-      0.008499267443438452,
-      0.011607542544598587
+      0.1690991635652118,
+      0.14030118176559542
     ],
     [
       null,
-      0.031844310564143385,
-      0.011484256108094015
+      0.11905595956182441,
+      0.23739579534417185
     ],
     [
       null,
-      0.011462316334260432,
-      0.016517797862706136
+      0.03443025085276662,
+      0.13383043535896946
     ],
     [
       null,
-      0.01976836801345961,
-      0.011209209279722483
+      0.3275129146876591,
+      0.08084585669482378
     ],
     [
       null,
-      0.012220969863761763,
-      0.010869552861886204
+      0.050627234789288544,
+      0.189425205633272
     ],
     [
       null,
-      0.006518382230962528,
-      0.014979152700499244
+      0.24762509948573524,
+      0.12660003740169018
     ],
     [
       null,
-      0.0102023025328027,
-      0.010438871744949122
+      0.28001471782103177,
+      0.02599945794504236
     ],
     [
       null,
-      0.017838591399436658,
-      0.013861687369679274
+      0.07741749206123304,
+      0.15282375171436158
     ],
     [
       null,
-      0.008201294082476909,
-      0.015833288505068783
+      0.05989542120385564,
+      0.04508564890943979
     ],
     [
       null,
-      0.016582327279388485,
-      0.023928145944736884
+      0.28952502927987794,
+      0.1661934405608789
     ],
     [
       null,
-      0.008020860481941889,
-      0.022820648054138262
+      0.22848681200648482,
+      0.02179879870909067
     ],
     [
       null,
-      0.008540249040088824,
-      0.04907007609768101
+      0.03439340142281105,
+      0.23880180623675223
     ],
     [
       null,
-      0.01167271019417071,
-      0.01925730895776696
+      0.16946166418473738,
+      0.06885484241963337
     ],
     [
       null,
-      0.015296653305670661,
-      0.013836408378987992
+      0.133886059403982,
+      0.053901605681355345
     ],
     [
       null,
-      0.027714583321594072,
-      0.011181631691251337
+      0.15891592934888463,
+      0.04314111329195315
     ],
     [
       null,
-      0.05605511046376136,
-      0.01297027366336014
+      0.17310387296290716,
+      0.29672286517197977
     ],
     [
       null,
-      0.02950073306911817,
-      0.02280162280152978
+      0.2983314736680878,
+      0.0462169558644903
     ],
     [
       null,
-      0.01479258508916242,
-      null
+      0.300343052828507,
+      0.2207851545328692
     ],
     [
       null,
-      0.018831999127138684,
-      null
+      0.11473921012637035,
+      0.0315184070481279
     ],
     [
       null,
-      0.020026508244092238,
-      0.01503448693901293
+      0.024845581960436788,
+      0.08486087663785843
     ],
     [
       null,
-      0.010614534313832033,
-      0.030629441153154198
+      0.033389186934054585,
+      0.10209733112070912
     ],
     [
       null,
-      0.007921075196912682,
-      0.04472626067057951
+      0.043415967897552164,
+      0.3185220240923887
     ],
     [
       null,
-      0.016529254132972147,
-      0.1747140577921019
+      0.050007431882830834,
+      0.22966408901409932
     ],
     [
       null,
-      0.030487043860911212,
-      0.08997365611435819
+      0.08311502906333858,
+      0.06581206449656413
     ],
     [
       null,
-      0.06359342029387884,
-      0.07830637881531415
+      0.10257614993214527,
+      0.24386153040765793
     ],
     [
       null,
-      0.1209415112126743,
-      0.02974163487052947
+      0.2615124537279475,
+      0.13028155826489005
     ],
     [
       null,
-      0.10724548550575573,
-      0.0893346500482269
+      0.1457670958912259,
+      0.12404026663933519
     ],
     [
       null,
-      0.16394429077955505,
-      0.04350107621259136
+      0.24311041870559907,
+      0.20172870095952103
     ],
     [
       null,
-      0.053860923855230426,
-      0.1138800092714853
+      0.158136566254349,
+      0.07020331594420008
     ],
     [
       null,
-      0.06782627211619467,
-      0.05635553981997147
+      0.22951956949781202,
+      0.09176117142594084
     ],
     [
       null,
-      0.28264667714295305,
-      0.23008965445347415
+      0.076665576151286,
+      0.047282758054133754
     ],
     [
       null,
-      0.11868733478976717,
-      0.5491385649753308
+      0.0725204304451951,
+      0.013925097988783353
     ],
     [
       null,
-      0.036256466953142455,
-      0.08375903420589213
+      0.09580575586057943,
+      0.03158709272094069
     ],
     [
       null,
-      0.05135970630811753,
-      0.009385710383604903
+      0.042461850652248924,
+      0.029156039566546374
     ],
     [
       null,
-      0.033106735906765106,
-      0.02575321379365597
+      0.03610446417162051,
+      0.2872237566503917
     ],
     [
       null,
-      0.05777566236807352,
-      0.060317974169828786
+      0.16443463653048718,
+      0.05370056617225907
     ],
     [
       null,
-      0.02193977895171327,
-      0.05857282131256681
+      0.0714013450638038,
+      0.025191105996680264
     ],
     [
       null,
-      0.07385839207576675,
-      0.03963226318030608
+      0.03514516851120869,
+      0.06383843217308693
     ],
     [
       null,
-      0.1227876213434253,
-      0.020703579253634696
+      0.019617975560858376,
+      0.1985211420968235
     ],
     [
       null,
-      0.08177522133872056,
-      0.012156420548888514
+      0.01571860432414428,
+      0.19052168064534702
     ],
     [
       null,
-      0.017448072135052294,
-      0.07082800086890953
+      0.011611203448940897,
+      0.051516573682168984
     ],
     [
       null,
-      0.05357643560533137,
-      0.046214917989477494
+      0.07357593619819824,
+      0.06787653408381035
     ],
     [
       null,
-      0.0157413056800854,
-      0.008083860836279995
+      0.20757249108300263,
+      0.11095963822901742
     ],
     [
       null,
-      0.01017305582296683,
-      0.15891122259519194
+      0.12761976910949754,
+      0.05637273977287848
     ],
     [
       null,
-      0.03615924485052046,
-      0.010220566415410444
+      0.11030497940280032,
+      0.1359918367355406
     ],
     [
       null,
-      0.056837755123103274,
-      0.04301603820869651
+      0.1559699092650176,
+      0.30859022559655463
     ],
     [
       null,
-      0.02439496304613886,
-      0.03887748633606278
+      0.2753790289073078,
+      0.2152770677458154
     ],
     [
       null,
-      0.015192302295205032,
-      0.02699714646403642
+      0.1731212887831233,
+      0.0233742965705201
     ],
     [
       null,
-      0.010374954989796532,
-      0.005385495727847876
+      0.11824041189127751,
+      0.13009798309955253
     ],
     [
       null,
-      0.08359023219330379,
-      0.04640243311760168
+      0.220808504803186,
+      0.09905618948139457
     ],
     [
       null,
-      0.033337314660101904,
-      0.04112767217783635
+      0.025914903671301538,
+      0.29246224279158994
     ],
     [
       null,
-      0.036350834900566856,
-      0.020233920245703984
+      0.21991371471532414,
+      0.07220995674700822
     ],
     [
       null,
-      0.014848055684720649,
-      0.01883986127206541
+      0.1248040815721408,
+      0.06564022818374486
     ],
     [
       null,
-      0.0632716992869676,
-      0.05268894032095638
+      0.07616221472914758,
+      0.07800942963292154
     ],
     [
       null,
-      0.033279486153401136,
-      0.019215704043585607
+      0.10006743706048263,
+      0.060056454163795146
     ],
     [
       null,
-      0.012074014817817131,
-      0.0044184297780195765
+      0.26836598561183117,
+      0.0639708559809291
     ],
     [
       null,
-      0.03163556803639161,
-      0.008427474361653005
+      0.010724388909714246,
+      0.06940714132723373
     ],
     [
       null,
-      0.05146681550400948,
-      0.030560860961517413
+      0.09207575740764075,
+      0.16401947979654516
     ],
     [
       null,
-      0.02678506879653022,
-      0.0782735403497
+      0.06574416935848569,
+      0.11198629619632773
     ],
     [
       null,
-      0.032665736089634946,
-      0.006160073263011455
+      0.058248681584562916,
+      0.1804849535254497
     ],
     [
       null,
-      0.02278692110779576,
-      0.004695075057937571
+      0.08382739016190104,
+      0.0700102097773105
     ],
     [
       null,
-      0.017689946913561218,
-      0.07505198346630053
+      0.20216988870918717,
+      0.08748685912230948
     ],
     [
       null,
-      0.009243051420117724,
-      0.026926594895641857
+      0.038736822097447624,
+      0.11362665439414427
     ],
     [
       null,
-      0.02565089527625301,
-      0.027901429164836532
+      0.3345776423024697,
+      0.0362654658085701
     ],
     [
       null,
-      0.02042554755888028,
-      0.11941214166393571
+      0.17086629532505215,
+      0.06568541523185244
     ],
     [
       null,
-      0.02520231754200132,
-      0.04314667692687788
+      0.05893212650740593,
+      0.03712142420481514
     ],
     [
       null,
-      0.02182859544768485,
-      0.06544783278986352
+      0.12234683469061845,
+      0.21860703557464323
     ],
     [
       null,
-      0.01879920523583254,
-      0.006273407047268197
+      0.14359490666415994,
+      0.21835352761520574
     ],
     [
       null,
-      0.016828366078097345,
-      0.157957985807601
+      0.010348404531338746,
+      0.23358254328500688
     ],
     [
       null,
-      0.026278004339203322,
-      0.02207242310755202
+      0.10776490172901759,
+      0.02883472651157503
     ],
     [
       null,
-      0.0391711880044224,
-      0.013364554340810143
+      0.08317051027361672,
+      0.1929790850786258
     ],
     [
       null,
-      0.02858709093336446,
-      0.03704435943025712
+      0.012313956295159138,
+      0.23258316430826545
     ],
     [
       null,
-      0.01682464092114954,
-      0.028925766318011727
+      0.12797753819045674,
+      0.15352360372952348
     ],
     [
       null,
-      0.045198712499117326,
-      0.009029133609234267
+      0.20010774981093213,
+      0.2764704127999421
     ],
     [
       null,
-      0.017164561601362545,
-      0.05570147650292131
+      0.16540754375224703,
+      0.048031872934510354
     ],
     [
       null,
-      0.06027450104526468,
-      0.11438380494921245
+      0.018366630270392866,
+      0.09764348677178002
     ],
     [
       null,
-      0.02840870654240528,
-      0.017794295541702896
+      0.021427425147862614,
+      0.1325119357569774
     ],
     [
       null,
-      0.03335712062425471,
-      0.03638044602816951
+      0.07277241220522625,
+      0.2744171679636526
     ],
     [
       null,
-      0.10467133929867097,
-      0.02854286811177817
+      0.03340191194552815,
+      0.01971136594461961
     ],
     [
       null,
-      0.07758981630084391,
-      0.030491791769748353
+      0.03523659409947232,
+      0.24652148308853733
     ],
     [
       null,
-      0.015750883283736555,
-      0.10373842126732559
+      0.03582255813306203,
+      0.22157438911711583
     ],
     [
       null,
-      0.04900239483383481,
-      0.017711326039268668
+      0.3144170935682769,
+      0.13007880934437438
     ],
     [
       null,
-      0.02085759777073082,
-      0.014166779712615787
+      0.15054495646891072,
+      0.023682149980926114
     ],
     [
       null,
-      0.021612543940447097,
-      0.011493888282784746
+      0.03036470040520642,
+      0.03650524961126354
     ],
     [
       null,
-      0.02304510266877739,
-      0.005628496478337765
+      0.08764512059356946,
+      0.1231888065086957
     ],
     [
       null,
-      0.011500230389031871,
-      0.010083359019234676
+      0.060420968361885805,
+      0.18793053527503373
     ],
     [
       null,
-      0.014436976112573876,
-      0.0049037409823255995
+      0.05400238421881993,
+      0.06947934085152413
     ],
     [
       null,
-      0.009369529991274703,
-      0.007763316788080906
+      0.0686269134026911,
+      0.2508456477930536
     ],
     [
       null,
-      0.008444578746948619,
-      0.008746815013287229
+      0.17263815940928723,
+      0.08636383255587458
     ],
     [
       null,
-      0.014634209945943942,
-      0.025594673242861708
+      0.19018497257129457,
+      0.25067635135966465
     ],
     [
       null,
-      0.006972192946356743,
-      0.017009764075822324
+      0.02336079180375167,
+      0.09790685810576452
     ],
     [
       null,
-      0.028057202624651795,
-      0.004979326706381562
+      0.06097542953955258,
+      0.20354450879946934
     ],
     [
       null,
-      0.015463108764796177,
-      0.013758935279063798
+      0.21699308924109145,
+      0.2381853750886508
     ],
     [
       null,
-      0.04375614316014745,
-      0.01934017586171673
+      0.2153662000700901,
+      0.2567578118586648
     ],
     [
       null,
-      0.018635071948143022,
-      0.07387614482610204
+      0.1470695310784037,
+      0.04250404301470261
     ],
     [
       null,
-      0.007107456068145223,
-      0.011145349839548423
+      0.032441456615962,
+      0.2219896344721332
     ],
     [
       null,
-      0.0100350789478704,
-      0.007067458740718529
+      0.2298559462789041,
+      0.034047638840444615
     ],
     [
       null,
-      0.010305320219799161,
-      0.02700556118263957
+      0.031954042922584365,
+      0.06062510192495139
     ],
     [
       null,
-      0.006040536051309516,
-      0.013206369119195507
+      0.012317185842724966,
+      0.024360157002792454
     ],
     [
       null,
-      0.022101797675473427,
-      0.006185641643847483
+      0.13528279921529227,
+      0.2207781986527853
     ],
     [
       null,
-      0.013314958653646793,
-      0.021246382756168358
+      0.10453980211782403,
+      0.04784128963764683
     ],
     [
       null,
-      0.03117250869723997,
-      0.017189433834844014
+      0.025644548246994362,
+      0.2320596465258648
     ],
     [
       null,
-      0.009435383797476665,
-      0.019382343631278335
+      0.0704847634361351,
+      0.031184634355550574
     ],
     [
       null,
-      0.020709800396554418,
-      0.020336491526098937
+      0.057087568671782496,
+      0.17184408841710624
     ],
     [
       null,
-      0.016635002923066876,
-      0.027130805023105102
+      0.05215253062314683,
+      0.05223606843573543
     ],
     [
       null,
-      0.016115265561391097,
-      0.008099227544467104
+      0.016209743529786706,
+      0.20063671927422524
     ],
     [
       null,
-      0.04770622171924298,
-      null
+      0.2730170276187416,
+      0.11446851462438366
     ],
     [
       null,
-      0.026844825446522138,
-      null
+      0.20580932518538128,
+      0.09029183927255643
     ],
     [
       null,
-      0.029713806092820295,
-      0.01880955289809811
+      0.1747534748049404,
+      0.07133321421498663
     ],
     [
       null,
-      0.016147480479929033,
-      0.014605653616033025
+      0.024230779198142267,
+      0.05075961711736947
     ],
     [
       null,
-      0.02314786359323234,
-      0.014787112041472894
+      0.02980584576443957,
+      0.3151351815845323
     ],
     [
       null,
-      0.030784628890710524,
-      0.007987800782227387
+      0.171282345083181,
+      0.08054046718205943
     ],
     [
       null,
-      0.059736174292059976,
-      0.007814943670387159
+      0.19181325501919066,
+      0.09452883365215149
     ],
     [
       null,
-      0.008852151016689598,
-      0.017407965244868557
+      0.1139145067531272,
+      0.1342900286077237
     ],
     [
       null,
-      0.025870209813203208,
-      0.006855841623652431
+      0.2213850691309612,
+      0.27590904927465826
     ],
     [
       null,
-      0.04388805631356805,
-      0.013351652302878499
+      0.16723701391962345,
+      0.07246254579420197
     ],
     [
       null,
-      0.05860303187818175,
-      0.00940531306360587
+      0.03511112915075525,
+      0.024081460851111937
     ],
     [
       null,
-      0.006424903220778169,
-      0.012747377555260998
+      0.10955541069893884,
+      0.09655923805499139
     ],
     [
       null,
-      0.028210449952114074,
-      0.014498416063355979
+      0.21239170949697694,
+      0.11696800297911833
     ],
     [
       null,
-      0.020437377963544757,
-      0.014875477032977766
+      0.0666745072855287,
+      0.15654227213009478
     ],
     [
       null,
-      0.02973841127722554,
-      0.013317975445120847
+      0.03296607000915873,
+      0.03126541916201691
     ],
     [
       null,
-      0.0010004073034455116,
-      0.013935148641333965
+      0.10793278905990274,
+      0.3093413658958781
     ],
     [
       null,
-      0.021414629544893777,
-      0.011249265117013645
+      0.07577128174790496,
+      0.02806120908590531
     ],
     [
       null,
-      0.005410608575666442,
-      0.012089785674762911
+      0.06379780744558652,
+      0.25198648251262445
     ],
     [
       null,
-      0.01596707712913634,
-      0.020095893669466295
+      0.059227836200991923,
+      0.08178221489530349
     ],
     [
       null,
-      0.0067346086808015805,
-      0.01566018193470023
+      0.021822294106466026,
+      0.028783610938383542
     ],
     [
       null,
-      0.011275564790704882,
-      0.06442393415713478
+      0.09431022305043356,
+      0.09830967263743708
     ],
     [
       null,
-      0.013426924511193756,
-      0.009605871030865352
+      0.1194057842066657,
+      0.18485944913561578
     ],
     [
       null,
-      0.013719477605957672,
-      0.012903598816456476
+      0.15807720181865825,
+      0.2189874060787498
     ],
     [
       null,
-      0.01017204520649642,
-      0.008541704416278975
+      0.07801339458860584,
+      0.14513431258290407
     ],
     [
       null,
-      0.0050139250400081355,
-      0.09804847763753556
+      0.03922546892046954,
+      0.3337893858366343
     ],
     [
       null,
-      0.01200418082093439,
-      0.01858914296802742
+      0.02857201755736161,
+      0.15690824455464628
     ],
     [
       null,
-      0.010811846894094968,
-      0.020035747872302813
+      0.3628709591043408,
+      0.47938166305304164
     ],
     [
       null,
-      0.008923983467745537,
-      0.02373400511635982
+      0.031880873863525123,
+      0.013344696778769519
     ],
     [
       null,
-      0.014952408190352541,
-      0.028481114544140054
+      0.051571810369523755,
+      0.2277999237961953
     ],
     [
       null,
-      0.0209372595758174,
-      0.013823824386004773
+      0.020086712819000273,
+      0.15191199889750076
     ],
     [
       null,
-      0.01736138689169751,
-      0.013173170716712186
+      0.03769298755540899,
+      0.16897679087902348
     ],
     [
       null,
-      0.051190006579198186,
-      0.019779294281569573
+      0.07495499088378679,
+      0.1997321994095968
     ],
     [
       null,
-      0.032940962221684585,
-      0.032724043545343
+      0.03695583458200115,
+      0.08151166358798703
     ],
     [
       null,
-      0.025980357914514283,
-      0.007285202136357322
+      0.024562983890500198,
+      0.03541629421004042
     ],
     [
       null,
-      0.004504897516297159,
-      0.007380985344559084
+      0.09139186607231475,
+      0.07609002712374872
     ],
     [
       null,
-      0.004917610037354551,
-      0.01757930486089479
+      0.0962256389293801,
+      0.023600422307223014
     ],
     [
       null,
-      0.0028781034473020976,
-      0.011710907443582132
+      0.07674898874455892,
+      0.1750015333381829
     ],
     [
       null,
-      0.004545298958071831,
-      0.009594980391587099
+      0.059825373351679784,
+      0.15889991014178448
     ],
     [
       null,
-      0.018083064777143384,
-      0.008578918139605185
+      0.7078764005014063,
+      0.14188861762780117
     ],
     [
       null,
-      0.00897726560697798,
-      0.00792883159172038
+      0.019699533749288962,
+      0.06106302985846532
     ],
     [
       null,
-      0.018987719323259624,
-      0.009700958493943063
+      0.03707331352134248,
+      0.028864652273375355
     ],
     [
       null,
-      0.0034611574336258057,
-      0.02522460424634928
+      0.15432747391958387,
+      0.017163106101944534
     ],
     [
       null,
-      0.018837458995617437,
-      0.012661298456834587
+      0.1366786330569227,
+      0.0550784249838357
     ],
     [
       null,
-      0.004766542743824992,
-      0.014435682872902547
+      0.2456171864970889,
+      0.07147123436101384
     ],
     [
       null,
-      0.00936599084324299,
-      0.018225690790306247
+      0.13478956357731717,
+      0.2328623166244362
     ],
     [
       null,
-      0.0176175724613207,
-      0.013716271302589806
+      0.030933150525840628,
+      0.21329716625367712
     ],
     [
       null,
-      0.01647151667934757,
-      0.014310126283119444
+      0.2876372183588383,
+      0.028171568080918155
     ],
     [
       null,
-      0.016482107866996942,
-      0.02721117504557623
+      0.1065995135863849,
+      0.19944892610979975
     ],
     [
       null,
-      0.026028702535503465,
-      0.015255452135638607
+      0.1668862785799574,
+      0.03637203606497303
     ],
     [
       null,
-      0.025455136617421107,
-      0.011007715382472319
+      0.033729371526839226,
+      0.029610757990713835
     ],
     [
       null,
-      0.037020409447206526,
-      0.012003544964660273
+      0.029405187254829813,
+      0.02391985272630712
     ],
     [
       null,
-      0.011703258130617674,
-      0.011951148788591827
+      0.22061268288470223,
+      0.2206105325472518
     ],
     [
       null,
-      0.02253638814726071,
-      0.01941242600374983
+      0.23711505669950983,
+      0.10331191074480536
     ],
     [
       null,
-      0.014065356470422239,
-      0.020072717567822487
+      0.2698703361807246,
+      0.049319731923483406
     ],
     [
       null,
-      0.015305599806628578,
-      0.019093070887090797
+      0.29650500712231975,
+      0.1891093604463915
     ],
     [
       null,
-      0.028107770129741538,
-      0.0030388438606917026
+      0.06572165404693359,
+      0.061588675682501585
     ],
     [
       null,
-      0.01914409199944166,
-      0.008041650763384669
+      0.09406278700894445,
+      0.24322007160392375
     ],
     [
       null,
-      0.012152912395178213,
-      0.00979383108213924
+      0.21017541476593,
+      0.06140558945363319
+    ],
+    [
+      null,
+      0.029301900950104365,
+      0.1192972738773576
+    ],
+    [
+      null,
+      0.078354582219063,
+      0.19617054117520294
+    ],
+    [
+      null,
+      0.03176778727056635,
+      0.1698911860108278
+    ],
+    [
+      null,
+      0.2521842642648206,
+      0.07921329707622145
     ]
   ],
   "row_notes": {
-    "133": "selects children, escapes direct text, and joins results",
-    "134": "selects children, escapes direct text, and joins results",
-    "135": "selects children, escapes direct text, and joins results",
-    "136": "selects children, escapes direct text, and joins results",
-    "137": "joins escaped child output then encodes UTF-8",
-    "138": "joins escaped child output then encodes UTF-8",
-    "139": "joins escaped child output then encodes UTF-8",
-    "140": "joins escaped child output then encodes UTF-8",
-    "149": "returns a SelectorList wrapping the scalar string; calling get() to unwrap it is outside timing",
-    "150": "returns a SelectorList wrapping the scalar string; calling get() to unwrap it is outside timing",
-    "207": "returns a SelectorList wrapping the scalar string; calling get() to unwrap it is outside timing",
-    "208": "returns a SelectorList wrapping the scalar string; calling get() to unwrap it is outside timing",
-    "209": "returns a SelectorList wrapping the scalar string; calling get() to unwrap it is outside timing",
-    "23": "returns separate body text strings, excluding script/style; joining them is outside timing",
-    "24": "returns separate body text strings, excluding script/style; joining them is outside timing",
-    "25": "returns separate body text strings, excluding script/style; joining them is outside timing",
-    "26": "returns separate body text strings, excluding script/style; joining them is outside timing",
-    "210": "returns separate body text strings, excluding script/style; joining them is outside timing",
-    "211": "returns separate body text strings, excluding script/style; joining them is outside timing",
-    "212": "returns separate body text strings, excluding script/style; joining them is outside timing",
-    "213": "returns separate body text strings, excluding script/style; joining them is outside timing",
-    "214": "returns separate body text strings, excluding script/style; joining them is outside timing",
-    "215": "returns separate body text strings, excluding script/style; joining them is outside timing"
+    "87": "returns a SelectorList wrapping the scalar string; calling get() to unwrap it is outside timing",
+    "88": "returns a SelectorList wrapping the scalar string; calling get() to unwrap it is outside timing",
+    "89": "returns a SelectorList wrapping the scalar string; calling get() to unwrap it is outside timing",
+    "90": "returns a SelectorList wrapping the scalar string; calling get() to unwrap it is outside timing",
+    "91": "returns a SelectorList wrapping the scalar string; calling get() to unwrap it is outside timing",
+    "131": "returns separate body text strings, excluding script/style; joining them is outside timing",
+    "132": "returns separate body text strings, excluding script/style; joining them is outside timing",
+    "133": "returns separate body text strings, excluding script/style; joining them is outside timing",
+    "134": "returns separate body text strings, excluding script/style; joining them is outside timing",
+    "135": "returns separate body text strings, excluding script/style; joining them is outside timing",
+    "136": "returns separate body text strings, excluding script/style; joining them is outside timing",
+    "137": "returns separate body text strings, excluding script/style; joining them is outside timing",
+    "138": "returns separate body text strings, excluding script/style; joining them is outside timing",
+    "139": "returns separate body text strings, excluding script/style; joining them is outside timing",
+    "140": "returns separate body text strings, excluding script/style; joining them is outside timing",
+    "141": "selects children, escapes direct text, and joins results",
+    "142": "selects children, escapes direct text, and joins results",
+    "143": "selects children, escapes direct text, and joins results",
+    "144": "selects children, escapes direct text, and joins results",
+    "145": "joins escaped child output then encodes UTF-8",
+    "146": "joins escaped child output then encodes UTF-8",
+    "147": "joins escaped child output then encodes UTF-8",
+    "148": "joins escaped child output then encodes UTF-8"
   }
 }

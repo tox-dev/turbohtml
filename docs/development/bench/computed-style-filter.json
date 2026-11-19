@@ -7,29 +7,29 @@
   "rows": [
     [
       "256 rules / 128 parent-child pairs / irrelevant pseudo-first",
-      0.0021574416667135667
+      0.001341444872749283
     ],
     [
       "256 rules / 128 parent-child pairs / matching pseudo-first",
-      0.003617814537574304
+      0.0035140600129428398
     ],
     [
       "256 rules / 128 parent-child pairs / irrelevant class-first",
-      0.0021809460708633803
+      0.0013356097040438423
     ]
   ],
   "spread": [
     [
       null,
-      0.014378387937297768
+      0.05412950640299512
     ],
     [
       null,
-      0.012130290987524462
+      0.1520817646055107
     ],
     [
       null,
-      0.016659458556591733
+      0.03362881646172321
     ]
   ],
   "notes": {}

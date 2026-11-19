@@ -8,81 +8,136 @@
   "rows": [
     [
       "article extraction — post (4 KiB)",
-      1.1995847065312168e-05,
-      0.0006936565846748029
+      1.5154897756038584e-05,
+      0.0008045033436890965
     ],
     [
       "article extraction — longform (16 KiB)",
-      3.4235055985239644e-05,
-      0.0018180347251472995
+      4.3527467668506384e-05,
+      0.0023698870943311095
     ],
     [
       "publication-date extraction — post (4 KiB)",
-      5.9304065735214335e-06,
-      0.00011766121753945906
+      6.37737470248941e-06,
+      0.00011849179562659629
     ],
     [
       "publication-date extraction — longform (16 KiB)",
-      1.030123477659591e-05,
-      0.0002502549162007502
+      9.429415504058625e-06,
+      0.00030455945540097673
     ],
     [
       "publication-date extraction — 100 meta candidates",
-      1.828077740384515e-05,
-      7.32439337885656e-05
+      1.7254572367401502e-05,
+      0.0010771197647841291
     ],
     [
-      "main-content text — main (4 KiB)",
-      7.358195418897632e-06,
-      0.0006081054684348904
+      "publication-date extraction — early temporal ISO date, 36 KiB text",
+      9.101228019995726e-06,
+      0.0001976188178190341
+    ],
+    [
+      "publication-date extraction — late temporal ISO date, 36 KiB text",
+      9.721754576534163e-06,
+      0.0012267668481778552
     ],
     [
       "publication-date extraction — temporal text without dates, 36 KiB",
-      0.0035919474806481353,
-      0.00022739597538172043
+      3.623316302399834e-05,
+      0.006332921416014869
+    ],
+    [
+      "publication-date extraction — single temporal ISO date, 72 KiB text",
+      1.8134315863467993e-05,
+      0.0033958352099944023
+    ],
+    [
+      "publication-date extraction — early temporal numeric date, 36 KiB text",
+      1.1300630794271645e-05,
+      0.00043564736044459095
+    ],
+    [
+      "publication-date extraction — early temporal written date, 36 KiB text",
+      1.3121247840193935e-05,
+      0.00033075889821058507
+    ],
+    [
+      "main-content text — main (4 KiB)",
+      7.124869835273273e-06,
+      0.000668355429896413
     ]
   ],
   "spread": [
     [
       null,
-      0.32069268491373526,
-      0.046266802128625564
+      0.2065899687789125,
+      0.09508228037380871
     ],
     [
       null,
-      0.004134567035208854,
-      0.06638740085462128
+      0.22936050406511246,
+      0.16342716010671396
     ],
     [
       null,
-      0.004697496985019512,
-      0.019549316289211804
+      0.16943869461981187,
+      0.043114451610717926
     ],
     [
       null,
-      0.007721833090606347,
-      0.023385975296491182
+      0.05081050958111361,
+      0.21129916408746952
     ],
     [
       null,
-      0.008026401759229225,
-      0.058992245979526695
+      0.030243788249143876,
+      0.548822344466994
     ],
     [
       null,
-      0.045501129435955946,
-      0.09149282207360948
+      0.2024782543193889,
+      0.05396285166614734
     ],
     [
       null,
-      0.01238570704891151,
-      0.06390916222904154
+      0.023711459471425812,
+      0.1651660559349866
+    ],
+    [
+      null,
+      0.22630802117115748,
+      0.10838427017848234
+    ],
+    [
+      null,
+      0.04608330267504372,
+      0.07203494543772561
+    ],
+    [
+      null,
+      0.18091766728654848,
+      0.3497202148908538
+    ],
+    [
+      null,
+      0.027993068720450154,
+      0.08882259815098856
+    ],
+    [
+      null,
+      0.22739392121764565,
+      0.22013217412005806
     ]
   ],
   "row_notes": {
     "2": "misses visible <time> dates turbohtml finds (2024-05-06); also returns no date for the 100-candidate case, so that timing measures finding nothing",
     "3": "misses visible <time> dates turbohtml finds (2024-05-06); also returns no date for the 100-candidate case, so that timing measures finding nothing",
     "4": "misses visible <time> dates turbohtml finds (2024-05-06); also returns no date for the 100-candidate case, so that timing measures finding nothing",
-    "6": "misses visible <time> dates turbohtml finds (2024-05-06); also returns no date for the 100-candidate case, so that timing measures finding nothing"
+    "5": "misses visible <time> dates turbohtml finds (2024-05-06); also returns no date for the 100-candidate case, so that timing measures finding nothing",
+    "6": "misses visible <time> dates turbohtml finds (2024-05-06); also returns no date for the 100-candidate case, so that timing measures finding nothing",
+    "7": "misses visible <time> dates turbohtml finds (2024-05-06); also returns no date for the 100-candidate case, so that timing measures finding nothing",
+    "8": "misses visible <time> dates turbohtml finds (2024-05-06); also returns no date for the 100-candidate case, so that timing measures finding nothing",
+    "9": "misses visible <time> dates turbohtml finds (2024-05-06); also returns no date for the 100-candidate case, so that timing measures finding nothing",
+    "10": "misses visible <time> dates turbohtml finds (2024-05-06); also returns no date for the 100-candidate case, so that timing measures finding nothing"
   }
 }
