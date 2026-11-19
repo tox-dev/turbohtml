@@ -17,6 +17,7 @@ from xml.etree import (  # ruff:ignore[suspicious-xml-etree-import]  # parsing t
 
 import pytest
 
+import turbohtml.detect  # ruff:ignore[unused-import]  # importing registers the whatwg-* codecs the sampled round trip decodes through
 from turbohtml import (
     Canonical,
     CData,
@@ -2209,27 +2210,145 @@ def test_encode_meta_charset_refuses_c1_under_windows_1254(encoding: str) -> Non
     [
         pytest.param("koi8-u", "\u255d", "KOI8-U", id="koi8-u-box-drawing"),
         pytest.param("tis-620", "\x80", "windows-874", id="tis-620-windows-874"),
-        pytest.param("big5", "\u0430", "Big5", id="big5-cyrillic"),
+        pytest.param("big5", "\u3040", "Big5", id="big5-hiragana"),
         pytest.param("cp932", "\uf8f1", "Shift_JIS", id="cp932-user-defined"),
     ],
 )
-def test_encode_meta_charset_refuses_text_the_declared_label_misreads(
+def test_encode_meta_charset_refuses_a_character_the_declared_label_has_no_byte_for(
     encoding: str, character: str, label: str
 ) -> None:
-    # Python's codec writes bytes that the WHATWG decoder of the declared label reads as other characters
     with pytest.raises(ValueError, match=re.escape(f"meta_charset cannot declare {label}")):
         parse(f"<p>{character}</p>").encode(encoding, Html(meta_charset=True))
 
 
-def test_encode_meta_charset_iso2022_shift_code_raises_the_codec_error() -> None:
-    # the declared ISO-2022-JP label is valid, but its codec refuses the shift code the text holds
-    with pytest.raises(UnicodeEncodeError, match="iso2022_jp"):
-        parse("<p>\x1b</p>").encode("iso2022_jp", Html(meta_charset=True))
+@pytest.mark.parametrize(
+    ("codec", "character", "label"),
+    [
+        pytest.param("big5", "\u0401", "Big5", id="big5-cyrillic"),
+        pytest.param("big5", "\U00020021", "Big5", id="big5-plane-two"),
+        pytest.param("euc_kr", "\uac02", "EUC-KR", id="euc-kr-hangul"),
+        pytest.param("gb18030", "\u1e3f", "gb18030", id="gb18030-four-byte"),
+        pytest.param("gb18030", "\U0001f600", "gb18030", id="gb18030-astral"),
+        pytest.param("gb2312", "\u20ac", "GBK", id="gbk-euro"),
+        pytest.param("shift_jis", "\ue000", "Shift_JIS", id="shift-jis-private-use"),
+        pytest.param("shift_jis", "\uff61", "Shift_JIS", id="shift-jis-half-width-katakana"),
+        pytest.param("euc_jp", "\u01ce", "EUC-JP", id="euc-jp-jis0212"),
+        pytest.param("euc_jp", "\uff61", "EUC-JP", id="euc-jp-half-width-katakana"),
+    ],
+)
+def test_encode_meta_charset_writes_bytes_the_declared_label_reads_back(codec: str, character: str, label: str) -> None:
+    doc: Final = parse(parse(f"<p>{character}</p>").encode(codec, Html(meta_charset=True)))
+    paragraph: Final = doc.find("p")
+    assert paragraph is not None
+    assert (doc.encoding, paragraph.text) == (label, character)
+
+
+_TWO_BYTE_SEQUENCES: Final[list[bytes]] = [
+    bytes([lead, trail]) for lead in range(0x81, 0xFF) for trail in range(0x40, 0xFF, 5)
+]
+_ISO_2022_JP_SEQUENCES: Final[list[bytes]] = [
+    b"\x1b$B" + bytes([lead, trail]) + b"\x1b(B" for lead in range(0x21, 0x7F, 3) for trail in range(0x21, 0x7F, 3)
+]
+_SINGLE_BYTE_SEQUENCES: Final[list[bytes]] = [bytes([byte]) for byte in range(0x80, 0x100)]
+
+
+@pytest.mark.parametrize(
+    ("codec", "decoder", "label", "sequences"),
+    [
+        pytest.param("big5", "whatwg-big5", "Big5", _TWO_BYTE_SEQUENCES, id="big5"),
+        pytest.param("euc_kr", "whatwg-euc-kr", "EUC-KR", _TWO_BYTE_SEQUENCES, id="euc-kr"),
+        pytest.param("gb18030", "whatwg-gb18030", "gb18030", _TWO_BYTE_SEQUENCES, id="gb18030"),
+        pytest.param("gb2312", "whatwg-gbk", "GBK", _TWO_BYTE_SEQUENCES, id="gbk"),
+        pytest.param("shift_jis", "whatwg-shift_jis", "Shift_JIS", _TWO_BYTE_SEQUENCES, id="shift-jis"),
+        pytest.param("euc_jp", "whatwg-euc-jp", "EUC-JP", _TWO_BYTE_SEQUENCES, id="euc-jp"),
+        pytest.param("iso2022_jp", "whatwg-iso-2022-jp", "ISO-2022-JP", _ISO_2022_JP_SEQUENCES, id="iso-2022-jp"),
+        pytest.param("latin_1", "whatwg-iso-8859-1", "windows-1252", _SINGLE_BYTE_SEQUENCES, id="latin-1"),
+        pytest.param("koi8_u", "whatwg-koi8-u", "KOI8-U", _SINGLE_BYTE_SEQUENCES, id="koi8-u"),
+    ],
+)
+def test_encode_meta_charset_round_trips_sampled_index_characters(
+    codec: str, decoder: str, label: str, sequences: list[bytes]
+) -> None:
+    text: Final = _sampled_index_text(decoder, sequences)
+    doc: Final = parse(parse(f"<p>{text}</p>").encode(codec, Html(meta_charset=True)))
+    paragraph: Final = doc.find("p")
+    assert paragraph is not None
+    assert (doc.encoding, paragraph.text) == (label, text)
+
+
+def _sampled_index_text(decoder: str, sequences: list[bytes]) -> str:
+    chars: Final[list[str]] = []
+    for sequence in sequences:
+        text: Final = sequence.decode(decoder, "replace")
+        if len(text) == 1 and text != "\ufffd" and text.isprintable():
+            chars.append(text)
+    return "".join(chars)
+
+
+@pytest.mark.parametrize(
+    ("codec", "character"),
+    [
+        pytest.param("euc_kr", "\U0001f600", id="euc-kr-plane-one"),
+        pytest.param("euc_kr", "\U00020021", id="euc-kr-plane-two"),
+        pytest.param("big5", "\U0001f600", id="big5-plane-one"),
+        pytest.param("shift_jis", "\U0001f600", id="shift-jis-astral"),
+    ],
+)
+def test_encode_meta_charset_refuses_only_characters_with_no_byte(codec: str, character: str) -> None:
+    with pytest.raises(ValueError, match=r"\(U\+[0-9A-F]{4,6}\) at position \d+ has no byte in"):
+        parse(f"<p>{character}</p>").encode(codec, Html(meta_charset=True))
+
+
+def test_encode_meta_charset_names_the_refused_character_and_its_position() -> None:
+    prefix: Final = '<html><head><meta charset="windows-1252"></head><body><p>'
+    position: Final = len(prefix) + 1
+    message: Final = (
+        f"meta_charset cannot declare windows-1252 for latin-1: '\\x80' (U+0080) at position {position} "
+        "has no byte in windows-1252"
+    )
+    with pytest.raises(ValueError, match=f"^{re.escape(message)}$"):
+        parse("<p>a\x80</p>").encode("latin-1", Html(meta_charset=True))
+
+
+def test_encode_meta_charset_writes_euro_as_the_windows_1252_byte() -> None:
+    out: Final = parse("<p>\u20ac</p>").encode("latin-1", Html(meta_charset=True))
+    assert out == b'<html><head><meta charset="windows-1252"></head><body><p>\x80</p></body></html>'
+
+
+def test_encode_meta_charset_iso2022_jp_writes_roman_escapes_for_yen_and_overline() -> None:
+    out: Final = parse("<p>\u00a5\u203e</p>").encode("iso2022_jp", Html(meta_charset=True))
+    assert b"<p>\x1b(J\\~\x1b(B</p>" in out
+    paragraph: Final = parse(out).find("p")
+    assert paragraph is not None
+    assert paragraph.text == "\u00a5\u203e"
+
+
+def test_encode_meta_charset_iso2022_jp_switches_between_ascii_and_jis0208() -> None:
+    out: Final = parse("<p>a\u65e5b</p>").encode("iso2022_jp", Html(meta_charset=True))
+    assert b"<p>a\x1b$BF|\x1b(Bb</p>" in out
+    paragraph: Final = parse(out).find("p")
+    assert paragraph is not None
+    assert paragraph.text == "a\u65e5b"
+
+
+@pytest.mark.parametrize(
+    "character",
+    [
+        pytest.param("\x0e", id="shift-out"),
+        pytest.param("\x0f", id="shift-in"),
+        pytest.param("\x1b", id="escape"),
+        pytest.param("\uff61", id="half-width-katakana"),
+        pytest.param("\U0001f600", id="astral"),
+    ],
+)
+def test_encode_meta_charset_iso2022_jp_refuses_a_character_with_no_byte(character: str) -> None:
+    with pytest.raises(ValueError, match=re.escape("meta_charset cannot declare ISO-2022-JP for iso2022_jp")):
+        parse(f"<p>{character}</p>").encode("iso2022_jp", Html(meta_charset=True))
 
 
 @pytest.mark.parametrize("encoding", [pytest.param("latin-1", id="first"), pytest.param("latin-1", id="repeat")])
 def test_encode_meta_charset_refuses_c1_on_every_call(encoding: str) -> None:
-    # the per-codec byte range is cached, so the second and later calls must still refuse the misread bytes
+    # the reverse map is cached per label, so the second and later calls must still refuse the character
     for _ in range(2):
         with pytest.raises(ValueError, match="windows-1252"):
             parse("<p>\x85</p>").encode(encoding, Html(meta_charset=True))
@@ -2242,10 +2361,9 @@ def test_encode_meta_charset_refuses_c1_on_every_call(encoding: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "offset", [pytest.param(0, id="first"), pytest.param(37, id="vector-block"), pytest.param(390, id="scalar-tail")]
+    "offset", [pytest.param(0, id="first"), pytest.param(37, id="middle"), pytest.param(390, id="last")]
 )
 def test_encode_meta_charset_finds_c1_at_any_offset_of_long_output(offset: int) -> None:
-    # the byte scan works in 64-byte blocks and then a scalar tail, so a long output is checked at every position
     filler: Final = "a" * 400
     markup: Final = f"<p>{filler[:offset]}\x85{filler[offset:]}</p>"
     with pytest.raises(ValueError, match="windows-1252"):
