@@ -149,9 +149,11 @@ static PyObject *refuse_point(Py_ssize_t index, Py_UCS4 point, const char *encod
     if (character == NULL) { /* GCOVR_EXCL_LINE: a code point the str holds always converts */
         return NULL;         /* GCOVR_EXCL_LINE */
     }
-    PyErr_Format(PyExc_ValueError,
-                 "meta_charset cannot declare %s for %s: %R (U+%04X) at position %zd has no byte in %s", label,
-                 encoding, character, (unsigned)point, index, label);
+    /* PyUnicode_FromFormat takes %X only from 3.12 on, so the code point is formatted here */
+    char hex[9];
+    snprintf(hex, sizeof hex, "%04X", (unsigned)point);
+    PyErr_Format(PyExc_ValueError, "meta_charset cannot declare %s for %s: %R (U+%s) at position %zd has no byte in %s",
+                 label, encoding, character, hex, index, label);
     Py_DECREF(character);
     return NULL;
 }
