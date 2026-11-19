@@ -300,6 +300,9 @@ def test_gb18030_pointer_7457_is_the_spec_special_case() -> None:
         pytest.param(b"\x81\x30\x81\x3a", "\ufffd0\ufffd:", id="non-digit-fourth-byte"),
         pytest.param(b"\x81\x30\x81\x30\x81", "\x80\ufffd", id="four-byte-then-lead-flush"),
         pytest.param(b"\x81\x30\x81\x30\x20\xa1\xa1", "\x80 \u3000", id="four-byte-then-space-and-two-byte"),
+        pytest.param(b"\x81\xff\x81\x30\x81\x30A", "\ufffd\x80A", id="second-byte-0xff"),
+        pytest.param(b"\x81\x20\x81\x30\x81\x30A", "\ufffd \x80A", id="second-byte-below-the-digits"),
+        pytest.param(b"\x81\x3a\x81\x30\x81\x30A", "\ufffd:\x80A", id="second-byte-above-the-digits"),
     ],
 )
 def test_gb18030_four_byte_fast_path_leaves_the_rest_of_the_input(data: bytes, text: str) -> None:

@@ -63,6 +63,8 @@ def test_concurrent_element_construction_from_a_mutated_dict_is_memory_safe() ->
     # suite's filterwarnings = "error" makes that a failure
     attrs: dict[str, str | list[str]] = {f"data-{index}": str(index) for index in range(32)}
     attrs["slow"] = _YieldingList(["x"])
+    # the mutator can clear "slow" before every builder reaches it, so build once serially to read the list value
+    assert turbohtml.Element("p", attrs).attrs["slow"] == "x"
     start = threading.Barrier(4)
     built: list[turbohtml.Element] = []
 
