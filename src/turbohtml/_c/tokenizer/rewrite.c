@@ -2870,26 +2870,41 @@ static void rw_handle_element(rw_ctx *ctx, th_token *token) {
     }
 }
 
+static int rw_tag_terminator(Py_UCS4 ch) {
+    return is_space(ch) || ch == '/' || ch == '>';
+}
+
 /* Text written unescaped into a raw-text element must not end it before its real end tag: `</name` closes the element
-   wherever it appears, and in a script `<!--` can start an escaped section that swallows the end tag. The pieces
-   are checked together, as written, because two harmless appends can join into an end tag. Sets ValueError and
-   returns 1 when the content would end early. */
-static int rw_raw_content_closes_early(rw_ctx *ctx, const rw_open *element) {
-    const Py_UCS4 *content = ctx->out.data + element->content_start;
-    Py_ssize_t len = ctx->out.len - element->content_start;
+   wherever it appears, and in a script `<!--` can start an escaped section that swallows the end tag. Only the text
+   from seam on is new, so a match is checked where it reaches into that text, and a `</name` that ends in the existing
+   content closes the element once the new text supplies its `>`. Two harmless appends can join into an end tag, so the
+   pieces are checked together, as written. Sets ValueError and returns 1 when the content would end early. */
+static int rw_raw_content_closes_early(rw_ctx *ctx, const rw_open *element, Py_ssize_t seam) {
+    const Py_UCS4 *out = ctx->out.data;
+    Py_ssize_t end = ctx->out.len;
     const th_node *node = element->node;
     int script = element->model == TH_INIT_SCRIPT_DATA;
-    for (Py_ssize_t index = 0; index + 1 < len; index++) {
-        if (content[index] != '<') {
+    int closing = 0;
+    for (Py_ssize_t index = seam; index < end; index++) {
+        closing |= out[index] == '>';
+    }
+    Py_ssize_t start = element->content_start;
+    if (!closing && seam - node->text_len - 1 > start) {
+        start = seam - node->text_len - 1;
+    }
+    for (Py_ssize_t index = start; index + 1 < end; index++) {
+        if (out[index] != '<') {
             continue;
         }
-        int comment = script && index + 3 < len && content[index + 1] == '!' && content[index + 2] == '-' &&
-                      content[index + 3] == '-';
-        int end_tag = content[index + 1] == '/' && index + 2 + node->text_len <= len;
+        int comment = script && index + 3 < end && out[index + 1] == '!' && out[index + 2] == '-' &&
+                      out[index + 3] == '-' && index + 4 > seam;
+        Py_ssize_t name_end = index + 2 + node->text_len;
+        int end_tag = out[index + 1] == '/' && name_end <= end;
         for (Py_ssize_t pos = 0; end_tag && pos < node->text_len; pos++) {
-            end_tag = lower_ascii(content[index + 2 + pos]) == node->text[pos];
+            end_tag = lower_ascii(out[index + 2 + pos]) == node->text[pos];
         }
-        if (comment || end_tag) {
+        int closes = end_tag && (!closing || name_end > seam || rw_tag_terminator(out[name_end]));
+        if (comment || closes) {
             PyObject *name = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, node->text, node->text_len);
             if (name != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 PyErr_Format(PyExc_ValueError,
@@ -3067,7 +3082,7 @@ static void rw_handle_end(rw_ctx *ctx, th_token *token) {
     if (emit && closing->append_html != NULL) {
         rw_out_str(&ctx->out, closing->append_html);
     }
-    if (emit && closing->literal && rw_raw_content_closes_early(ctx, closing)) {
+    if (emit && closing->literal && rw_raw_content_closes_early(ctx, closing, closing->content_start)) {
         return;
     }
     if (closing->drop_end_tag) {
@@ -3556,6 +3571,7 @@ PyObject *turbohtml_rewrite(PyObject *module, PyObject *args) {
         if (emit && open->append_html != NULL) {
             rw_out_str(&ctx.out, open->append_html);
         }
+        Py_ssize_t seam = ctx.out.len;
         int inside =
             open->after_raw != NULL && !open->drop_end_tag && (ctx.mirror == NULL || rw_output_raw(&ctx, open));
         if (emit && inside) {
@@ -3565,7 +3581,7 @@ PyObject *turbohtml_rewrite(PyObject *module, PyObject *args) {
         }
         /* PLAINTEXT has no end tag, so nothing written into it can end it */
         if (emit && (open->literal || (inside && open->after_literal)) && open->model != TH_INIT_PLAINTEXT &&
-            rw_raw_content_closes_early(&ctx, open)) {
+            rw_raw_content_closes_early(&ctx, open, open->literal ? open->content_start : seam)) {
             break; /* still on the spine, so rw_ctx_clear frees it */
         }
         Py_XDECREF(open->append_html);

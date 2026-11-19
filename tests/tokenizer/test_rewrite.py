@@ -1009,6 +1009,76 @@ def test_rewrite_after_unclosed_raw_text_in_foreign_content_reads_back_as_writte
     assert element.text == "a\nb&amp;<i>"
 
 
+@pytest.mark.parametrize("tag", _RAW_TEXT_TAGS)
+def test_rewrite_after_unclosed_raw_text_with_comment_start_reads_back_as_written(tag: str) -> None:
+    assert rewrite(f"<{tag}><!--a", elements=[(tag, _after("x"))]) == f"<{tag}><!--ax"
+
+
+@pytest.mark.parametrize(
+    ("html", "content", "expected"),
+    [
+        pytest.param("<script><!--a", "-->", "<script><!--a-->", id="comment-end"),
+        pytest.param("<script><!--a", "<b>", "<script><!--a<b>", id="markup-without-end-tag"),
+        pytest.param("<script>hello world", "x", "<script>hello worldx", id="long-content"),
+        pytest.param("<script><!--a", "", "<script><!--a", id="empty"),
+        pytest.param("<script>x</script", " ", "<script>x</script ", id="open-end-tag"),
+        pytest.param("<script>x</script", "/", "<script>x</script/", id="open-end-tag-slash"),
+        pytest.param("<script>x</script", "x>", "<script>x</scriptx>", id="name-continued-by-added"),
+        pytest.param("<script>x</scriptx", ">", "<script>x</scriptx>", id="name-continued-in-input"),
+        pytest.param("<script>x</script", "x ", "<script>x</scriptx ", id="name-continued-then-open"),
+        pytest.param("<script>x</script", "", "<script>x</script", id="empty-after-end-tag"),
+        pytest.param("<script>x</script ", ">", "<script>x>", id="partial-end-tag-is-dropped"),
+    ],
+)
+def test_rewrite_after_keeps_unclosed_script_that_no_end_tag_closes(html: str, content: str, expected: str) -> None:
+    assert rewrite(html, elements=[("script", _after(content))]) == expected
+
+
+@pytest.mark.parametrize(
+    ("html", "content"),
+    [
+        pytest.param("<script><!--a", "</script>", id="end-tag"),
+        pytest.param("<script><!--a", "</SCRIPT>", id="end-tag-upper"),
+        pytest.param("<script>a", "<!--", id="comment-start"),
+        pytest.param("<script>a", "x<!--y", id="comment-start-in-text"),
+        pytest.param("<script>x<!", "--", id="comment-split"),
+        pytest.param("<script>x<!-", "-", id="comment-split-dashes"),
+        pytest.param("<script>x<", "!--", id="comment-split-bang"),
+        pytest.param("<script>x<", "/script", id="end-tag-split-slash"),
+        pytest.param("<script>x</", "script", id="end-tag-split-name"),
+        pytest.param("<script>x</sc", "ript", id="end-tag-split-sc"),
+        pytest.param("<script>x</scr", "ipt", id="end-tag-split-scr"),
+        pytest.param("<script>x</SCRIP", "t>", id="end-tag-split-upper"),
+        pytest.param("<script>x</scrip", "t", id="end-tag-split-scrip"),
+        pytest.param("<script>x</script", ">", id="end-tag-completed-by-gt"),
+        pytest.param("<script>x</script", "/>", id="end-tag-completed-by-slash"),
+        pytest.param("<script>x</script", " x>", id="end-tag-attribute-completed-by-gt"),
+        pytest.param("<script>x</SCRIPT", ">", id="end-tag-upper-completed-by-gt"),
+    ],
+)
+def test_rewrite_after_that_completes_an_end_tag_raises(html: str, content: str) -> None:
+    with pytest.raises(ValueError, match="text written into <script> must not contain '</script'"):
+        rewrite(html, elements=[("script", _after(content))])
+
+
+@pytest.mark.parametrize("tag", _RAW_TEXT_TAGS)
+def test_rewrite_after_end_tag_split_across_input_end_raises(tag: str) -> None:
+    with pytest.raises(ValueError, match=f"text written into <{tag}> must not contain '</{tag}'"):
+        rewrite(f"<{tag}>x</{tag[:-1]}", elements=[(tag, _after(tag[-1]))])
+
+
+@pytest.mark.parametrize("tag", _RAW_TEXT_TAGS)
+def test_rewrite_after_end_tag_completed_by_gt_raises(tag: str) -> None:
+    with pytest.raises(ValueError, match=f"text written into <{tag}> must not contain '</{tag}'"):
+        rewrite(f"<{tag}>x</{tag}", elements=[(tag, _after(">"))])
+
+
+def test_rewrite_after_end_tag_split_over_two_calls_raises() -> None:
+    edits = _edits((methodcaller("after", "</scr"), methodcaller("after", "ipt")))
+    with pytest.raises(ValueError, match="text written into <script> must not contain '</script'"):
+        rewrite("<script>x", elements=[("script", edits)])
+
+
 @pytest.mark.parametrize(
     ("html", "expected"),
     [
