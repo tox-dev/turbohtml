@@ -1,0 +1,3 @@
+Writing a document with ``meta_charset=True`` no longer refuses text the declared encoding can represent: the bytes now
+come from the WHATWG encoder the ``<meta charset>`` names, and only a character with no byte in that encoding is
+refused.

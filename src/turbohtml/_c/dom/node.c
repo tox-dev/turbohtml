@@ -2124,9 +2124,9 @@ PyDoc_STRVAR(encode_doc,
              "    output funds.\n"
              ":raises LookupError: if encoding names a codec Python does not know.\n"
              ":raises ValueError: if meta_charset would declare the codec and no WHATWG encoding label names it,\n"
-             "    such as an ISO-2022 variant other than ISO-2022-JP, or UTF-16, or when the output would not read\n"
-             "    back as written under the declared label, such as Latin-1 text holding U+0080 or U+0085, which\n"
-             "    windows-1252 reads as other characters.\n"
+             "    such as an ISO-2022 variant other than ISO-2022-JP, or UTF-16, or when the text holds a character\n"
+             "    the declared label has no byte for, such as U+0080 under windows-1252. The message names the\n"
+             "    character and its position in the markup.\n"
              ":raises UnicodeEncodeError: if the markup has characters the encoding cannot\n"
              "    represent. Under an ISO-2022 codec those include U+000E, U+000F and U+001B,\n"
              "    which would reach the output as the shift codes that switch a decoder's state.");
@@ -3058,23 +3058,8 @@ TH_NODE_API(static, PyObject *, node_encode, (PyObject * self, PyObject *args, P
     if (text == NULL) {
         return NULL;
     }
-    PyObject *encoded = markup_encode(state_of(self), text, encoding, 0);
-    if (encoded != NULL && declared_label != NULL) {
-        int reads_back = declaration_reads_back(text, encoded, encoding, declared_label);
-        /* GCOVR_EXCL_START: the read-back fails only on allocation */
-        if (reads_back < 0) {
-            Py_DECREF(encoded);
-            encoded = NULL;
-        }
-        /* GCOVR_EXCL_STOP */
-        if (reads_back == 0) {
-            Py_DECREF(encoded);
-            encoded = NULL;
-            PyErr_Format(PyExc_ValueError,
-                         "meta_charset cannot declare %s for %s: the encoded output does not read back as written",
-                         declared_label, encoding);
-        }
-    }
+    PyObject *encoded = declared_label != NULL ? declared_encode(declared_label, text, encoding)
+                                               : markup_encode(state_of(self), text, encoding, 0);
     Py_DECREF(text);
     return encoded;
 }
