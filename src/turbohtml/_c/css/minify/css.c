@@ -104,7 +104,10 @@ static css_char *css_minify_view(const css_char *view, Py_ssize_t length, int in
     /* presize from the input: tokens average a few code points each and the output never exceeds the input, so one
        allocation up front avoids the geometric realloc churn (and its repeated copies) on a large stylesheet */
     Py_ssize_t token_guess = length / 4 < 64 ? 64 : length / 4;
-    tokens.items = css_malloc((size_t)token_guess * sizeof(css_token));
+    /* GCOVR_EXCL_START: needs a 32-bit build and a stylesheet of hundreds of megabytes */
+    tokens.items =
+        (size_t)token_guess > SIZE_MAX / sizeof(css_token) ? NULL : css_malloc((size_t)token_guess * sizeof(css_token));
+    /* GCOVR_EXCL_STOP */
     if (tokens.items == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         *out_len = 1;           /* GCOVR_EXCL_LINE: a NULL result with a length reports the failure */
         return NULL;            /* GCOVR_EXCL_LINE: allocation-failure path */

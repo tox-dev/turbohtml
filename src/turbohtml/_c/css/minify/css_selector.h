@@ -761,6 +761,12 @@ static void css_dedup(css_buf *pool, decl_vec *decls) {
     dedup_entry stack_table[CSS_DEDUP_STACK];
     dedup_entry *table = stack_table;
     if (cap > CSS_DEDUP_STACK) {
+        /* GCOVR_EXCL_START: needs a 32-bit build and a rule of over 100 million declarations */
+        if ((size_t)cap > SIZE_MAX / sizeof(dedup_entry)) {
+            *pool->oom = 1;
+            return;
+        }
+        /* GCOVR_EXCL_STOP */
         table = css_malloc((size_t)cap * sizeof(dedup_entry));
         if (table == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             *pool->oom = 1;  /* GCOVR_EXCL_LINE: allocation-failure path */

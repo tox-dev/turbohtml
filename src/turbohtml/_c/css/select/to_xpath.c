@@ -177,12 +177,16 @@ static void xt_literal(xt_ctx *ctx, const Py_UCS4 *text, Py_ssize_t length) {
 /* Emit a literal of the transformed attribute value: ASCII-lowercased when fold (the
    case-insensitive comparisons lowercase both sides), space-padded for the ~= token
    test, or dash-suffixed for the |= prefix test. */
-static void xt_value_literal(xt_ctx *ctx, const Py_UCS4 *value, Py_ssize_t length, int fold, int pad, int dash) {
+static inline void xt_value_literal(xt_ctx *ctx, const Py_UCS4 *value, Py_ssize_t length, int fold, int pad, int dash) {
     if (!fold && !pad && !dash) {
         xt_literal(ctx, value, length);
         return;
     }
-    Py_UCS4 *temp = PyMem_Malloc((size_t)(length + 3) * sizeof(Py_UCS4));
+    /* GCOVR_EXCL_START: needs a 32-bit build and a value of over a billion code points */
+    Py_UCS4 *temp = TH_UNLIKELY((size_t)(length + 3) > SIZE_MAX / sizeof(Py_UCS4))
+                        ? NULL
+                        : PyMem_Malloc((size_t)(length + 3) * sizeof(Py_UCS4));
+    /* GCOVR_EXCL_STOP */
     if (temp == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
         return;              /* GCOVR_EXCL_LINE: allocation-failure path */

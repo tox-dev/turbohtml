@@ -126,9 +126,9 @@ static void jm_capture_comment(jm_lexer *lx, const Py_UCS4 *text, Py_ssize_t len
         size_t bytes;
         int grew =
             th_grow_cap((size_t)prog->comment_cap + 1, (size_t)prog->comment_cap, 4, sizeof(jm_comment), &cap, &bytes);
-        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
-            prog->failed = 1; /* GCOVR_EXCL_LINE */
-            return;           /* GCOVR_EXCL_LINE */
+        if (!grew || cap > INT32_MAX) { /* GCOVR_EXCL_BR_LINE: needs over two billion comments */
+            prog->failed = 1;           /* GCOVR_EXCL_LINE */
+            return;                     /* GCOVR_EXCL_LINE */
         }
         jm_comment *grown = jm_realloc(prog->comments, bytes);
         if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation-failure path */

@@ -670,7 +670,11 @@ static void print_number(St *st, const jm_node *node) {
         buf[len++] = node->str[index];
     }
     if (overflow) { /* an unusually long literal (a huge exponent): one run, separators removed */
-        Py_UCS4 *big = jm_malloc((size_t)node->str_len * sizeof(Py_UCS4));
+        /* GCOVR_EXCL_START: needs a 32-bit build and a literal of over a billion code points */
+        Py_UCS4 *big = ((size_t)node->str_len > SIZE_MAX / sizeof(Py_UCS4))
+                           ? NULL
+                           : jm_malloc((size_t)node->str_len * sizeof(Py_UCS4));
+        /* GCOVR_EXCL_STOP */
         if (big == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation-failure path */
             st->failed = 1; /* GCOVR_EXCL_LINE */
             return;         /* GCOVR_EXCL_LINE */
@@ -762,7 +766,11 @@ static void print_bigint(St *st, const jm_node *node) {
         print_text(st, node);
         return;
     }
-    Py_UCS4 *buf = jm_malloc((size_t)node->str_len * sizeof(Py_UCS4));
+    /* GCOVR_EXCL_START: needs a 32-bit build and a literal of over a billion code points */
+    Py_UCS4 *buf = ((size_t)node->str_len > SIZE_MAX / sizeof(Py_UCS4))
+                       ? NULL
+                       : jm_malloc((size_t)node->str_len * sizeof(Py_UCS4));
+    /* GCOVR_EXCL_STOP */
     if (buf == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         st->failed = 1; /* GCOVR_EXCL_LINE */
         return;         /* GCOVR_EXCL_LINE */

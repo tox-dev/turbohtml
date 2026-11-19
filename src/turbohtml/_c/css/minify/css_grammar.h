@@ -1745,7 +1745,8 @@ static Py_ssize_t css_merge_back(css_buf *pool, rule_vec *items, Py_ssize_t inde
 CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items, int baseline, int depth) {
     uint32_t *hashes = NULL;
     size_t hash_cap = 0;
-    if (items->len > 32) {
+    if (items->len > 32 &&
+        (size_t)items->len <= SIZE_MAX / 32) { /* GCOVR_EXCL_BR_LINE: over 134 million rules, 32-bit only */
         hash_cap = 128;
         while (hash_cap < (size_t)items->len * 4) {
             hash_cap *= 2;

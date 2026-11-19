@@ -114,6 +114,15 @@ typedef unsigned char css_char;
 #define css_free(ptr) PyMem_Free(ptr)
 #endif
 
+/* Keeps a helper's locals out of a recursive caller's frame, where inlining multiplies them by the nesting depth. */
+#if defined(_MSC_VER)
+#define CSS_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+#define CSS_NOINLINE __attribute__((noinline))
+#else
+#define CSS_NOINLINE
+#endif
+
 /* A growable code-point buffer, the engine's only output sink. It mirrors the shared serializer sbuf but routes its
    allocation through css_realloc so the core stays allocator-agnostic without touching shared infrastructure. Every
    buffer and vector of one call points oom at that call's single flag: a failed growth anywhere sets it, the entry
@@ -125,18 +134,16 @@ typedef struct {
     int *oom;
 } css_buf;
 
-/* Whether extra more code points fit, growing the buffer (doubling, so a run of appends stays amortized O(1)) when
-   they do not. A failed growth sets the call's oom flag and leaves the buffer as it was. */
-static inline int cbuf_reserve(css_buf *buffer, Py_ssize_t extra) {
-    if (buffer->len + extra <= buffer->cap) {
-        return 1;
-    }
+/* Grows the buffer to hold extra more code points, doubling so a run of appends stays amortized O(1). Out of line:
+   inlined, the growth would be copied into every cbuf_reserve caller, and the fast path is the one that runs. A failed
+   growth sets the call's oom flag and leaves the buffer as it was. */
+static CSS_NOINLINE int cbuf_grow(css_buf *buffer, Py_ssize_t extra) {
     size_t cap;
     size_t bytes;
     int grew = th_grow_cap((size_t)(buffer->len + extra), (size_t)buffer->cap, 256, sizeof(css_char), &cap, &bytes);
-    if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
-        *buffer->oom = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
-        return 0;         /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+    if (!grew || cap > PTRDIFF_MAX) { /* GCOVR_EXCL_BR_LINE: a one-byte buffer past 2 GiB needs a 32-bit build */
+        *buffer->oom = 1;             /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        return 0;                     /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
     }
     css_char *grown = css_realloc(buffer->data, bytes);
     if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -146,6 +153,14 @@ static inline int cbuf_reserve(css_buf *buffer, Py_ssize_t extra) {
     buffer->data = grown;
     buffer->cap = (Py_ssize_t)cap;
     return 1;
+}
+
+/* Whether extra more code points fit, growing the buffer when they do not. */
+static inline int cbuf_reserve(css_buf *buffer, Py_ssize_t extra) {
+    if (buffer->len + extra <= buffer->cap) {
+        return 1;
+    }
+    return cbuf_grow(buffer, extra);
 }
 
 static inline void cbuf_putc(css_buf *buffer, css_char character) {
@@ -298,15 +313,6 @@ static inline void css_nesting_leave(token_vec *vec) {
     vec->depth--;
 }
 
-/* Keeps a helper's locals out of a recursive caller's frame, where inlining multiplies them by the nesting depth. */
-#if defined(_MSC_VER)
-#define CSS_NOINLINE __declspec(noinline)
-#elif defined(__GNUC__) || defined(__clang__)
-#define CSS_NOINLINE __attribute__((noinline))
-#else
-#define CSS_NOINLINE
-#endif
-
 /* Keep hot helpers inline when additional callers would make the compiler outline them. The coverage build compiles at
    -O0, where an inlined copy lands in every call site and gcc counts its branches once per copy, so a debug build keeps
    one copy, as TH_HOT does in encoding/decode.h. */
@@ -347,14 +353,20 @@ static CSS_FORCEINLINE void token_vec_push(token_vec *vec, css_token token) {
 /* Record the bang comment about to be pushed as the next token. Out of line: only a bang comment reaches it. */
 CSS_NOINLINE static void css_bang_push(token_vec *vec, const css_char *text, Py_ssize_t text_len) {
     if (vec->bang_len == vec->bang_cap) {
-        Py_ssize_t cap = vec->bang_cap < 8 ? 8 : vec->bang_cap * 2;
-        css_bang *grown = css_realloc(vec->bangs, (size_t)cap * sizeof(css_bang));
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)vec->bang_len + 1, (size_t)vec->bang_cap, 8, sizeof(css_bang), &cap, &bytes);
+        if (!grew) {       /* GCOVR_EXCL_BR_LINE: size overflow needs a length no allocation could hold */
+            *vec->oom = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            return;        /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        css_bang *grown = css_realloc(vec->bangs, bytes);
         if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             *vec->oom = 1;   /* GCOVR_EXCL_LINE: allocation-failure path */
             return;          /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         vec->bangs = grown;
-        vec->bang_cap = cap;
+        vec->bang_cap = (Py_ssize_t)cap;
     }
     vec->bangs[vec->bang_len++] = (css_bang){vec->len, text, text_len, 0};
 }

@@ -1430,18 +1430,22 @@ static int concat_reserve(F *folder, concat_run *run, Py_ssize_t extra) {
     if (run->len + extra <= run->cap) {
         return 1;
     }
-    Py_ssize_t cap = run->cap < 64 ? 64 : run->cap;
-    while (cap < run->len + extra) {
-        cap *= 2;
+    size_t cap;
+    size_t bytes;
+    int grew = th_grow_cap((size_t)(run->len + extra), (size_t)run->cap, 64, sizeof(Py_UCS4), &cap, &bytes);
+    if (!grew) {                  /* GCOVR_EXCL_BR_LINE: needs a literal chain past SIZE_MAX bytes, 32-bit only */
+        folder->prog->failed = 1; /* GCOVR_EXCL_LINE */
+        run->open = 0;            /* GCOVR_EXCL_LINE */
+        return 0;                 /* GCOVR_EXCL_LINE */
     }
-    Py_UCS4 *grown = jm_realloc(run->value, (size_t)cap * sizeof(Py_UCS4));
+    Py_UCS4 *grown = jm_realloc(run->value, bytes);
     if (grown == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         folder->prog->failed = 1; /* GCOVR_EXCL_LINE */
         run->open = 0;            /* GCOVR_EXCL_LINE */
         return 0;                 /* GCOVR_EXCL_LINE */
     }
     run->value = grown;
-    run->cap = cap;
+    run->cap = (Py_ssize_t)cap;
     return 1;
 }
 
@@ -1506,6 +1510,12 @@ static void concat_join(F *folder, concat_run *run, int32_t idx, int32_t right_i
    joined operands owned was synthesized for a node the collapse unlinks, and keeping them until the program is freed
    would make an n-literal chain hold n/2 copies of its joined value. */
 static void concat_commit(F *folder, concat_run *run) {
+    /* GCOVR_EXCL_START: needs a 32-bit build and a joined value of over 178 million code points */
+    if ((size_t)run->len > (SIZE_MAX / sizeof(Py_UCS4) - 2) / 6) {
+        folder->prog->failed = 1;
+        return;
+    }
+    /* GCOVR_EXCL_STOP */
     Py_UCS4 *lexeme = jm_malloc((size_t)(run->len * 6 + 2) * sizeof(Py_UCS4)); /* the widest escape is 6 wide */
     if (lexeme == NULL) {         /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         folder->prog->failed = 1; /* GCOVR_EXCL_LINE */
