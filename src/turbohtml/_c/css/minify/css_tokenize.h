@@ -114,6 +114,15 @@ typedef unsigned char css_char;
 #define css_free(ptr) PyMem_Free(ptr)
 #endif
 
+/* Keeps a helper's locals out of a recursive caller's frame, where inlining multiplies them by the nesting depth. */
+#if defined(_MSC_VER)
+#define CSS_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+#define CSS_NOINLINE __attribute__((noinline))
+#else
+#define CSS_NOINLINE
+#endif
+
 /* A growable code-point buffer, the engine's only output sink. It mirrors the shared serializer sbuf but routes its
    allocation through css_realloc so the core stays allocator-agnostic without touching shared infrastructure. Every
    buffer and vector of one call points oom at that call's single flag: a failed growth anywhere sets it, the entry
@@ -125,12 +134,10 @@ typedef struct {
     int *oom;
 } css_buf;
 
-/* Whether extra more code points fit, growing the buffer (doubling, so a run of appends stays amortized O(1)) when
-   they do not. A failed growth sets the call's oom flag and leaves the buffer as it was. */
-static inline int cbuf_reserve(css_buf *buffer, Py_ssize_t extra) {
-    if (buffer->len + extra <= buffer->cap) {
-        return 1;
-    }
+/* Grows the buffer to hold extra more code points, doubling so a run of appends stays amortized O(1). Out of line:
+   inlined, the growth would be copied into every cbuf_reserve caller, and the fast path is the one that runs. A failed
+   growth sets the call's oom flag and leaves the buffer as it was. */
+static CSS_NOINLINE int cbuf_grow(css_buf *buffer, Py_ssize_t extra) {
     size_t cap;
     size_t bytes;
     int grew = th_grow_cap((size_t)(buffer->len + extra), (size_t)buffer->cap, 256, sizeof(css_char), &cap, &bytes);
@@ -146,6 +153,14 @@ static inline int cbuf_reserve(css_buf *buffer, Py_ssize_t extra) {
     buffer->data = grown;
     buffer->cap = (Py_ssize_t)cap;
     return 1;
+}
+
+/* Whether extra more code points fit, growing the buffer when they do not. */
+static inline int cbuf_reserve(css_buf *buffer, Py_ssize_t extra) {
+    if (buffer->len + extra <= buffer->cap) {
+        return 1;
+    }
+    return cbuf_grow(buffer, extra);
 }
 
 static inline void cbuf_putc(css_buf *buffer, css_char character) {
@@ -297,15 +312,6 @@ static inline int css_nesting_enter(token_vec *vec) {
 static inline void css_nesting_leave(token_vec *vec) {
     vec->depth--;
 }
-
-/* Keeps a helper's locals out of a recursive caller's frame, where inlining multiplies them by the nesting depth. */
-#if defined(_MSC_VER)
-#define CSS_NOINLINE __declspec(noinline)
-#elif defined(__GNUC__) || defined(__clang__)
-#define CSS_NOINLINE __attribute__((noinline))
-#else
-#define CSS_NOINLINE
-#endif
 
 /* Keep hot helpers inline when additional callers would make the compiler outline them. The coverage build compiles at
    -O0, where an inlined copy lands in every call site and gcc counts its branches once per copy, so a debug build keeps

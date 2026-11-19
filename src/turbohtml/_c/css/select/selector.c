@@ -279,11 +279,10 @@ static int sel_substr_overlaps(const Py_UCS4 *want, Py_ssize_t want_len, int ci)
         return 0;
     }
     /* GCOVR_EXCL_START: needs a 32-bit build and a selector string of over a billion code points */
-    if ((size_t)want_len > SIZE_MAX / sizeof(Py_ssize_t)) {
-        return 1;
-    }
+    Py_ssize_t *prefix = TH_UNLIKELY((size_t)want_len > SIZE_MAX / sizeof(Py_ssize_t))
+                             ? NULL
+                             : PyMem_Malloc((size_t)want_len * sizeof(*prefix));
     /* GCOVR_EXCL_STOP */
-    Py_ssize_t *prefix = PyMem_Malloc((size_t)want_len * sizeof(*prefix));
     if (prefix == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return 1;         /* GCOVR_EXCL_LINE: retain the bounded matcher when classification runs out of memory */
     }
@@ -1859,11 +1858,10 @@ static int contains_ws_token(const Py_UCS4 *value, Py_ssize_t value_len, const P
 static int sel_substr_kmp(const Py_UCS4 *value, Py_ssize_t value_len, const Py_UCS4 *want, Py_ssize_t want_len,
                           Py_ssize_t offset, int ci) {
     /* GCOVR_EXCL_START: needs a 32-bit build and a selector string of over a billion code points */
-    if ((size_t)want_len > SIZE_MAX / sizeof(Py_ssize_t)) {
-        return -1;
-    }
+    Py_ssize_t *prefix = TH_UNLIKELY((size_t)want_len > SIZE_MAX / sizeof(Py_ssize_t))
+                             ? NULL
+                             : PyMem_Malloc((size_t)want_len * sizeof(*prefix));
     /* GCOVR_EXCL_STOP */
-    Py_ssize_t *prefix = PyMem_Malloc((size_t)want_len * sizeof(*prefix));
     if (prefix == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;        /* GCOVR_EXCL_LINE: the caller retains the allocation-free scan */
     }
@@ -2075,11 +2073,10 @@ static Py_ssize_t sel_position_index(th_node_map *map, const th_node *node, int 
         count += sibling->type == TH_NODE_ELEMENT;
     }
     /* GCOVR_EXCL_START: needs a 32-bit build and over a billion siblings; the caller keeps its direct walk */
-    if (count > SIZE_MAX / sizeof(sel_position_item)) {
-        return 0;
-    }
+    sel_position_item *items = TH_UNLIKELY(count > SIZE_MAX / sizeof(sel_position_item))
+                                   ? NULL
+                                   : PyMem_Malloc(count * sizeof(sel_position_item));
     /* GCOVR_EXCL_STOP */
-    sel_position_item *items = PyMem_Malloc(count * sizeof(sel_position_item));
     /* GCOVR_EXCL_START: allocation failure cannot be forced from a test */
     if (items == NULL || th_node_map_reserve(map, map->count + count) < 0) {
         PyMem_Free(items);
@@ -5127,12 +5124,11 @@ static void sel_sweep_mark(sel_sweep *sweep, int mark) {
    SEL_SWEEP_NOT_SCOPE. */
 static void sel_sweep_plan_chain(sel_sweep *sweep, const sel_complex *complex, int scope, int to, int any_last) {
     /* GCOVR_EXCL_START: needs a 32-bit build and over 107 million chains in one sweep */
-    if ((size_t)sweep->chain_count + 1 > SIZE_MAX / sizeof(sel_sweep_chain)) {
-        sweep->failed = 1;
-        return;
-    }
+    sel_sweep_chain *chains =
+        TH_UNLIKELY((size_t)sweep->chain_count + 1 > SIZE_MAX / sizeof(sel_sweep_chain))
+            ? NULL
+            : PyMem_Realloc(sweep->chains, (size_t)(sweep->chain_count + 1) * sizeof(sel_sweep_chain));
     /* GCOVR_EXCL_STOP */
-    sel_sweep_chain *chains = PyMem_Realloc(sweep->chains, (size_t)(sweep->chain_count + 1) * sizeof(sel_sweep_chain));
     if (chains == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         sweep->failed = 1; /* GCOVR_EXCL_LINE: allocation failure */
         return;            /* GCOVR_EXCL_LINE: allocation failure */
@@ -5485,11 +5481,10 @@ static int sel_sweep_run(sel_sweep *sweep, th_node *anchor, const sel_complex *r
         sweep->n++;
     }
     /* GCOVR_EXCL_START: needs a 32-bit build and a parent with over 536 million element children */
-    if ((size_t)sweep->n + 1 > SIZE_MAX / sizeof(th_node *)) {
-        return -1;
-    }
+    sweep->nodes = TH_UNLIKELY((size_t)sweep->n + 1 > SIZE_MAX / sizeof(th_node *))
+                       ? NULL
+                       : PyMem_Malloc(((size_t)sweep->n + 1) * sizeof(th_node *));
     /* GCOVR_EXCL_STOP */
-    sweep->nodes = PyMem_Malloc(((size_t)sweep->n + 1) * sizeof(th_node *));
     if (sweep->nodes == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;              /* GCOVR_EXCL_LINE: allocation failure */
     }

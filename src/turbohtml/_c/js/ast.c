@@ -181,7 +181,7 @@ const Py_UCS4 *jm_program_own(jm_program *prog, const Py_UCS4 *buf, Py_ssize_t l
         prog->owned_cap = (int32_t)cap;
     }
     /* GCOVR_EXCL_START: needs a 32-bit build and a name of over a billion code points */
-    Py_UCS4 *copy = (size_t)len > SIZE_MAX / sizeof(Py_UCS4) ? NULL : jm_malloc((size_t)len * sizeof(Py_UCS4));
+    Py_UCS4 *copy = ((size_t)len > SIZE_MAX / sizeof(Py_UCS4)) ? NULL : jm_malloc((size_t)len * sizeof(Py_UCS4));
     /* GCOVR_EXCL_STOP */
     if (copy == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         prog->failed = 1; /* GCOVR_EXCL_LINE */
@@ -241,7 +241,7 @@ const Py_UCS4 *jm_ident_value(jm_program *prog, const Py_UCS4 *src, Py_ssize_t l
     }
     /* decoding only ever shortens, so len bounds the buffer; GCOVR_EXCL_START: needs a 32-bit build and a name past
        a billion code points */
-    Py_UCS4 *buf = (size_t)len > SIZE_MAX / sizeof(Py_UCS4) ? NULL : jm_malloc((size_t)len * sizeof(Py_UCS4));
+    Py_UCS4 *buf = ((size_t)len > SIZE_MAX / sizeof(Py_UCS4)) ? NULL : jm_malloc((size_t)len * sizeof(Py_UCS4));
     /* GCOVR_EXCL_STOP */
     if (buf == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         prog->failed = 1; /* GCOVR_EXCL_LINE: the escaped spelling would resolve as another name */
