@@ -9,53 +9,53 @@
   "rows": [
     [
       "daring fireball (10 kB)",
-      5.568660890276078e-05,
-      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/inner_runner.js', 'jsdom'] returned non-zero exit status 1.",
-      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/inner_runner.js', 'parse5'] returned non-zero exit status 1."
+      3.0880522908915965e-05,
+      0.40426921215257605,
+      0.05184622555049524
     ],
     [
       "ars technica (56 kB)",
-      0.0002562453435776509,
-      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/inner_runner.js', 'jsdom'] returned non-zero exit status 1.",
-      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/inner_runner.js', 'parse5'] returned non-zero exit status 1."
+      0.0001357409211304154,
+      0.4840238076198148,
+      0.06681698915247883
     ],
     [
       "mozilla blog (95 kB)",
-      0.00041784208277893716,
-      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/inner_runner.js', 'jsdom'] returned non-zero exit status 1.",
-      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/inner_runner.js', 'parse5'] returned non-zero exit status 1."
+      0.0003516858484090335,
+      0.5075626833500185,
+      0.08023436899384251
     ],
     [
       "whatwg spec (235 kB)",
-      0.002230428903461264,
-      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/inner_runner.js', 'jsdom'] returned non-zero exit status 1.",
-      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/inner_runner.js', 'parse5'] returned non-zero exit status 1."
+      0.0013676221457747792,
+      0.6382352943503065,
+      0.10775749770109541
     ]
   ],
   "spread": [
     [
       null,
-      0.23604985478596338,
-      null,
-      null
+      0.1417750698400816,
+      0.023277800962220093,
+      0.03592364951750531
     ],
     [
       null,
-      0.15563029269417528,
-      null,
-      null
+      0.01966928985611745,
+      0.0723596660003762,
+      0.05017897803760312
     ],
     [
       null,
-      0.2559907374107692,
-      null,
-      null
+      0.03940668374725474,
+      0.06989333688231619,
+      0.06272716731598665
     ],
     [
       null,
-      0.19997904235461292,
-      null,
-      null
+      0.11958701382485591,
+      0.07939522463840866,
+      0.04280667019607982
     ]
   ],
   "notes": {

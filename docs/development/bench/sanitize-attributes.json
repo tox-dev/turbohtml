@@ -10,61 +10,61 @@
   "rows": [
     [
       "1024 rejected attributes",
-      6.87612529626828e-05,
-      0.017266131535749688,
-      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/dompurify_runner.js', 'attributes'] returned non-zero exit status 1.",
-      0.00022312511807551043
+      6.799409061576019e-05,
+      0.016571273783605043,
+      0.4303861677685442,
+      0.00022888225311893013
     ],
     [
       "1024 allowed attributes",
-      0.00014712091900814054,
-      0.019348778485315656,
-      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/dompurify_runner.js', 'attributes'] returned non-zero exit status 1.",
-      0.00034947172402060764
+      0.0001147671349428947,
+      0.018757989056636386,
+      0.4094438285984021,
+      0.0003533963861021524
     ],
     [
       "112 elements with four allowed attributes",
-      4.022043470849705e-05,
-      0.004845346850985758,
-      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/dompurify_runner.js', 'attributes'] returned non-zero exit status 1.",
-      0.0001239999588686184
+      4.72432749309822e-05,
+      0.003334879828616977,
+      0.41614058933531245,
+      0.00011427401995452631
     ],
     [
       "256 elements with four allowed attributes",
-      9.168594013525914e-05,
-      0.007702357575120307,
-      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/dompurify_runner.js', 'attributes'] returned non-zero exit status 1.",
-      0.0004508539080613142
+      9.300461181709352e-05,
+      0.008018411443845252,
+      0.4435282738500973,
+      0.0002900282938886297
     ]
   ],
   "spread": [
     [
       null,
-      0.05719144270300505,
-      0.054672628932831764,
-      null,
-      0.03157032829354099
+      0.027344913108604044,
+      0.0349139038942225,
+      0.07177717032907227,
+      0.03073447784142928
     ],
     [
       null,
-      0.18566878356655256,
-      0.13709449987722777,
-      null,
-      0.04974739766545604
+      0.05551499219588156,
+      0.043137576982585385,
+      0.03589924300402622,
+      0.14057494741798876
     ],
     [
       null,
-      0.024086220135410775,
-      0.18328397070348187,
-      null,
-      0.17903185252670686
+      0.1842783922553306,
+      0.0254266989859859,
+      0.10703854966739082,
+      0.027698988559832816
     ],
     [
       null,
-      0.03075718659773449,
-      0.04042475562459517,
-      null,
-      0.14706087187371775
+      0.0450502162472184,
+      0.09855155519450941,
+      0.08535988861314255,
+      0.07884815617609794
     ]
   ],
   "notes": {

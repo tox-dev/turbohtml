@@ -8,45 +8,45 @@
   "rows": [
     [
       "templated 4 KiB",
-      6.0550861832098235e-05,
-      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/dompurify_runner.js', 'templates'] returned non-zero exit status 1."
+      3.924719445862479e-05,
+      0.40515520274833156
     ],
     [
       "plain 64 KiB text",
-      4.319018864767562e-05,
-      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/dompurify_runner.js', 'templates'] returned non-zero exit status 1."
+      4.363759575885713e-05,
+      0.42194163498740334
     ],
     [
       "plain 64 KiB attribute",
-      0.00011292994984065292,
-      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/dompurify_runner.js', 'templates'] returned non-zero exit status 1."
+      9.853337919878414e-05,
+      0.37856587049997564
     ],
     [
       "late template in 64 KiB text",
-      0.00013415960288322518,
-      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/dompurify_runner.js', 'templates'] returned non-zero exit status 1."
+      0.00012790906018930552,
+      0.41504704201846226
     ]
   ],
   "spread": [
     [
       null,
-      0.2062794002947806,
-      null
+      0.1340222371682505,
+      0.0540372046229716
     ],
     [
       null,
-      0.0586199980263131,
-      null
+      0.13414468427118695,
+      0.07485905653540259
     ],
     [
       null,
-      0.1386709913016819,
-      null
+      0.10926730770968121,
+      0.031971740263389024
     ],
     [
       null,
-      0.19200873755246425,
-      null
+      0.10761729676762287,
+      0.03567185803150699
     ]
   ],
   "notes": {}
