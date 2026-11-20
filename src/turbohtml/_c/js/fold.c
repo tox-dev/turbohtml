@@ -154,9 +154,14 @@ static int is_pure_const(F *folder, int32_t idx) {
 
 /* The primitive type an expression is statically certain to evaluate to -- 's'tring, 'n'umber,
    'b'oolean, 'u'ndefined -- or 0 when unknown. Only shapes whose type the grammar fixes qualify:
-   a literal, `typeof` (always a string, 13.5.3), `!` (always a boolean, 13.5.7), `void` (always
-   undefined, 13.5.2). */
-static char static_type(F *folder, int32_t idx) {
+   a literal, `typeof` (always a string, 13.5.3), `!` and `delete` (always a boolean, 13.5.7,
+   13.5.1), `void` (always undefined, 13.5.2), unary `+` (a number, or a throw for a BigInt,
+   13.5.4), a relational or equality operator (a boolean, 13.10, 13.11), `>>>` (a number, or a throw
+   for a BigInt, 6.1.6.2.11), and the other arithmetic operators once one operand is a number: a
+   BigInt cannot mix with a Number (13.15.3 step 8), so the result is a number or a throw. A `+`
+   with a string operand concatenates (13.15.3 step 5). depth caps the descent a concatenation
+   chain would otherwise take one level per operand. */
+static char static_type(F *folder, int32_t idx, int depth) {
     const jm_node *node = &folder->prog->nodes[idx];
     switch (node->kind) {
     case JN_STRING:
@@ -167,16 +172,58 @@ static char static_type(F *folder, int32_t idx) {
         if (node->op == JT_NOT) {
             return 'b';
         }
-        if (node->op == JT_IDENT && ident_is(node, "typeof")) {
-            return 's';
+        if (node->op == JT_PLUS) {
+            return 'n';
         }
-        if (node->op == JT_IDENT && ident_is(node, "void")) {
-            return 'u';
+        if (node->op == JT_IDENT) { /* the word operators: typeof, void, and delete */
+            return ident_is(node, "typeof") ? 's' : ident_is(node, "void") ? 'u' : 'b';
         }
         return 0;
+    case JN_BINARY:
+        switch (node->op) {
+        case JT_LT:
+        case JT_GT:
+        case JT_LE:
+        case JT_GE:
+        case JT_EQ_EQ:
+        case JT_NE:
+        case JT_EQ_EQ_EQ:
+        case JT_NE_EQ:
+            return 'b';
+        case JT_USHR:
+            return 'n';
+        case JT_PLUS:
+        case JT_MINUS:
+        case JT_STAR:
+        case JT_DIV:
+        case JT_MOD:
+        case JT_POW:
+        case JT_SHL:
+        case JT_SHR:
+        case JT_BIT_AND:
+        case JT_BIT_OR:
+        case JT_BIT_XOR: {
+            if (depth == 0) {
+                return 0;
+            }
+            char left = static_type(folder, node->a, depth - 1);
+            char right = static_type(folder, node->b, depth - 1);
+            if (node->op == JT_PLUS) {
+                return left == 's' || right == 's' ? 's' : left == 'n' && right == 'n' ? 'n' : 0;
+            }
+            return left == 'n' || right == 'n' ? 'n' : 0;
+        }
+        default:
+            return 'b'; /* the word operators, `in` and `instanceof` (13.10) */
+        }
     default:
         return 0;
     }
+}
+
+static int same_type(F *folder, int32_t left, int32_t right) {
+    char type = static_type(folder, left, 4);
+    return type != 0 && type == static_type(folder, right, 4);
 }
 
 /* Whether the string literal spells `word` (the lexeme keeps its quotes; an escape in the
@@ -2329,8 +2376,7 @@ static void walk(F *folder, int32_t idx, int32_t depth) {
                 return;
             }
         }
-        if ((node->op == JT_EQ_EQ_EQ || node->op == JT_NE_EQ) && static_type(folder, node->a) != 0 &&
-            static_type(folder, node->a) == static_type(folder, node->b)) {
+        if ((node->op == JT_EQ_EQ_EQ || node->op == JT_NE_EQ) && same_type(folder, node->a, node->b)) {
             /* same-type operands make loose equality strict (7.2.14 step 1), so === weakens to ==
                without a behavior change: typeof x==="string" -> typeof x=="string" */
             node->op = node->op == JT_EQ_EQ_EQ ? JT_EQ_EQ : JT_NE;

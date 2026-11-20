@@ -123,10 +123,27 @@ _NODE: Final[str | None] = shutil.which("node")
         pytest.param("x=a===null", "x=a===null", id="eq-null-kept"),
         pytest.param("x=a===void 0", "x=a===void 0", id="eq-undefined-kept"),
         pytest.param("x=1===a", "x=1===a", id="eq-number-unknown-kept"),
-        # -a coerces to an unknown numeric-or-bigint and delete yields its own boolean, but neither
-        # is a shape static_type vouches for, so both keep ===
+        # -a and ~a may be a BigInt, and a-b too when neither side is known to be a number, so they keep ===;
+        # unary +, >>>, and arithmetic with a number operand are numbers (a BigInt throws instead), a concatenation
+        # with a string is a string, and delete, relational and worded operators are booleans
         pytest.param("x=-a===-b", "x=-a===-b", id="eq-minus-unary-kept"),
-        pytest.param("x=delete a.b===c", "x=delete a.b===c", id="eq-delete-kept"),
+        pytest.param("x=~a===~b", "x=~a===~b", id="eq-bitnot-unary-kept"),
+        pytest.param("x=a-b===c-d", "x=a-b===c-d", id="eq-unknown-arithmetic-kept"),
+        pytest.param("x=a+1===b+1", "x=a+1===b+1", id="eq-number-plus-unknown-kept"),
+        pytest.param("x=1+a===b+1", "x=1+a===b+1", id="eq-number-plus-unknown-right-kept"),
+        pytest.param("x=delete a.b===c", "x=delete a.b===c", id="eq-delete-unknown-kept"),
+        pytest.param("x=+a!==+a", "x=+a!=+a", id="ne-unary-plus-weakens"),
+        pytest.param("x=1/+a===1/b", "x=1/+a==1/b", id="eq-division-weakens"),
+        pytest.param("x=a-1===b*2", "x=a-1==b*2", id="eq-arithmetic-weakens"),
+        pytest.param("x=a>>>0===b>>>0", "x=a>>>0==b>>>0", id="eq-unsigned-shift-weakens"),
+        pytest.param("x=(a|0)===(b<<1)", "x=(a|0)==b<<1", id="eq-bitwise-weakens"),
+        pytest.param("x=1+2*a===3", "x=1+2*a==3", id="eq-number-plus-weakens"),
+        pytest.param('x=""+a===b+""', 'x=""+a==b+""', id="eq-concat-weakens"),
+        pytest.param('x="a"+b+c===d', 'x="a"+b+c===d', id="eq-concat-unknown-kept"),
+        pytest.param('x="a"+b+c+d+e+f===""+g', 'x="a"+b+c+d+e+f===""+g', id="eq-concat-past-depth-kept"),
+        pytest.param("x=delete a.b===!c", "x=delete a.b==!c", id="eq-delete-weakens"),
+        pytest.param("x=(a<b)!==(c in d)", "x=a<b!=c in d", id="ne-relational-in-weakens"),
+        pytest.param("x=a instanceof b===!c", "x=a instanceof b==!c", id="eq-instanceof-weakens"),
         # negation is applied or removed wherever it nets bytes: !(a==b) is exactly a!=b (7.2.13/
         # 7.2.14, both booleans), a test position absorbs a ! by swapping branches or flipping the
         # connective, and && / || De-Morgan when both sides negate for free; !(a<b) stays (NaN)
@@ -2118,6 +2135,12 @@ def test_indirect_eval_leaves_locals_renamable() -> None:
             "function f(a,b){return[a===1?g(b,1):g(b,2),!a||b?g(3):g(4)]}"
             "console.log(JSON.stringify([f(1,0),f(2,5),f(0,0),log]))",
             id="hoisted-call",
+        ),
+        pytest.param(
+            "var o={valueOf(){return 2}};"
+            "console.log(+o===+'2',1/+o===1/o,''+o===o+'',o-0===2,delete o.p===!0,(o<3)===('valueOf'in o),"
+            "o>>>0===2>>>0,typeof(+'x'),+'x'!==+'x')",
+            id="same-type-equality",
         ),
     ],
 )
