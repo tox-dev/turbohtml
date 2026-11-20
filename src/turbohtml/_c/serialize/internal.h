@@ -1810,10 +1810,23 @@ static inline Py_UCS4 *sbuf_finish(sbuf *out, Py_ssize_t *out_len) {
    the input length would wildly over-reserve. */
 static inline void sbuf_presize_for_root(sbuf *out, th_tree *tree, th_node *node) {
     if (node == th_tree_document(tree)) {
-        /* reserving the input length is a no-op for an empty or programmatic
-           tree (length 0), so no separate guard is needed */
-        sbuf_reserve(out, tree->length);
+        /* the end tags, quotes and escapes the serializer adds can run the output a little past the input; that
+           overshoot would double the buffer through one realloc whose copy depends on whether the heap happens to
+           leave room to grow in place, so the headroom keeps the common case to the one allocation */
+        sbuf_reserve(out, tree->length + tree->length / 16 + 64);
     }
+}
+
+/* The NAMED formatter writes most non-ASCII characters as a reference several times their length, so its output
+   from non-ASCII input usually outgrows the input; reserving twice the input costs no more peak memory than the
+   doubling that overshoot triggers, and skips its copy. */
+static inline void sbuf_presize_for_markup(sbuf *out, th_tree *tree, th_node *node, int formatter) {
+    if (formatter == TH_FMT_NAMED && node == th_tree_document(tree) &&
+        (tree->kind != PyUnicode_1BYTE_KIND || !th_tree_input_ascii(tree, tree->length))) {
+        sbuf_reserve(out, 2 * tree->length + 64);
+        return;
+    }
+    sbuf_presize_for_root(out, tree, node);
 }
 
 static inline void sbuf_presize_for_c14n(sbuf *out, th_tree *tree) {
