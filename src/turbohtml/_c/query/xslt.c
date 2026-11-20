@@ -274,8 +274,7 @@ static size_t node_next(size_t probe, size_t walked, size_t mask, const th_node 
     return (probe + 1) & mask;
 }
 
-static int match_set_grow(match_set *set) {
-    size_t new_cap = set->cap == 0 ? 16 : set->cap * 2;
+static int match_set_resize(match_set *set, size_t new_cap) {
     match_slot *slots = PyMem_Calloc(new_cap, sizeof(match_slot));
     if (slots == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
         return -1;       /* GCOVR_EXCL_LINE */
@@ -295,10 +294,21 @@ static int match_set_grow(match_set *set) {
     return 0;
 }
 
+/* Size the set for `more` further items at once, so a set filled from one evaluation is allocated and zeroed once
+   rather than at every doubling on the way. */
+static int match_set_reserve(match_set *set, size_t more) {
+    size_t cap = set->cap == 0 ? 16 : set->cap;
+    while ((set->count + more) * 2 >= cap) {
+        cap *= 2;
+    }
+    return cap == set->cap ? 0 : match_set_resize(set, cap);
+}
+
 static int match_set_add(match_set *set, const th_node *node, Py_ssize_t attr) {
     if ((set->count + 1) * 2 >= set->cap) {
-        if (match_set_grow(set) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
-            return -1;                 /* GCOVR_EXCL_LINE */
+        const size_t grown = set->cap == 0 ? 16 : set->cap * 2;
+        if (match_set_resize(set, grown) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+            return -1;                          /* GCOVR_EXCL_LINE */
         }
     }
     size_t probe = th_hash_slot(node_hash(node, attr), set->cap);
@@ -867,6 +877,7 @@ typedef struct {
 
 typedef struct {
     const Py_UCS4 *source;
+    const Py_UCS4 *probed; /* the pattern a first call already answered by probing, so the next one indexes it */
     match_set matched;
 } xslt_number_match;
 
@@ -1096,6 +1107,8 @@ typedef struct engine {
     xslt_name_index
         rule_names;       /* element-named rules by local name; an entry's first is the earliest rule's position + 1 */
     Py_ssize_t rule_wild; /* the first rule of the chain of rules any node may match, or -1 */
+    Py_ssize_t rule_root; /* the first rule of the chain of rules whose pattern is "/", or -1 */
+    int rule_dispatch;    /* whether best_rule caches its answers, see build_rule_index */
     Py_ssize_t *attrset_previous; /* with attrset_index, per set one past the earlier definition of its name, else 0 */
     xslt_slots attrset_uses;
     xslt_space *spaces;
@@ -2383,14 +2396,11 @@ static int scan_static_name_pattern(engine *eng, const xp_program *prog, xp_resu
 /* ---- template matching ---------------------------------------------------- */
 
 /* Populate a rule's matched-node set by evaluating its compiled pattern from the
-   source root once and recording the selected items. Out of line: it runs once per rule, and inlined into
+   source root once and recording the selected items. A "/" rule never comes here: best_rule answers it from its own
+   chain. Out of line: it runs once per rule, and inlined into
    apply_to_item its locals would sit in that frame on every level of an xsl:apply-templates recursion. */
 TH_NOINLINE static int build_rule(engine *eng, xslt_rule *rule) {
     rule->built = 1;
-    const xn *pattern = &rule->prog->nodes[rule->prog->root];
-    if (pattern->kind == XN_PATH && pattern->first < 0) {
-        return match_set_add(&rule->matched, eng->src_root, -1);
-    }
     xp_result matched;
     const char *feature = NULL;
     xslt_pattern_scope scope = {.eng = eng, .instruction = rule->body};
@@ -2408,6 +2418,10 @@ TH_NOINLINE static int build_rule(engine *eng, xslt_rule *rule) {
             PyErr_Format(PyExc_ValueError, "xslt: match pattern error (%s)", feature);
         }
         return fail_py(eng);
+    }
+    if (match_set_reserve(&rule->matched, (size_t)matched.nodes.len) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+        xp_result_free(&matched);                                           /* GCOVR_EXCL_LINE */
+        return -1;                                                          /* GCOVR_EXCL_LINE */
     }
     for (Py_ssize_t index = 0; index < matched.nodes.len; index++) {
         int added = match_set_add(&rule->matched, matched.nodes.items[index].node, matched.nodes.items[index].attr);
@@ -2465,7 +2479,7 @@ static int dispatch_grow(engine *eng) {
    rules that can match node, in that same order, so a rule no node reaches is never built. */
 static xslt_rule *best_rule(engine *eng, th_node *node, Py_ssize_t attr, const Py_UCS4 *mode, Py_ssize_t mode_len) {
     size_t slot = 0;
-    const int cache = eng->nrules >= 16;
+    const int cache = eng->rule_dispatch;
     if (cache) {
         if (eng->dispatch_count == eng->dispatch_capacity / 2) {
             /* GCOVR_EXCL_BR_START: alloc */
@@ -2489,9 +2503,21 @@ static xslt_rule *best_rule(engine *eng, th_node *node, Py_ssize_t attr, const P
         named = name_index_find(&eng->rule_names, local, local_len) - 1;
     }
     Py_ssize_t wild = eng->rule_wild;
+    Py_ssize_t root = node == eng->src_root ? eng->rule_root : -1;
     xslt_rule *winner = NULL;
-    while (named >= 0 || wild >= 0) {
+    while (named >= 0 || wild >= 0 || root >= 0) {
         xslt_rule *rule;
+        if (root >= 0 && (wild < 0 || root < wild)) {
+            /* only the root reaches this chain, and a "/" pattern matches the root alone, so it needs no match set */
+            rule = &eng->rules[root];
+            root = rule->next;
+            if ((rule->mode == NULL) == (mode == NULL) &&
+                (mode == NULL || str_eq(rule->mode, rule->mode_len, mode, mode_len))) {
+                winner = rule;
+                break;
+            }
+            continue;
+        }
         if (wild < 0 || (named >= 0 && named < wild)) {
             rule = &eng->rules[named];
             named = rule->next;
@@ -4546,6 +4572,11 @@ static int match_alternative(engine *eng, xslt_pattern_scope *scope, const xp_pr
     if (status < 0) {
         return number_pattern_error(eng, status);
     }
+    if (match_set_reserve(set, (size_t)matched.nodes.len) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+        xp_result_free(&matched);                                /* GCOVR_EXCL_LINE */
+        PyErr_NoMemory();                                        /* GCOVR_EXCL_LINE */
+        return fail_py(eng);                                     /* GCOVR_EXCL_LINE */
+    }
     for (Py_ssize_t slot = 0; slot < matched.nodes.len; slot++) {
         xp_item item = matched.nodes.items[slot];
         int added = match_set_add(set, item.node, item.attr);
@@ -4560,9 +4591,12 @@ static int match_alternative(engine *eng, xslt_pattern_scope *scope, const xp_pr
 }
 
 /* Set out up for one xsl:number call. A pattern that reads nothing but the source and the instruction's namespaces is
-   evaluated over it once and kept on the site; the others are left to number_probe_has. Returns 0, or -1 on error. */
+   evaluated over it once and kept on the site; the others are left to number_probe_has. So is a static pattern on the
+   first call of a site that sets probe_first: there a from pattern stops the walk back at its nearest match, so one
+   call passes only the nodes since, where indexing evaluates the pattern over the whole source, which pays off only
+   once the site runs again. Returns 0, or -1 on error. */
 static int number_pattern_open(engine *eng, th_node *instruction, const Py_UCS4 *pattern, Py_ssize_t len,
-                               xslt_number_match *cache, xslt_number_pattern *out) {
+                               int probe_first, xslt_number_match *cache, xslt_number_pattern *out) {
     *out = (xslt_number_pattern){.set = &cache->matched, .scope = {.eng = eng, .instruction = instruction}};
     if (cache->source == pattern) {
         return 0;
@@ -4579,7 +4613,10 @@ static int number_pattern_open(engine *eng, th_node *instruction, const Py_UCS4 
         }
         dynamic |= xp_pattern_reads_call(programs[index]);
     }
-    if (dynamic) {
+    if (dynamic || (probe_first && cache->probed != pattern)) {
+        if (!dynamic) {
+            cache->probed = pattern;
+        }
         out->set = NULL;
         out->alternatives = PyMem_Calloc((size_t)alternatives, sizeof(*out->alternatives));
         if (out->alternatives == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
@@ -6191,12 +6228,20 @@ static int count_numbers(engine *eng, th_node *instruction, number_values *value
     const Py_UCS4 *from_source = number_attr(eng, instruction, eng->number_attrs.from, "from", &from_len);
     xslt_number_pattern count_pattern = {0};
     xslt_number_pattern from_pattern = {0};
+    /* once the from pattern is indexed, every later call reads the index, so only calls before ask for the level */
+    int probe_first = 0;
+    if (from_source != NULL && site->from_match.source != from_source) {
+        Py_ssize_t level_len = 0;
+        const Py_UCS4 *level = number_attr(eng, instruction, eng->number_attrs.level, "level", &level_len);
+        probe_first = level != NULL && ucs4_ascii_eq(level, level_len, "any");
+    }
     /* Compilation validates the count and from patterns before a run. */
     int status = count_source == NULL ? 0
-                                      : number_pattern_open(eng, instruction, count_source, count_len,
+                                      : number_pattern_open(eng, instruction, count_source, count_len, probe_first,
                                                             &site->count_match, &count_pattern);
     if (status == 0 && from_source != NULL) {
-        status = number_pattern_open(eng, instruction, from_source, from_len, &site->from_match, &from_pattern);
+        status =
+            number_pattern_open(eng, instruction, from_source, from_len, probe_first, &site->from_match, &from_pattern);
     }
     if (status == 0) {
         status = count_with(eng, instruction, site, count_source != NULL ? &count_pattern : NULL,
@@ -6601,9 +6646,14 @@ static int apply_builtin(engine *eng, th_node *node, Py_ssize_t attr, const Py_U
             child_count++;
         }
         int rc = 0;
+        /* Only a wildcard-chain rule can match a text node, so without one a text child takes its built-in rule. */
+        const int text_builtin = eng->rule_wild < 0;
         for (th_node *child = node->first_child; child != NULL && rc == 0; child = child->next_sibling) {
             child_pos++;
-            rc = apply_to_item(eng, (xp_item){child, -1}, child_pos, child_count, mode, mode_len, NULL, 0, out_parent);
+            rc = text_builtin && child->type == TH_NODE_TEXT
+                     ? apply_builtin(eng, child, -1, mode, mode_len, out_parent)
+                     : apply_to_item(eng, (xp_item){child, -1}, child_pos, child_count, mode, mode_len, NULL, 0,
+                                     out_parent);
         }
         eng->depth--;
         return rc;
@@ -8088,17 +8138,6 @@ static int rule_order(const void *left_ptr, const void *right_ptr) {
 
 /* ---- output serialization ------------------------------------------------- */
 
-/* Append the text of every Text descendant of node, in document order. */
-static int collect_output_text(th_node *node, xb *buffer) {
-    for (th_node *child = node->first_child; child != NULL; child = preorder_next(child, node)) {
-        if (child->type == TH_NODE_TEXT && /* GCOVR_EXCL_BR_LINE: the second condition fails only on allocation */
-            xb_add(buffer, child->text, child->text_len) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-            return -1;                                          /* GCOVR_EXCL_LINE */
-        }
-    }
-    return 0;
-}
-
 /* Retype direct text children of cdata-section-elements so the serializer wraps them in CDATA. */
 static void apply_cdata_sections(engine *eng, th_node *node) {
     for (th_node *child = node->first_child; child != NULL; child = preorder_next(child, node)) {
@@ -8151,17 +8190,82 @@ static void auto_select_method(engine *eng, th_node *out_root) {
     }
 }
 
-/* Concatenate the text descendants of the output root (xsl:output method="text"). */
+/* The text descendants of root joined into a string of the narrowest width that holds them, given their total length.
+   Sizing the string first writes each character once, with no UCS-4 copy to grow and narrow. */
+static PyObject *join_wide_text(th_node *root, Py_ssize_t length) {
+    Py_UCS4 bits = 0;
+    for (th_node *node = root->first_child; node != NULL && bits <= 0xFFFF; node = preorder_next(node, root)) {
+        if (node->type == TH_NODE_TEXT) {
+            for (Py_ssize_t index = 0; index < node->text_len; index++) {
+                bits |= node->text[index];
+            }
+        }
+    }
+    Py_UCS4 maxchar = bits <= 0xFF ? 0xFF : bits <= 0xFFFF ? 0xFFFF : 0x10FFFF;
+    PyObject *out = PyUnicode_New(length, th_str_maxchar(maxchar));
+    if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+        return NULL;   /* GCOVR_EXCL_LINE */
+    }
+    int kind = PyUnicode_KIND(out);
+    Py_ssize_t at = 0;
+    for (th_node *node = root->first_child; node != NULL; node = preorder_next(node, root)) {
+        if (node->type != TH_NODE_TEXT) {
+            continue;
+        }
+        const Py_UCS4 *text = node->text;
+        Py_ssize_t text_len = node->text_len;
+        if (kind == PyUnicode_1BYTE_KIND) {
+            Py_UCS1 *destination = PyUnicode_1BYTE_DATA(out) + at;
+            for (Py_ssize_t index = 0; index < text_len; index++) {
+                destination[index] = (Py_UCS1)text[index];
+            }
+#ifndef PYPY_VERSION
+        } else if (kind == PyUnicode_2BYTE_KIND) {
+            Py_UCS2 *destination = PyUnicode_2BYTE_DATA(out) + at;
+            for (Py_ssize_t index = 0; index < text_len; index++) {
+                destination[index] = (Py_UCS2)text[index];
+            }
+#endif
+        } else if (text_len > 0) {
+            memcpy(PyUnicode_4BYTE_DATA(out) + at, text, (size_t)text_len * sizeof(Py_UCS4));
+        }
+        at += text_len;
+    }
+    return out;
+}
+
+/* Concatenate the text descendants of the output root (xsl:output method="text"). Most output is ASCII, so the text
+   goes straight into an ASCII string, checking the width in the same pass; anything wider is joined again. */
 static PyObject *serialize_text(engine *eng, th_node *root) {
     (void)eng;
-    xb buffer = {0};
-    if (collect_output_text(root, &buffer) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-        xb_free(&buffer);                         /* GCOVR_EXCL_LINE */
-        return PyErr_NoMemory();                  /* GCOVR_EXCL_LINE */
+    Py_ssize_t length = 0;
+    for (th_node *node = root->first_child; node != NULL; node = preorder_next(node, root)) {
+        if (node->type == TH_NODE_TEXT) {
+            length += node->text_len;
+        }
     }
-    PyObject *out = make_str(buffer.data, buffer.len);
-    xb_free(&buffer);
-    return out;
+    PyObject *out = PyUnicode_New(length, 0x7F);
+    if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+        return NULL;   /* GCOVR_EXCL_LINE */
+    }
+    Py_UCS1 *destination = PyUnicode_1BYTE_DATA(out);
+    Py_UCS4 bits = 0;
+    for (th_node *node = root->first_child; node != NULL && bits <= 0x7F; node = preorder_next(node, root)) {
+        if (node->type == TH_NODE_TEXT) {
+            const Py_UCS4 *text = node->text;
+            Py_ssize_t text_len = node->text_len;
+            for (Py_ssize_t index = 0; index < text_len; index++) {
+                bits |= text[index];
+                destination[index] = (Py_UCS1)text[index];
+            }
+            destination += text_len;
+        }
+    }
+    if (bits <= 0x7F) {
+        return out;
+    }
+    Py_DECREF(out);
+    return join_wide_text(root, length);
 }
 
 static int raise_html_pi_gt(const th_node *pi) {
@@ -8871,14 +8975,24 @@ static int build_rule_index(engine *eng) {
     }
     /* GCOVR_EXCL_BR_STOP */
     Py_ssize_t wild = -1;
+    Py_ssize_t root = -1;
+    Py_ssize_t wild_len = 0;
+    Py_ssize_t root_len = 0;
     for (Py_ssize_t index = eng->nrules - 1; index >= 0; index--) {
         xslt_rule *rule = &eng->rules[index];
-        if (eng->rule_names.capacity == 0 || rule->key == NULL) {
+        const xn *pattern = &rule->prog->nodes[rule->prog->root];
+        if (pattern->kind == XN_PATH && pattern->first < 0) {
+            rule->next = root;
+            root = index;
+            root_len++;
+        } else if (eng->rule_names.capacity == 0 || rule->key == NULL) {
             rule->next = wild;
             wild = index;
+            wild_len++;
         }
     }
     eng->rule_wild = wild;
+    eng->rule_root = root;
     if (eng->rule_names.capacity != 0) {
         do {
             for (Py_ssize_t index = eng->nrules - 1; index >= 0 && !eng->rule_names.walked_far; index--) {
@@ -8889,6 +9003,25 @@ static int build_rule_index(engine *eng) {
             }
         } while (name_index_rekey(&eng->rule_names));
     }
+    /* A lookup in the dispatch cache costs about what testing a few rules does, and on a single pass over the source
+       every lookup misses, so the cache pays only where a node can walk a long chain. Each chain lists its rules in
+       ascending order, so one descending sweep finds every named chain's length from the rule after it. */
+    Py_ssize_t longest = 0;
+    if (eng->rule_names.capacity != 0) {
+        Py_ssize_t *lengths = PyMem_Calloc((size_t)eng->nrules, sizeof(Py_ssize_t));
+        if (lengths == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;         /* GCOVR_EXCL_LINE */
+        }
+        for (Py_ssize_t index = eng->nrules - 1; index >= 0; index--) {
+            const xslt_rule *rule = &eng->rules[index];
+            if (rule->key != NULL) {
+                lengths[index] = 1 + (rule->next < 0 ? 0 : lengths[rule->next]);
+                longest = lengths[index] > longest ? lengths[index] : longest;
+            }
+        }
+        PyMem_Free(lengths);
+    }
+    eng->rule_dispatch = eng->nrules >= 16 && wild_len + root_len + longest >= 4;
     return 0;
 }
 
