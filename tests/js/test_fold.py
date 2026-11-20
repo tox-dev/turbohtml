@@ -670,6 +670,13 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
         pytest.param(
             "function f(){let x=1;var y;y=x;x=3;return g()}", "function f(){return g()}", id="late-store-dropped"
         ),
+        # a top-level binding is a global another script reads, so a store to it is never dead
+        pytest.param("var x;x=g()", "var x;x=g()", id="global-store-kept"),
+        pytest.param("let x=1;x=2", "let x=1;x=2", id="global-lexical-store-kept"),
+        pytest.param(
+            "var x=1;function f(){x=2}f()", "var x=1;function f(){x=2}f()", id="global-store-in-function-kept"
+        ),
+        pytest.param("var a=1,b;b=a;a=3", "var a=1,b;b=a,a=3", id="global-store-in-sequence-kept"),
         pytest.param("function f(){0,g()}", "function f(){g()}", id="seq-drop-pure-head"),
         pytest.param("function f(x){return x,g()}", "function f(a){return g()}", id="seq-drop-pure-local-head"),
         pytest.param("function f(y){return g(),y,h()}", "function f(a){return g(),h()}", id="seq-drop-pure-mid"),
