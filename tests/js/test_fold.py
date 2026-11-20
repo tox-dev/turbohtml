@@ -282,6 +282,11 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
         pytest.param("x='a'+'b'", "x='ab'", id="string-concat-single-quote"),
         pytest.param('x=1+"a"', 'x=1+"a"', id="mixed-add-kept"),
         pytest.param("x=1e3+2", "x=1e3+2", id="exponent-operand-kept"),
+        # a radix operand folds like the decimal value the printer writes for it
+        pytest.param("x=4*0x40", "x=256", id="hex-operand"),
+        pytest.param("x=0b11+0o7", "x=10", id="binary-octal-operands"),
+        pytest.param("x=0x1_0*2", "x=32", id="separated-hex-operand"),
+        pytest.param("x=0x38D7EA4C68000+0", "x=0x38D7EA4C68000+0", id="oversize-hex-operand-kept"),
         # a legacy octal is not its decimal digits: 010 is 8
         pytest.param("x=010*2", "x=010*2", id="legacy-octal-operand-kept"),
         pytest.param("x=08+1", "x=08+1", id="leading-zero-decimal-operand-kept"),
