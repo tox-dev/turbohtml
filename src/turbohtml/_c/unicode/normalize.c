@@ -136,10 +136,10 @@ static uint8_t quick_value(Py_UCS4 cp, int form) {
 
 /* Whether `input` is already in `form`: TH_QC_YES normalized, TH_QC_NO not, TH_QC_MAYBE undecided (a mark that may fold
    into a preceding starter, resolved by normalizing and comparing). Any combining mark out of canonical order settles
-   it as not-normalized straight away. UAX #15 quick check. */
+   it as not-normalized straight away. UAX #15 quick check, stopping at the first code point that is not Yes:
+   normalize runs the full pipeline from there either way, and is_normalized settles a Maybe by normalizing. */
 static int quick_check(int kind, const void *data, Py_ssize_t len, int form, Py_ssize_t *first_unsettled) {
     uint8_t last_class = 0;
-    int result = TH_QC_YES;
     for (Py_ssize_t index = 0; index < len; index++) {
         Py_UCS4 cp = PyUnicode_READ(kind, data, index);
         /* ASCII is a class-0 starter with a Yes value in every form, so it needs no table lookup. */
@@ -149,27 +149,17 @@ static int quick_check(int kind, const void *data, Py_ssize_t len, int form, Py_
         }
         uint8_t klass = ccc_of(cp);
         if (klass != 0 && klass < last_class) {
-            if (result == TH_QC_YES) {
-                *first_unsettled = index;
-            }
+            *first_unsettled = index;
             return TH_QC_NO;
         }
         uint8_t value = quick_value(cp, form);
-        if (value == TH_QC_NO) {
-            if (result == TH_QC_YES) {
-                *first_unsettled = index;
-            }
-            return TH_QC_NO;
-        }
-        if (value == TH_QC_MAYBE) {
-            if (result == TH_QC_YES) {
-                *first_unsettled = index;
-            }
-            result = TH_QC_MAYBE;
+        if (value != TH_QC_YES) {
+            *first_unsettled = index;
+            return value;
         }
         last_class = klass;
     }
-    return result;
+    return TH_QC_YES;
 }
 
 /* Append the decomposition row `number` (1-based) of a table, its run in the shared pool, to `out` at `at`; returns the
@@ -290,42 +280,43 @@ static Py_ssize_t compose(Py_UCS4 *seq, Py_ssize_t len) {
     return out_len;
 }
 
-/* The (form, text) arguments of the two engine entries, with the exceptions the METH_VARARGS parse gave before: no
-   keyword arguments, two positional arguments, a form code that fits C int, and a str text. Returns -1 with the
-   exception set when any is wrong. */
+static const char *const form_names[] = {"NFC", "NFD", "NFKC", "NFKD"};
+
+/* The (form, text) arguments of normalize and is_normalized, with the errors their Python wrappers raised: a form
+   outside the four names is a ValueError, one that cannot be a dict key the TypeError a dict lookup raises. */
 static int parse_form_text(const char *name, PyObject *const *args, Py_ssize_t count, PyObject *kwnames, int *form) {
     if (kwnames != NULL) {
         PyErr_Format(PyExc_TypeError, "%s() takes no keyword arguments", name);
         return -1;
     }
     if (count != 2) {
-        PyErr_Format(PyExc_TypeError, "function takes exactly 2 arguments (%zd given)", count);
+        PyErr_Format(PyExc_TypeError, "%s() takes exactly 2 arguments (%zd given)", name, count);
         return -1;
     }
-    int overflow;
-    long code = PyLong_AsLongAndOverflow(args[0], &overflow);
-    if (PyErr_Occurred()) {
-        return -1;
+    PyObject *form_name = args[0];
+    if (PyUnicode_Check(form_name)) {
+        for (int code = TH_NFC; code <= TH_NFKD; code++) {
+            if (PyUnicode_CompareWithASCIIString(form_name, form_names[code]) == 0) {
+                *form = code;
+                if (!PyUnicode_Check(args[1])) {
+                    PyErr_Format(PyExc_TypeError, "argument 2 must be str, not %.200s",
+                                 args[1] == Py_None ? "None" : Py_TYPE(args[1])->tp_name);
+                    return -1;
+                }
+                return 0;
+            }
+        }
+    } else {
+        /* the Python wrapper looked the name up in a dict, so an unhashable one raises that lookup's TypeError */
+        PyObject *forms = PyDict_New();
+        int found = forms == NULL ? -1 : PyDict_Contains(forms, form_name); /* GCOVR_EXCL_BR_LINE: allocation */
+        Py_XDECREF(forms);
+        if (found < 0) {
+            return -1;
+        }
     }
-    if (overflow) {
-        PyErr_SetString(PyExc_OverflowError, "Python int too large to convert to C long");
-        return -1;
-    }
-    if ((long long)code > INT_MAX) {
-        PyErr_SetString(PyExc_OverflowError, "signed integer is greater than maximum");
-        return -1;
-    }
-    if ((long long)code < INT_MIN) {
-        PyErr_SetString(PyExc_OverflowError, "signed integer is less than minimum");
-        return -1;
-    }
-    *form = (int)code;
-    if (!PyUnicode_Check(args[1])) {
-        PyErr_Format(PyExc_TypeError, "argument 2 must be str, not %.200s",
-                     args[1] == Py_None ? "None" : Py_TYPE(args[1])->tp_name);
-        return -1;
-    }
-    return 0;
+    PyErr_Format(PyExc_ValueError, "invalid normalization form %R", form_name);
+    return -1;
 }
 
 /* Both spans determine the width: normalization can remove the input's widest character. */
@@ -352,8 +343,19 @@ static PyObject *build_result(int input_kind, const void *input_data, Py_ssize_t
     for (Py_ssize_t index = 0; index < prefix; index++) {
         PyUnicode_WRITE(kind, data, index, PyUnicode_READ(input_kind, input_data, index));
     }
-    for (Py_ssize_t index = 0; index < len; index++) {
-        PyUnicode_WRITE(kind, data, prefix + index, buf[index]);
+    /* one loop per width, so the store needs no per-character kind switch */
+    if (kind == PyUnicode_1BYTE_KIND) {
+        Py_UCS1 *out = (Py_UCS1 *)data + prefix;
+        for (Py_ssize_t index = 0; index < len; index++) {
+            out[index] = (Py_UCS1)buf[index];
+        }
+    } else if (kind == PyUnicode_2BYTE_KIND) {
+        Py_UCS2 *out = (Py_UCS2 *)data + prefix;
+        for (Py_ssize_t index = 0; index < len; index++) {
+            out[index] = (Py_UCS2)buf[index];
+        }
+    } else {
+        memcpy((Py_UCS4 *)data + prefix, buf, (size_t)len * sizeof(Py_UCS4));
     }
     return result;
 }
@@ -390,11 +392,11 @@ static PyObject *normalize_full(int kind, const void *data, Py_ssize_t len, int 
     return result;
 }
 
-/* _normalize(form, text): the four forms named by form, the same object back when already normalized, otherwise the
+/* normalize(form, text): the four forms named by form, the same object back when already normalized, otherwise the
    full pipeline. */
 PyObject *turbohtml_normalize(PyObject *Py_UNUSED(module), PyObject *const *args, Py_ssize_t count, PyObject *kwnames) {
     int form;
-    if (parse_form_text("_normalize", args, count, kwnames, &form) < 0) {
+    if (parse_form_text("normalize", args, count, kwnames, &form) < 0) {
         return NULL;
     }
     PyObject *text = args[1];
@@ -416,7 +418,7 @@ PyObject *turbohtml_normalize(PyObject *Py_UNUSED(module), PyObject *const *args
 PyObject *turbohtml_is_normalized(PyObject *Py_UNUSED(module), PyObject *const *args, Py_ssize_t count,
                                   PyObject *kwnames) {
     int form;
-    if (parse_form_text("_is_normalized", args, count, kwnames, &form) < 0) {
+    if (parse_form_text("is_normalized", args, count, kwnames, &form) < 0) {
         return NULL;
     }
     PyObject *text = args[1];
