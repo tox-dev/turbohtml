@@ -1,0 +1,3 @@
+On a free-threaded build, appending an element that holds wrapped descendants into another tree no longer crashes when
+another thread moves one of those descendants at the same time. Releasing the old tree's references during the move
+could let the other thread change the subtree being walked.

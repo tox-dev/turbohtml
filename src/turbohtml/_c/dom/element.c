@@ -3187,7 +3187,8 @@ static PyObject *element_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 #endif
 
 static TH_RELOCATE_INLINE int relocate_subtree_nodes(PyObject *dest_handle, PyObject *source_handle, th_node *root,
-                                                     th_node *copy, int has_shadows, int descendants) {
+                                                     th_node *copy, int has_shadows, int descendants,
+                                                     Py_ssize_t *released) {
     HandleObject *source_owner = (HandleObject *)source_handle;
     HandleObject *dest_owner = (HandleObject *)dest_handle;
     th_node *source = root;
@@ -3226,13 +3227,12 @@ static TH_RELOCATE_INLINE int relocate_subtree_nodes(PyObject *dest_handle, PyOb
 #ifdef Py_GIL_DISABLED
                 PyThread_acquire_lock(binding->ownership_lock, WAIT_LOCK);
 #endif
-                PyObject *old_handle = binding->handle;
                 binding->node = dest;
                 binding->handle = new_handle;
 #ifdef Py_GIL_DISABLED
                 PyThread_release_lock(binding->ownership_lock);
 #endif
-                Py_DECREF(old_handle);
+                (*released)++;
 #ifdef Py_GIL_DISABLED
                 binding = binding->next_binding;
             } while (binding != NULL);
@@ -3248,6 +3248,12 @@ static TH_RELOCATE_INLINE int relocate_subtree_nodes(PyObject *dest_handle, PyOb
     return 0;
 }
 
+static void release_handle(PyObject *handle, Py_ssize_t count) {
+    for (; count > 0; count--) {
+        Py_DECREF(handle);
+    }
+}
+
 static int only_root_binding(HandleObject *handle, th_node *root) {
     if (handle->bindings != handle->inline_bindings) {
         return 0;
@@ -3260,15 +3266,19 @@ static int only_root_binding(HandleObject *handle, th_node *root) {
     return 1;
 }
 
-static int relocate_subtree(PyObject *dest_handle, PyObject *source_handle, th_node *root, th_node *copy) {
+/* Each wrapper moved off source_handle held a reference to it, counted into released for the caller to drop once it
+   has ended its critical sections: dropping one here can queue the handle for its owning thread's refcount merge, and
+   that queue's lock suspends the sections mid-walk, letting another thread move the source tree under the walk. */
+static int relocate_subtree(PyObject *dest_handle, PyObject *source_handle, th_node *root, th_node *copy,
+                            Py_ssize_t *released) {
     HandleObject *owner = (HandleObject *)source_handle;
     if (th_tree_has_shadows(owner->tree)) {
-        return relocate_subtree_nodes(dest_handle, source_handle, root, copy, 1, 1);
+        return relocate_subtree_nodes(dest_handle, source_handle, root, copy, 1, 1, released);
     }
     if (root->first_child == NULL || only_root_binding(owner, root)) {
-        return relocate_subtree_nodes(dest_handle, source_handle, root, copy, 0, 0);
+        return relocate_subtree_nodes(dest_handle, source_handle, root, copy, 0, 0, released);
     }
-    return relocate_subtree_nodes(dest_handle, source_handle, root, copy, 0, 1);
+    return relocate_subtree_nodes(dest_handle, source_handle, root, copy, 0, 1, released);
 }
 
 /* Taking the source lock can suspend the destination's critical section, so callers
@@ -3284,17 +3294,19 @@ static th_node *import_node(PyObject *dest_handle, const th_node *dest_parent, N
     PyObject *source_handle = node_owner_ref(child);
 #endif
     th_node *copy;
+    Py_ssize_t released = 0;
     Py_BEGIN_CRITICAL_SECTION2(dest_handle, source_handle);
     /* a handle's hash_salt is unique to it for the process, so copies made from one source never match another's */
     dest->copies.source = ((HandleObject *)source_handle)->hash_salt;
     copy = th_tree_adopt_copy_sharing(dest->tree, tree_of((PyObject *)child), child->node, &dest->copies);
     if (copy != NULL && /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        relocate_subtree(dest_handle, source_handle, child->node, copy) == 0) {
+        relocate_subtree(dest_handle, source_handle, child->node, copy, &released) == 0) {
         handle_drop_index(source_handle);
     } else {
         copy = NULL; /* GCOVR_EXCL_LINE */
     }
     Py_END_CRITICAL_SECTION2();
+    release_handle(source_handle, released);
 #ifdef Py_GIL_DISABLED
     node_guard_end(&guard);
 #else
@@ -3329,6 +3341,7 @@ static PyObject *import_fragment_children(PyObject *dest_handle, NodeObject *fra
     PyObject *source_handle = node_owner_ref(fragment);
 #endif
     th_node *copy;
+    Py_ssize_t released = 0;
     Py_BEGIN_CRITICAL_SECTION2(dest_handle, source_handle);
     copy = th_tree_make_fragment(dest_tree);
     th_copy_memo memo = {0}; /* one for all the children, so attribute values they share are copied once */
@@ -3346,7 +3359,8 @@ static PyObject *import_fragment_children(PyObject *dest_handle, NodeObject *fra
     if (copy != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         handle_drop_index(source_handle);
         for (th_node *child_copy = copy->first_child; child_copy != NULL; child_copy = child_copy->next_sibling) {
-            int status = relocate_subtree(dest_handle, source_handle, fragment->node->first_child, child_copy);
+            int status =
+                relocate_subtree(dest_handle, source_handle, fragment->node->first_child, child_copy, &released);
             if (status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                 copy = NULL;  /* GCOVR_EXCL_LINE: allocation failure */
                 break;        /* GCOVR_EXCL_LINE */
@@ -3354,6 +3368,7 @@ static PyObject *import_fragment_children(PyObject *dest_handle, NodeObject *fra
         }
     }
     Py_END_CRITICAL_SECTION2();
+    release_handle(source_handle, released);
 #ifdef Py_GIL_DISABLED
     node_guard_end(&guard);
 #else
