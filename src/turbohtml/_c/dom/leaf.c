@@ -25,7 +25,7 @@ PyObject *wrap_fresh_tree_node(module_state *state, th_tree *tree, th_node *node
 /* Wrap a data node (Text/Comment/CData/Doctype) holding a copy of data in a fresh
    single-node tree, ready to be inserted into a document. */
 PyObject *data_node_in_fresh_tree(module_state *state, int node_type, PyObject *data) {
-    th_tree *tree = th_tree_new();
+    th_tree *tree = th_tree_new_small();
     if (tree == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }

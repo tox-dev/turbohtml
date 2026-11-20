@@ -324,6 +324,7 @@ int th_validate_markup_name(PyObject *name, int is_attr);
 /* Create an empty tree to own programmatically constructed nodes. Returns NULL on
    allocation failure (no Python error is set). */
 th_tree *th_tree_new(void);
+th_tree *th_tree_new_small(void);
 
 /* Whether the tree was parsed under XML rules, so name lookups are case-sensitive
    rather than folded to the HTML parser's lowercased names. */

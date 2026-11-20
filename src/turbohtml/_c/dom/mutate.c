@@ -35,6 +35,15 @@ th_tree *th_tree_new(void) {
     return PyMem_Calloc(1, sizeof(th_tree));
 }
 
+/* An empty tree for one constructed element or text node, whose arena starts small. */
+th_tree *th_tree_new_small(void) {
+    th_tree *tree = th_tree_new();
+    if (tree != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        tree->small_arena = 1;
+    }
+    return tree;
+}
+
 void th_tree_set_quirks(th_tree *tree, int quirks) {
     tree->quirks = quirks;
 }

@@ -21,11 +21,13 @@
 
 #ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 /* One aligned slot, so a short input opens several blocks and walks the doubling path. */
-#define ARENA_FIRST_BLOCK ((Py_ssize_t)16)
+#define ARENA_BLOCK ((Py_ssize_t)16)
+#define ARENA_SMALL_BLOCK ((Py_ssize_t)16)
 #else
-/* A tree's first block fits Python's small-object allocator, so a constructed element or text node, whose tree holds a
-   few hundred bytes, does not cost a 64 KiB allocation; a parse outgrows it within a few doublings. */
-#define ARENA_FIRST_BLOCK ((Py_ssize_t)(512 - sizeof(arena_block)))
+#define ARENA_BLOCK ((Py_ssize_t)64 * 1024)
+/* The first block of a tree made for one constructed element or text node (see th_tree_new_small): it fits Python's
+   small-object allocator, where such a tree, a few hundred bytes, would otherwise cost a 64 KiB allocation. */
+#define ARENA_SMALL_BLOCK ((Py_ssize_t)(512 - sizeof(arena_block)))
 #endif
 #define ARENA_MAX_BLOCK ((Py_ssize_t)256 * 1024)
 
@@ -182,6 +184,7 @@ struct th_tree {
     int track_positions; /* record each element's source line/col in trailing node slots */
     int track_locations; /* record each element's granular source spans (implies track_positions) */
     int kind;            /* borrowed input storage */
+    int small_arena;     /* made by th_tree_new_small: the arena starts with an ARENA_SMALL_BLOCK */
     /* attribute slots copied onto formatting-element clones so far, which clone_formatting bounds; it fills the
        padding before data, so th_tree stays at 512 bytes */
     uint32_t clone_attr_slots;
@@ -262,7 +265,10 @@ static inline void *arena_alloc(th_tree *tree, Py_ssize_t size) {
     size = (size + 15) & ~(Py_ssize_t)15; /* 16-byte align */
     arena_block *block = tree->arena;
     if (block == NULL || block->used + size > block->cap) {
-        Py_ssize_t cap = ARENA_FIRST_BLOCK;
+        Py_ssize_t cap = ARENA_BLOCK;
+        if (tree->small_arena) {
+            cap = ARENA_SMALL_BLOCK;
+        }
         if (block != NULL) {
             cap = block->cap < ARENA_MAX_BLOCK ? block->cap * 2 : ARENA_MAX_BLOCK;
         }

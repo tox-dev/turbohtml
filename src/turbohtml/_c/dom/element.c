@@ -3180,7 +3180,7 @@ PyObject *make_element(PyTypeObject *type, PyObject *tag, PyObject *attrs, int x
         attr_count = PyList_GET_SIZE(keys);
     }
     module_state *state = PyType_GetModuleState(type);
-    th_tree *tree = th_tree_new();
+    th_tree *tree = th_tree_new_small();
     if (tree == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         Py_XDECREF(keys);        /* GCOVR_EXCL_LINE: allocation-failure path */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
