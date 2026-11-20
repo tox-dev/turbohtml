@@ -1,2 +1,2 @@
-XML Schema validation resolves each element and attribute declaration once at compile time, so validating a document runs
-about 30% faster, and an element with hundreds of declared attributes up to 13 times faster.
+XML Schema validation resolves each element and attribute declaration once at compile time, so validating a document
+runs about 30% faster, and an element with hundreds of declared attributes up to 13 times faster.
