@@ -433,6 +433,13 @@ Numbers and dimensions
 - Fold a ``calc()`` of constant, like-united operands with exact rational arithmetic; a non-combinable or
   non-terminating result is kept verbatim, and ``+``/``-`` without surrounding whitespace is left untouched (`Values 4
   §10 <https://www.w3.org/TR/css-values-4/#calc-func>`__). ``a{width:calc(1px + 2px)}`` → ``a{width:3px}``.
+- Write a whole millisecond count as seconds when that is shorter, since ``1s`` is exactly ``1000ms`` (`Values 4 §7.3
+  <https://www.w3.org/TR/css-values-4/#time>`__). ``a{transition:all 200ms}`` → ``a{transition:all .2s}``; a fractional
+  count such as ``1.5ms`` keeps its unit, as converting it would round twice.
+- Write a ``transform`` 3D function that fixes two axes as its single-axis form (`Transforms 2 §13
+  <https://www.w3.org/TR/css-transforms-2/#transform-functions>`__): ``translate3d(0,0,z)`` → ``translateZ(z)``,
+  ``scale3d(1,1,z)`` → ``scaleZ(z)``, and ``rotate3d(1,0,0,a)`` → ``rotateX(a)`` (likewise ``rotateY``/``rotateZ``). The
+  2D forms are left alone, since swapping a 3D function for one changes whether the box gets a 3D transform.
 
 Colors
 ------
@@ -487,6 +494,10 @@ Structure and selectors
   or after a longer rule stays a separate rule. The bounds keep the pass linear, where folding an unbounded run costs
   O(rules²) time and memory. ``@media`` blocks fuse only when at most seven blocks enclose them; a deeper block stays
   separate from its same-query siblings.
+- Drop an ``@media`` or ``@supports`` block that an identical block later in the same list repeats: the later copy
+  reapplies every declaration under the same condition after it, so the earlier one never wins (`Cascade 5 §6.4.4
+  <https://www.w3.org/TR/css-cascade-5/#cascade-order>`__). ``@media print{a{b:c}}d{e:f}@media print{a{b:c}}`` →
+  ``d{e:f}@media print{a{b:c}}``. A copy holding a bang comment, an ``@layer`` or an ``@font-face`` stays.
 - Lower-case type selectors, trim combinator whitespace, drop a redundant universal ``*`` before a subclass, write the
   four legacy pseudo-elements with one colon (``::before`` → ``:before``; a run of three or more colons stays as
   written), and unquote an attribute value that is a valid identifier (`Selectors 4 §5–6

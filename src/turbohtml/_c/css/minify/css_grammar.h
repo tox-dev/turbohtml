@@ -1016,6 +1016,8 @@ typedef struct {
     unsigned at_statement : 1;
     unsigned dropped : 1;
     unsigned unsniffed : 1;
+    /* set by css_drop_repeated_items for a block its table takes */
+    unsigned repeatable : 1;
 } rule_item;
 
 typedef struct {
@@ -1742,6 +1744,136 @@ static Py_ssize_t css_merge_back(css_buf *pool, rule_vec *items, Py_ssize_t inde
     return -1;
 }
 
+/* Whether text opens with the at-keyword name, which the minifier writes lower-cased, and not a longer name. */
+static int css_opens_at(const css_char *text, Py_ssize_t length, const char *name) {
+    Py_ssize_t name_len = (Py_ssize_t)strlen(name);
+    if (length <= name_len || memcmp(text, name, (size_t)name_len) != 0) {
+        return 0;
+    }
+    css_char next = text[name_len];
+    return !css_is_ident(next);
+}
+
+/* Whether item is an @media or @supports block, the kinds css_drop_repeated_items drops for a later copy. Style rules
+   are left to css_merge_adjacent_rules, which already folds a repeated selector into its later copy, and drops none
+   but rules, so no block reaches here dropped. */
+static int css_repeatable(const css_buf *pool, const rule_item *item) {
+    if (item->is_rule || item->at_statement || item->text_len < 9) {
+        return 0;
+    }
+    const css_char *text = pool->data + item->text_off;
+    return text[1] == 'm' ? css_opens_at(text, item->text_len, "@media")
+                          : css_opens_at(text, item->text_len, "@supports");
+}
+
+/* Whether the copy of a block that a later identical one repeats must stay all the same. A bang comment it holds is
+   written once; an @layer inside it declares the layer's order at its first occurrence; and every @font-face
+   registers a face of its own rather than overriding an earlier one. */
+static int css_repeat_observable(const css_buf *pool, const rule_item *item) {
+    const css_char *text = pool->data + item->text_off;
+    Py_ssize_t length = item->text_len;
+    for (Py_ssize_t index = 0; index + 2 < length; index++) {
+        if ((text[index] == '/' && text[index + 1] == '*' && text[index + 2] == '!') ||
+            css_opens_at(text + index, length - index, "@layer") ||
+            css_opens_at(text + index, length - index, "@font-face")) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* A css_drop_repeated_items table slot: later is one past the index of the block it holds, 0 while the slot is free. */
+typedef struct {
+    uint64_t hash;
+    Py_ssize_t later;
+} css_block_slot;
+
+/* A 64-bit hash of a block's text, eight bytes a step under the per-process key: css_hash_run's byte-at-a-time rounds
+   cost more than the rest of css_drop_repeated_items. Two different blocks sharing all 64 bits is as good as never,
+   so the table settles a match on the hash and the length and only confirms it on the bytes. */
+static uint64_t css_block_hash(const css_char *text, Py_ssize_t len) {
+#ifndef CSS_MINIFY_STANDALONE
+    uint64_t hash = th_name_hash_key[0] ^ ((uint64_t)len * 0x9E3779B97F4A7C15u);
+#else
+    uint64_t hash = (uint64_t)len * 0x9E3779B97F4A7C15u;
+#endif
+    Py_ssize_t index = 0;
+    for (; index + 8 <= len; index += 8) {
+        uint64_t word;
+        memcpy(&word, text + index, 8);
+        hash = (hash ^ word) * 0xBF58476D1CE4E5B9u;
+    }
+    hash ^= hash >> 32;
+    /* the last eight bytes, overlapping the words already mixed in: css_repeatable passes no block under nine bytes */
+    uint64_t tail;
+    memcpy(&tail, text + len - 8, 8);
+    hash = (hash ^ tail) * 0x94D049BB133111EBu;
+    return hash ^ (hash >> 29);
+}
+
+/* Drop an @media or @supports block when an identical one follows it in the same list. The later copy holds the same
+   rules under the same condition at a later position, so whatever the earlier copy sets the later one sets too and
+   wins over every rule in between: the cascade comes out the same without it. A list holding stray recovery text is
+   left alone, as its reparse reads the rules after it, and so are keyframe lists, whose blocks are steps. */
+CSS_NOINLINE static void css_drop_repeated_items(css_buf *pool, rule_vec *items) {
+    size_t candidates = 0;
+    for (Py_ssize_t index = 0; index < items->len; index++) {
+        if (items->items[index].stray) {
+            return;
+        }
+        items->items[index].repeatable = (unsigned)css_repeatable(pool, &items->items[index]);
+        candidates += items->items[index].repeatable;
+    }
+    if (candidates < 2) {
+        return;
+    }
+    /* most lists hold a few blocks, which a table on the stack serves without an allocation */
+    css_block_slot local[64];
+    css_block_slot *table = local;
+    size_t cap = 64;
+    /* GCOVR_EXCL_BR_START: a table past SIZE_MAX needs a 32-bit build and over 100 million blocks */
+    while (cap < candidates * 2 && cap <= SIZE_MAX / 2 / sizeof(css_block_slot)) {
+        /* GCOVR_EXCL_BR_STOP */
+        cap *= 2;
+    }
+    if (cap > 64) {
+        table = css_malloc(cap * sizeof(css_block_slot));
+        if (table == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            *pool->oom = 1;  /* GCOVR_EXCL_LINE: allocation-failure path */
+            return;          /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    memset(table, 0, cap * sizeof(css_block_slot));
+    size_t mask = cap - 1;
+    for (Py_ssize_t index = items->len - 1; index >= 0; index--) {
+        rule_item *item = &items->items[index];
+        if (!item->repeatable) {
+            continue;
+        }
+        uint64_t hash = css_block_hash(pool->data + item->text_off, item->text_len);
+        size_t slot = (size_t)hash & mask;
+        while (table[slot].later > 0 && table[slot].hash != hash) {
+            TH_WORK_STEP();
+            slot = (slot + 1) & mask;
+        }
+        if (table[slot].later == 0) {
+            table[slot].hash = hash;
+            table[slot].later = index + 1;
+            continue;
+        }
+        const rule_item *later = &items->items[table[slot].later - 1];
+        /* GCOVR_EXCL_BR_START: unequal blocks need a 64-bit collision */
+        if (rule_run_eq(pool, later->text_off, later->text_len, item->text_off, item->text_len) &&
+            !css_repeat_observable(pool, item)) {
+            /* GCOVR_EXCL_BR_STOP */
+            item->dropped = 1;
+        }
+    }
+    if (table != local) {
+        css_free(table);
+    }
+}
+
 CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items, int baseline, int depth) {
     uint32_t *hashes = NULL;
     size_t hash_cap = 0;
@@ -2156,6 +2288,8 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
        item's query joins the run, re-minified at the next at-rule or the end of the list. */
     Py_ssize_t joinable_at = -1;
     media_run *run = NULL;
+    /* at-rule blocks pushed, so a list with fewer than two skips css_drop_repeated_items */
+    Py_ssize_t blocks = 0;
     /* Top-level rules that minify away, written back in front of the next statement css_orders_rules names: dropped,
        they would let a browser honor a statement it ignores in the input. Each keeps its prelude, since a browser
        counts only a valid rule. */
@@ -2217,6 +2351,7 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
                 item.at_statement = kind < 0;
                 item.unsniffed = css_unsniffed_charset(&piece, cur->vec, token);
                 rule_vec_push(&items, item);
+                blocks += kind >= 0;
             }
             cbuf_free(&piece);
         } else {
@@ -2253,6 +2388,9 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
         return;                      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     css_merge_adjacent_rules(pool, &items, cur->baseline, cur->vec->depth);
+    if (!keyframe && blocks > 1) {
+        css_drop_repeated_items(pool, &items);
+    }
     int prev_at_statement = 0;
     /* Top-level stray text reads on through the bang comments and at-statements after it when reparsed, and a block
        after it is dropped with it, so only those can follow it. The reparse consumes a `;` between them as stray text
