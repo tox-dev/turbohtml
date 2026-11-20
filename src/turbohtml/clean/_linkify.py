@@ -476,16 +476,6 @@ def nofollow(link: LinkCandidate) -> LinkCandidate:
     return linkify_nofollow(link)
 
 
-def target_blank(link: LinkCandidate) -> LinkCandidate:
-    """
-    Open a web link in a new tab, stripping a stale ``target`` from a non-web link so it cannot leak through.
-
-    :param link: the link to adjust.
-    :returns: the link, with ``target`` set on a web link or cleared on a non-web link; never ``None``.
-    """
-    return linkify_target_blank(link)
-
-
 #: The callbacks applied when the caller passes none: by default, only :func:`nofollow`.
 DEFAULT_CALLBACKS: Final[tuple[Callback, ...]] = (nofollow,)
 
@@ -582,6 +572,8 @@ class Linker:
             self.skip_tags,
             LinkCandidate,
             self._phone_config,
+            nofollow,
+            target_blank,
         )
         return node
 
@@ -657,6 +649,16 @@ class LinkCandidate:
         self.attrs = attrs if attrs is not None else {}
         self.existing = existing
         self.phone = phone
+
+
+def target_blank(link: LinkCandidate) -> LinkCandidate:
+    """
+    Open a web link in a new tab, stripping a stale ``target`` from a non-web link so it cannot leak through.
+
+    :param link: the link to adjust.
+    :returns: the link, with ``target`` set on a web link or cleared on a non-web link; never ``None``.
+    """
+    return linkify_target_blank(link)
 
 
 def linkify_node(node: _NODE_T, options: Linkify | None = None) -> _NODE_T:

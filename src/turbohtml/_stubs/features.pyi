@@ -72,6 +72,8 @@ def linkify_apply(
     skip_tags: tuple[str, ...],
     candidate_type: type,
     phones: _PhoneConfig | None,
+    nofollow: Callable[..., object] = ...,
+    target_blank: Callable[..., object] = ...,
     /,
 ) -> None: ...
 def phone_config_compile(spec: _PhoneSpec, /) -> _PhoneConfig: ...

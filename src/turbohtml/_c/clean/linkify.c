@@ -1145,17 +1145,10 @@ static int candidate_set(PyObject *attrs, const char *name, PyObject *value) {
     return status; /* GCOVR_EXCL_BR_LINE: dict insertion only fails on allocation failure */
 }
 
-/* nofollow(link) -> link: add rel="nofollow" to a web link, leaving mailto: and the rest alone. */
-PyObject *turbohtml_linkify_nofollow(PyObject *Py_UNUSED(module), PyObject *link) {
-    PyObject *url;
-    PyObject *attrs;
-    if (candidate_parts(link, "nofollow", &url, &attrs) < 0) {
-        return NULL;
-    }
-    int web = candidate_is_web(url);
-    Py_DECREF(url);
+/* Add rel="nofollow" to attrs when url is a web link. */
+static int nofollow_attrs(PyObject *url, PyObject *attrs) {
     int status = 0;
-    if (web) {
+    if (candidate_is_web(url)) {
         PyObject *rel = PyDict_GetItemString(attrs, "rel"); /* borrowed; NULL when the link carries no rel yet */
         PyObject *tokens = rel == NULL ? PyList_New(0) : PyObject_CallMethod(rel, "split", NULL);
         PyObject *wanted = PyUnicode_FromString("nofollow");
@@ -1177,6 +1170,27 @@ PyObject *turbohtml_linkify_nofollow(PyObject *Py_UNUSED(module), PyObject *link
         Py_XDECREF(wanted);
         Py_XDECREF(tokens);
     }
+    return status;
+}
+
+/* Set target="_blank" in attrs when url is a web link, and drop a stale target otherwise. */
+static int target_blank_attrs(PyObject *url, PyObject *attrs) {
+    if (candidate_is_web(url)) {
+        return candidate_set(attrs, "target", PyUnicode_FromString("_blank"));
+    }
+    /* a stale target on a non-web link would leak through, so it goes */
+    return PyDict_GetItemString(attrs, "target") == NULL ? 0 : PyDict_DelItemString(attrs, "target");
+}
+
+/* nofollow(link) -> link: add rel="nofollow" to a web link, leaving mailto: and the rest alone. */
+PyObject *turbohtml_linkify_nofollow(PyObject *Py_UNUSED(module), PyObject *link) {
+    PyObject *url;
+    PyObject *attrs;
+    if (candidate_parts(link, "nofollow", &url, &attrs) < 0) {
+        return NULL;
+    }
+    int status = nofollow_attrs(url, attrs);
+    Py_DECREF(url);
     Py_DECREF(attrs);
     return status < 0 ? NULL : Py_NewRef(link); /* GCOVR_EXCL_BR_LINE: every failure above is an allocation failure */
 }
@@ -1188,15 +1202,8 @@ PyObject *turbohtml_linkify_target_blank(PyObject *Py_UNUSED(module), PyObject *
     if (candidate_parts(link, "target_blank", &url, &attrs) < 0) {
         return NULL;
     }
-    int web = candidate_is_web(url);
+    int status = target_blank_attrs(url, attrs);
     Py_DECREF(url);
-    int status = 0;
-    if (web) {
-        status = candidate_set(attrs, "target", PyUnicode_FromString("_blank"));
-    } else if (PyDict_GetItemString(attrs, "target") != NULL) {
-        /* a stale target on a non-web link would leak through, so it goes */
-        status = PyDict_DelItemString(attrs, "target");
-    }
     Py_DECREF(attrs);
     return status < 0 ? NULL : Py_NewRef(link); /* GCOVR_EXCL_BR_LINE: every failure above is an allocation failure */
 }
@@ -1418,6 +1425,13 @@ static PyObject *anchor_attrs(th_tree *tree, th_node *anchor) {
     return attrs;
 }
 
+typedef struct {
+    PyObject *callbacks;
+    PyObject *candidate_type;
+    PyObject *nofollow; /* the default nofollow callback; with native set, every callback is it or target_blank */
+    int native;
+} link_callbacks;
+
 static PyObject *new_candidate(PyObject *candidate_type, PyObject *url, PyObject *text, PyObject *attrs, int existing,
                                PyObject *phone) {
     PyObject *candidate = PyObject_CallFunctionObjArgs(candidate_type, url, text, attrs, NULL);
@@ -1459,13 +1473,33 @@ static void clear_candidate_result(candidate_result *result) {
     Py_CLEAR(result->attrs);
 }
 
-static int prepare_candidate(PyObject *candidate_type, PyObject *url, PyObject *text, PyObject *attrs, int existing,
-                             PyObject *phone, PyObject *callbacks, candidate_result *result) {
-    PyObject *candidate = new_candidate(candidate_type, url, text, attrs, existing, phone);
+/* The default callbacks only edit the attributes of a web link, so with no other callback configured they run on
+   attrs itself: building a LinkCandidate and calling through Python costs more than finding the link. */
+static int prepare_native(const link_callbacks *link, PyObject *url, PyObject *text, PyObject *attrs,
+                          candidate_result *result) {
+    for (Py_ssize_t index = 0; index < PyTuple_GET_SIZE(link->callbacks); index++) {
+        int status = PyTuple_GET_ITEM(link->callbacks, index) == link->nofollow ? nofollow_attrs(url, attrs)
+                                                                                : target_blank_attrs(url, attrs);
+        if (status < 0) { /* GCOVR_EXCL_BR_LINE: the attribute edits only fail on allocation failure */
+            return -1;    /* GCOVR_EXCL_LINE */
+        }
+    }
+    result->url = Py_NewRef(url);
+    result->text = Py_NewRef(text);
+    result->attrs = Py_NewRef(attrs);
+    return 0;
+}
+
+static int prepare_candidate(const link_callbacks *link, PyObject *url, PyObject *text, PyObject *attrs, int existing,
+                             PyObject *phone, candidate_result *result) {
+    if (link->native) {
+        return prepare_native(link, url, text, attrs, result);
+    }
+    PyObject *candidate = new_candidate(link->candidate_type, url, text, attrs, existing, phone);
     if (candidate == NULL) {
         return -1;
     }
-    int status = run_callbacks(callbacks, &candidate);
+    int status = run_callbacks(link->callbacks, &candidate);
     if (status != 0) {
         Py_DECREF(candidate);
         if (status > 0) {
@@ -1647,7 +1681,7 @@ TH_NODE_API(static, int, apply_existing,
     return status;
 }
 
-static int process_existing(PyObject *module, PyObject *target, PyObject *callbacks, PyObject *candidate_type) {
+static int process_existing(PyObject *module, PyObject *target, const link_callbacks *link) {
     PyObject *text;
     PyObject *url;
     PyObject *attrs;
@@ -1655,7 +1689,7 @@ static int process_existing(PyObject *module, PyObject *target, PyObject *callba
         return -1;                                                    /* GCOVR_EXCL_LINE */
     }
     candidate_result result = {NULL, NULL, NULL, 0};
-    int status = prepare_candidate(candidate_type, url, text, attrs, 1, Py_None, callbacks, &result);
+    int status = prepare_candidate(link, url, text, attrs, 1, Py_None, &result);
     Py_DECREF(url);
     Py_DECREF(attrs);
     if (status == 0) {
@@ -1692,8 +1726,7 @@ static int append_data_slice(th_tree *tree, th_node *fragment, const Py_UCS4 *po
 
 /* Build the candidate for one detected span: the matched text, the href the scan built, and the PhoneNumber when
    the span is a number. */
-static int prepare_detected(PyObject *text, PyObject *span, PyObject *callbacks, PyObject *candidate_type,
-                            candidate_result *result) {
+static int prepare_detected(PyObject *text, PyObject *span, const link_callbacks *link, candidate_result *result) {
     Py_ssize_t start = PyLong_AsSsize_t(PyTuple_GET_ITEM(span, 0));
     Py_ssize_t end = PyLong_AsSsize_t(PyTuple_GET_ITEM(span, 1));
     PyObject *matched = PyUnicode_Substring(text, start, end);
@@ -1703,8 +1736,8 @@ static int prepare_detected(PyObject *text, PyObject *span, PyObject *callbacks,
         Py_XDECREF(attrs);                  /* GCOVR_EXCL_LINE */
         return -1;                          /* GCOVR_EXCL_LINE */
     }
-    int status = prepare_candidate(candidate_type, PyTuple_GET_ITEM(span, 3), matched, attrs, 0,
-                                   PyTuple_GET_ITEM(span, 4), callbacks, result);
+    int status =
+        prepare_candidate(link, PyTuple_GET_ITEM(span, 3), matched, attrs, 0, PyTuple_GET_ITEM(span, 4), result);
     Py_DECREF(matched);
     Py_DECREF(attrs);
     return status;
@@ -1812,8 +1845,7 @@ typedef struct {
     PyObject *url_schemes;
     PyObject *schemes; /* ("tel",) with phone detection on, so a written tel: URI links as itself */
     const PhoneConfigObject *phone;
-    PyObject *callbacks;
-    PyObject *candidate_type;
+    link_callbacks link;
 } apply_policy;
 
 static int process_text(PyObject *module, PyObject *target, const apply_policy *policy) {
@@ -1843,7 +1875,7 @@ static int process_text(PyObject *module, PyObject *target, const apply_policy *
     Py_ssize_t prepared = 0;
     for (; prepared < count; prepared++) {
         PyObject *span = PyList_GET_ITEM(spans, prepared);
-        if (prepare_detected(text, span, policy->callbacks, policy->candidate_type, &results[prepared]) < 0) {
+        if (prepare_detected(text, span, &policy->link, &results[prepared]) < 0) {
             status = -1;
             break;
         }
@@ -1870,14 +1902,23 @@ PyObject *turbohtml_linkify_apply(PyObject *module, PyObject *args) {
     PyObject *skip_tags;
     PyObject *candidate_type;
     PyObject *phone_object;
+    PyObject *nofollow = NULL;
+    PyObject *target_blank = NULL;
     /* GCOVR_EXCL_BR_START: Linker passes tuple-backed compiled fields */
-    if (!PyArg_ParseTuple(args, "OO!pO!O!pO!OO:_linkify_apply", &owner, &PyTuple_Type, &callbacks, &parse_email,
+    if (!PyArg_ParseTuple(args, "OO!pO!O!pO!OO|OO:_linkify_apply", &owner, &PyTuple_Type, &callbacks, &parse_email,
                           &PyTuple_Type, &extra_tlds, &PyTuple_Type, &url_schemes, &process_existing_flag,
-                          &PyTuple_Type, &skip_tags, &candidate_type, &phone_object)) {
+                          &PyTuple_Type, &skip_tags, &candidate_type, &phone_object, &nofollow, &target_blank)) {
         return NULL; /* GCOVR_EXCL_LINE */
     }
     /* GCOVR_EXCL_BR_STOP */
-    apply_policy policy = {parse_email, extra_tlds, url_schemes, NULL, NULL, callbacks, candidate_type};
+    /* nofollow and target_blank, when given, are the default callbacks the walk may run natively */
+    int native = nofollow != NULL;
+    for (Py_ssize_t index = 0; native && index < PyTuple_GET_SIZE(callbacks); index++) {
+        PyObject *callback = PyTuple_GET_ITEM(callbacks, index);
+        native = callback == nofollow || callback == target_blank;
+    }
+    apply_policy policy = {parse_email, extra_tlds, url_schemes,
+                           NULL,        NULL,       {callbacks, candidate_type, nofollow, native}};
     if (phone_config_arg(module, phone_object, &policy.phone) < 0) {
         return NULL;
     }
@@ -1902,7 +1943,7 @@ PyObject *turbohtml_linkify_apply(PyObject *module, PyObject *args) {
         if (PyObject_TypeCheck(target, (PyTypeObject *)((module_state *)PyModule_GetState(module))->text_type)) {
             status = process_text(module, target, &policy);
         } else {
-            status = process_existing(module, target, callbacks, candidate_type);
+            status = process_existing(module, target, &policy.link);
         }
     }
     Py_XDECREF(policy.schemes);
