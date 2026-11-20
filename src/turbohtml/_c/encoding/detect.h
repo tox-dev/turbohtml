@@ -67,11 +67,12 @@ static void th_utf8_scan_init(th_utf8_scan *scan) {
     scan->high = 0xBF;
 }
 
-static void th_utf8_scan_feed(th_utf8_scan *scan, const unsigned char *buf, Py_ssize_t len) {
+static TH_HOT void th_utf8_scan_feed(th_utf8_scan *scan, const unsigned char *buf, Py_ssize_t len) {
     if (!scan->valid) {
         return;
     }
-    for (Py_ssize_t index = 0; index < len; index++) {
+    /* the ASCII a feed opens with changes nothing between sequences, so it is stepped over a word at a time */
+    for (Py_ssize_t index = scan->trailing == 0 ? th_decode_ascii_run(buf, len) : 0; index < len; index++) {
         unsigned char byte = buf[index];
         if (scan->trailing > 0) {
             if (byte < scan->low || byte > scan->high) {
@@ -2334,6 +2335,16 @@ static void th_detect_candidates_feed_bounded(th_detect_candidates *candidates, 
    both match that. The ISO-2022-JP scan still sees the whole prefix. */
 static Py_ssize_t th_detect_first_event(const unsigned char *buf, Py_ssize_t len) {
     Py_ssize_t index = 0;
+    while (index + (Py_ssize_t)sizeof(uint64_t) <= len) {
+        uint64_t word;
+        memcpy(&word, buf + index, sizeof(word));
+        /* a byte of ESC is a zero byte of escapes, which borrowing 1 from every byte flags in its high bit */
+        uint64_t escapes = word ^ UINT64_C(0x1B1B1B1B1B1B1B1B);
+        if ((word | ((escapes - UINT64_C(0x0101010101010101)) & ~escapes)) & UINT64_C(0x8080808080808080)) {
+            break;
+        }
+        index += (Py_ssize_t)sizeof(uint64_t);
+    }
     while (index < len && buf[index] < 0x80 && buf[index] != 0x1B) {
         index++;
     }
