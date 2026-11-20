@@ -5025,7 +5025,7 @@ static PyObject *tag_factory_reduce(PyObject *self, PyObject *Py_UNUSED(ignored)
 }
 
 static PyObject *tag_factory_repr(PyObject *self) {
-    return PyUnicode_FromFormat("E.%U", ((TagFactoryObject *)self)->tag);
+    return th_str_format("E.%U", ((TagFactoryObject *)self)->tag);
 }
 
 static PyMethodDef tag_factory_methods[] = {
