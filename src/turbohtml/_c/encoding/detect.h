@@ -311,10 +311,6 @@ typedef struct {
     const th_detect_single_byte *data;
     const int16_t *pairs;
     const uint32_t *infos;
-    const int16_t *bound_pairs;
-    const int16_t *const *bound_before;
-    const uint8_t *bound_after;
-    const uint16_t *gain;
     th_sb_kind kind;
     int windows_1252;
     int koi8u;
@@ -343,10 +339,6 @@ static void th_sb_init(th_sb_candidate *cand, const th_detect_single_byte *data,
     cand->data = data;
     cand->pairs = th_sb_pairs[data - th_detect_single_byte_data];
     cand->infos = th_sb_infos[data - th_detect_single_byte_data];
-    cand->bound_pairs = th_sb_bound_pairs[data - th_detect_single_byte_data];
-    cand->bound_before = th_sb_bound_before[data - th_detect_single_byte_data];
-    cand->bound_after = th_sb_bound_after[data - th_detect_single_byte_data];
-    cand->gain = th_sb_gain[data - th_detect_single_byte_data];
     cand->kind = kind;
     cand->alive = 1;
     cand->prev_ascii = 1;
@@ -2211,13 +2203,14 @@ static TH_HOT void th_detect_candidates_feed(th_detect_candidates *stream, const
  */
 static void th_sb_bound_rows(const th_sb_candidate *cand, const unsigned char *buf, Py_ssize_t len, int64_t *row,
                              Py_ssize_t first, Py_ssize_t blocks) {
-    row[blocks] = cand->gain[' '];
+    const uint16_t *gain = th_sb_gain[cand->data - th_detect_single_byte_data];
+    row[blocks] = gain[' '];
     for (Py_ssize_t block = blocks - 1; block >= first; block--) {
         Py_ssize_t from = block * TH_SB_BOUND_BLOCK;
         Py_ssize_t to = from + TH_SB_BOUND_BLOCK < len ? from + TH_SB_BOUND_BLOCK : len;
         int64_t sum = 0;
         for (Py_ssize_t index = from; index < to; index++) {
-            sum += cand->gain[buf[index]];
+            sum += gain[buf[index]];
         }
         row[block] = row[block + 1] + sum;
     }
@@ -2232,8 +2225,9 @@ static TH_HOT void th_sb_bound_rows_group(const th_sb_candidate *const *cands, i
     const uint8_t *after[2];
     const int16_t *previous[2];
     for (int which = 0; which < count; which++) {
-        before[which] = cands[which]->bound_before;
-        after[which] = cands[which]->bound_after;
+        Py_ssize_t table = cands[which]->data - th_detect_single_byte_data;
+        before[which] = th_sb_bound_before[table];
+        after[which] = th_sb_bound_after[table];
         rows[which][blocks] = before[which][buf[len - 1]][after[which][' ']];
     }
     for (Py_ssize_t block = blocks - 1; block >= first; block--) {
