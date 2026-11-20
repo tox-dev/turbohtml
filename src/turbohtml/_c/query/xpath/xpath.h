@@ -93,17 +93,20 @@ static inline int ns_append(xp_nodeset *ns, struct th_node *node, Py_ssize_t att
 }
 
 /* The four XPath 1.0 value types an expression can evaluate to. */
-/* XP_PYSTRING is a string already built as a str, which only an evaluation for a Python caller returns. */
+/* XP_PYSTRING is a string already built as a str, which only xp_eval_object returns: its caller takes the reference,
+   and xp_result_free leaves it alone. */
 enum xp_result_kind { XP_NODESET, XP_NUMBER, XP_STRING, XP_BOOLEAN, XP_PYSTRING };
 
 typedef struct {
     enum xp_result_kind kind;
     xp_nodeset nodes; /* XP_NODESET (document-ordered, duplicate-free) */
     double number;    /* XP_NUMBER */
-    Py_UCS4 *string;  /* XP_STRING, owned */
+    union {
+        Py_UCS4 *string;  /* XP_STRING, owned */
+        PyObject *object; /* XP_PYSTRING, owned */
+    };
     Py_ssize_t string_len;
-    int boolean;      /* XP_BOOLEAN */
-    PyObject *object; /* XP_PYSTRING, owned */
+    int boolean; /* XP_BOOLEAN */
 } xp_result;
 
 void xp_result_free(xp_result *result);

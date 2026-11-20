@@ -2587,7 +2587,7 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
             *ctx->feature = "str:concat on a non-node-set";
             rc = -4;
         } else {
-            rc = ctx->want_object && idx == prog->root ? concat_object(ctx, &args[0].nodes, out) : 1;
+            rc = ctx->root->want_object && idx == prog->root ? concat_object(ctx, &args[0].nodes, out) : 1;
             if (rc > 0) {
                 rc = str_concat(ctx, &args[0], out);
             }

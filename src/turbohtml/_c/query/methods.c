@@ -1314,9 +1314,6 @@ static PyObject *xpath_scalar_to_py(const xp_result *result) {
     if (result->kind == XP_STRING) {
         return ucs4_to_str(result->string, result->string_len);
     }
-    if (result->kind == XP_PYSTRING) {
-        return Py_NewRef(result->object);
-    }
     return PyBool_FromLong(result->boolean);
 }
 
@@ -2034,6 +2031,8 @@ static PyObject *xpath_result_to_py(module_state *state, PyObject *handle, th_tr
             }
 #endif
         }
+    } else if (result->kind == XP_PYSTRING) {
+        out = result->object; /* taken over, so xp_result_free has nothing to release */
     } else {
         out = xpath_scalar_to_py(result); /* NULL with the error set on an unforced allocation failure */
     }

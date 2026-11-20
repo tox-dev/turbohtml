@@ -223,6 +223,7 @@ typedef struct {
     int fixed;
     xp_id_cache *ids; /* the caller's id() cache, or NULL to use own */
     xp_id_cache own;  /* the evaluation's id() cache, cleared when it ends */
+    int want_object;  /* the root's string result goes to Python, so it may come back as an XP_PYSTRING */
 } xp_root;
 
 typedef struct {
@@ -248,7 +249,6 @@ typedef struct {
 #ifdef TH_OPERATION_LIMIT
     size_t *operations; /* shared by the predicate contexts of one top-level evaluation */
 #endif
-    int want_object; /* the root's string result goes to Python, so it may be built as an XP_PYSTRING */
 } xp_ctx;
 
 struct xp_live_frame {
