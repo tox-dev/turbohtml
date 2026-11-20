@@ -432,35 +432,24 @@ static void th_sb_skip_to_space(th_sb_candidate *cand, const th_detect_single_by
     cand->prev_punctuation = 0;
 }
 
-/* The next skip from `from` on: where it starts, with the space it lands on in *to and the end of its run in *end, or
-   len when none is left. A skip starts on the second byte of an ASCII run, since no candidate scores an ASCII byte
-   after an ASCII byte, and needs 16 more bytes to be worth the space scan, so it is looked for only where two words
-   at an 8-byte stride are all ASCII. Finding it here leaves the per-byte walk a single compare against its start. */
-static Py_ssize_t th_sb_next_jump(const unsigned char *buf, Py_ssize_t from, Py_ssize_t len, Py_ssize_t *to,
-                                  Py_ssize_t *end) {
+/* Where the walk next looks for a skip from `from` on, or len when it never will: the second byte of an ASCII run,
+   since no candidate scores an ASCII byte after an ASCII byte. Only runs where two words at an 8-byte stride are all
+   ASCII qualify, as a skip needs 16 bytes to be worth the space scan. Measuring the run waits until a live candidate
+   gets there, so one that dies before it scans nothing. */
+static Py_ssize_t th_sb_next_jump(const unsigned char *buf, Py_ssize_t from, Py_ssize_t len) {
     for (Py_ssize_t index = (from + 7) & ~(Py_ssize_t)7; index + 16 <= len; index += 8) {
         uint64_t low;
         uint64_t high;
         memcpy(&low, buf + index, sizeof(low));
         memcpy(&high, buf + index + 8, sizeof(high));
-        if ((low | high) & UINT64_C(0x8080808080808080)) {
-            continue;
-        }
-        Py_ssize_t start = index;
-        while (start > from && buf[start - 1] < 0x80) {
-            start--;
-        }
-        Py_ssize_t run_end = index + 16 + th_decode_ascii_run(buf + index + 16, len - index - 16);
-        Py_ssize_t space = run_end - start > 16 ? th_sb_last_space(buf, start + 1, run_end) : -1;
-        if (space >= 0) {
-            *to = space;
-            *end = run_end;
+        if (((low | high) & UINT64_C(0x8080808080808080)) == 0) {
+            Py_ssize_t start = index;
+            while (start > from && buf[start - 1] < 0x80) {
+                start--;
+            }
             return start + 1;
         }
-        index = run_end & ~(Py_ssize_t)7;
     }
-    *to = len;
-    *end = len;
     return len;
 }
 
@@ -496,11 +485,9 @@ static TH_HOT void th_sb_feed_loop(th_sb_candidate *cand, const unsigned char *b
         th_sb_track_punctuation(cand, buf, 0, len);
         return;
     }
-    Py_ssize_t jump_to = len;
-    Py_ssize_t jump_end = len;
-    Py_ssize_t jump_from = skip_runs ? th_sb_next_jump(buf, 0, len, &jump_to, &jump_end) : len;
+    Py_ssize_t jump_from = skip_runs ? th_sb_next_jump(buf, 0, len) : len;
     Py_ssize_t index = 0;
-    /* The walk runs up to the next skip and jumps over it, so the per-byte loop only tests its own bound. */
+    /* The walk runs up to where a skip may start and takes it there, so the per-byte loop only tests its own bound. */
     for (;;) {
         for (; index < jump_from; index++) {
             unsigned char byte = buf[index];
@@ -649,9 +636,13 @@ static TH_HOT void th_sb_feed_loop(th_sb_candidate *cand, const unsigned char *b
         if (jump_from == len) {
             return;
         }
-        th_sb_skip_to_space(cand, data);
-        index = jump_to + 1;
-        jump_from = th_sb_next_jump(buf, jump_end, len, &jump_to, &jump_end);
+        Py_ssize_t run_end = index + th_decode_ascii_run(buf + index, len - index);
+        Py_ssize_t space = run_end - index >= 16 ? th_sb_last_space(buf, index, run_end) : -1;
+        if (space >= 0) {
+            th_sb_skip_to_space(cand, data);
+            index = space + 1;
+        }
+        jump_from = th_sb_next_jump(buf, run_end, len);
     }
 }
 
