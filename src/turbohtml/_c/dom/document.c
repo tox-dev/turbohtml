@@ -1879,7 +1879,7 @@ static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *
             /* opt-in content-based detection, strictly after the spec sniffing steps. parse() takes
                bytes, never the URL they came from, so no TLD is available to hint with. */
             th_detect_scores scores;
-            entry = th_encoding_detect(bytes, len, TH_TLD_GENERIC, &scores);
+            entry = th_encoding_detect(bytes, len, TH_TLD_GENERIC, 1, &scores);
             if (PyErr_Occurred()) {      /* GCOVR_EXCL_BR_LINE: detection allocation failure */
                 PyBuffer_Release(&view); /* GCOVR_EXCL_LINE: allocation-failure path */
                 return NULL;             /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -2341,7 +2341,7 @@ PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *const *args, Py_
     const char *winner = detect_declared(bytes, len, &certain, &bom);
     th_detect_scores scores = {.count = 0, .structural = 0};
     if (winner == NULL) {
-        const th_encoding_entry *entry = th_encoding_detect(bytes, len, tld_argument(label), &scores);
+        const th_encoding_entry *entry = th_encoding_detect(bytes, len, tld_argument(label), cache != Py_None, &scores);
         if (PyErr_Occurred()) {      /* GCOVR_EXCL_BR_LINE: detection allocation failure */
             PyBuffer_Release(&view); /* GCOVR_EXCL_LINE: allocation-failure path */
             return NULL;             /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -2359,6 +2359,8 @@ PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *const *args, Py_
 #define TH_DETECT_PREFIX_LIMIT 1024
 /* The most ASCII bytes a stream gathers before scoring them. */
 #define TH_DETECT_PENDING_LIMIT 4096
+/* The chunks a stream gathers: shorter ones, whose fixed per-feed cost outweighs the scan for an event byte. */
+#define TH_DETECT_GATHER_BELOW 256
 
 /* Append bytes to a growable buffer, doubling from 64; -1 with MemoryError set on allocation failure. */
 static int detect_buffer_append(unsigned char **buffer, Py_ssize_t *length, Py_ssize_t *capacity,
@@ -2392,8 +2394,8 @@ typedef struct {
     unsigned char *prefix; /* grown as bytes arrive, so a short stream keeps a small object and a small buffer */
     Py_ssize_t prefix_len;
     Py_ssize_t prefix_capacity;
-    /* ASCII chunks gathered, once the candidates run, before they read them: every candidate pays a fixed cost per
-       feed, so a reader handing over the ASCII body of a page 16 bytes at a time costs about what one feed does. A
+    /* short ASCII chunks gathered, once the candidates run, before they read them: every candidate pays a fixed cost
+       per feed, so a reader handing over the ASCII body of a page 16 bytes at a time costs about what one feed does. A
        chunk holding a non-ASCII or escape byte still reaches the candidates on its own, so a multi-byte sequence or
        an ISO-2022-JP escape split across feeds still crosses the boundary it arrived with. */
     unsigned char *pending;
@@ -2496,7 +2498,8 @@ static PyObject *detect_stream_feed(PyObject *self, PyObject *const *args, Py_ss
         Py_RETURN_NONE;
     }
     int status = 0;
-    if (detector->stream.started && detector->pending_len + view.len <= TH_DETECT_PENDING_LIMIT &&
+    if (view.len < TH_DETECT_GATHER_BELOW && detector->stream.started &&
+        detector->pending_len + view.len <= TH_DETECT_PENDING_LIMIT &&
         th_detect_first_event(view.buf, view.len) == view.len) {
         status = detect_buffer_append(&detector->pending, &detector->pending_len, &detector->pending_capacity, view.buf,
                                       view.len);
