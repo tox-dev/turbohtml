@@ -1229,9 +1229,10 @@ static Py_ssize_t css_read_until(cursor *cur, const char *stops) {
 /* css_match_paren once a scan has met CSS_PAREN_MEMO_DEPTH nested calls. A walk asks about a function and then about
    each function in its arguments, so nested calls would each rescan the tokens of the calls inside them. This scan
    therefore records the closer of every nested `(` it passes in vec->closers, keeping the openers still waiting for one
-   on a stack threaded through the same table as -(around + 2). A recorded closer is the answer with the whole vector
-   to scan; one at or past end means the bounded scan meets no closer either, as it reads the same tokens. A `[` or `{`
-   hands the rest to css_scan_stacked, so the waiting openers go back to unknown. */
+   on a stack threaded through the same table as -(around + 2). A `[` or `{` hands the rest to css_scan_stacked, so the
+   waiting openers go back to unknown, and a recorded closer is the one CSS Syntax 3 §5.4.9 matches to the opener.
+   Every caller bounds the scan at the closer of an enclosing function or the end of a value, and neither can fall
+   inside the opener's own block, so a recorded closer always sits before end. */
 CSS_NOINLINE static Py_ssize_t css_match_paren_memo(token_vec *vec, Py_ssize_t open_paren, Py_ssize_t end) {
     Py_ssize_t *closers = vec->closers;
     if (closers == NULL) {
@@ -1242,7 +1243,7 @@ CSS_NOINLINE static Py_ssize_t css_match_paren_memo(token_vec *vec, Py_ssize_t o
         }
     }
     if (closers[open_paren] > 0) {
-        return closers[open_paren] < end ? closers[open_paren] : end;
+        return closers[open_paren];
     }
     Py_ssize_t parens_open = 0;
     Py_ssize_t waiting = -1;
