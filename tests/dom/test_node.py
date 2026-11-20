@@ -1399,6 +1399,11 @@ def test_text_of_one_text_descendant_takes_the_narrowest_width(html: str, expect
     assert (texts, [text.encode().decode() for text in texts]) == (expected, expected)
 
 
+def test_text_of_several_text_descendants_skips_empty_text_and_elements() -> None:
+    element: Final[Element] = Element("p", None, [Text("a"), Text(""), Element("b", None, [Text("é")]), Text("c")])
+    assert element.text == "aéc"
+
+
 @pytest.mark.parametrize(
     "text",
     [
