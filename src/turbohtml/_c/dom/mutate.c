@@ -142,6 +142,25 @@ th_node *th_tree_make_data_node(th_tree *tree, int type, const Py_UCS4 *data, Py
     return node;
 }
 
+th_node *th_tree_make_text_str(th_tree *tree, PyObject *text) {
+    th_node *node = th_tree_make_data_node(tree, TH_NODE_TEXT, NULL, 0);
+    Py_ssize_t len = PyUnicode_GET_LENGTH(text);
+    if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (len == 0) {
+        return node;
+    }
+    Py_UCS4 *owned = arena_alloc(tree, len * (Py_ssize_t)sizeof(Py_UCS4));
+    if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyUnicode_AsUCS4(text, owned, len, 0); /* cannot fail: owned holds every code point and no NUL is asked for */
+    node->text = owned;
+    node->text_len = len;
+    return node;
+}
+
 TH_NOINLINE int th_pi_target_invalid_xml(const Py_UCS4 *target, Py_ssize_t target_len) {
     if (target_len == 3 && (target[0] | 0x20) == 'x' && (target[1] | 0x20) == 'm' && (target[2] | 0x20) == 'l') {
         return 1;

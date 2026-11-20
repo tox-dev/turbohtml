@@ -1838,7 +1838,9 @@ static void css_free_sheets(css_sheet *sheets, Py_ssize_t count) {
 
 void handle_clear_css_cache(HandleObject *handle) {
     css_free_computed(handle);
-    css_free_sheets(handle->css_sheets, handle->css_sheet_count);
+    if (handle->css_sheets != NULL) {
+        css_free_sheets(handle->css_sheets, handle->css_sheet_count);
+    }
     handle->css_sheets = NULL;
     handle->css_sheet_count = 0;
     handle->css_sheets_ready = 0;

@@ -347,6 +347,9 @@ extern const Py_UCS4 th_empty_text[1];
    of the data code points in the tree's arena. NULL on allocation failure. */
 th_node *th_tree_make_data_node(th_tree *tree, int type, const Py_UCS4 *data, Py_ssize_t len);
 
+/* th_tree_make_data_node for a Text node holding the code points of the str text, widened straight into the arena. */
+th_node *th_tree_make_text_str(th_tree *tree, PyObject *text);
+
 /* Construct an empty document-fragment node (a TH_NODE_CONTENT) in the tree's
    arena: the container the Range content operations fill. NULL on allocation
    failure. */

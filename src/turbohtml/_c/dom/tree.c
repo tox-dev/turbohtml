@@ -5889,6 +5889,14 @@ int th_tree_fragment_context_known(const char *context, Py_ssize_t context_len) 
     return intern_atom(&ctx_name, &ctx_flags) != TH_TAG_UNKNOWN;
 }
 
+/* PyMem_Free for a buffer most trees never allocate: a constructed element's tree frees a dozen NULL pointers, and
+   skipping the allocator call for each keeps building small trees cheap. */
+static inline void free_if_set(void *buffer) {
+    if (buffer != NULL) {
+        PyMem_Free(buffer);
+    }
+}
+
 void th_tree_free(th_tree *tree) {
     if (tree == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure before tree creation */
         return;         /* GCOVR_EXCL_LINE */
@@ -5904,18 +5912,18 @@ void th_tree_free(th_tree *tree) {
         PyMem_Free(block);
         block = next;
     }
-    PyMem_Free(tree->open);
-    PyMem_Free(tree->open_blocks);
-    PyMem_Free(tree->afe);
-    PyMem_Free(tree->afe_hashes);
-    PyMem_Free(tree->tmpl);
-    PyMem_Free(tree->attr_slots);
-    PyMem_Free(tree->attr_recs);
-    PyMem_Free(tree->shadows);
-    PyMem_Free(tree->shadow_index.entries);
+    free_if_set(tree->open);
+    free_if_set(tree->open_blocks);
+    free_if_set(tree->afe);
+    free_if_set(tree->afe_hashes);
+    free_if_set(tree->tmpl);
+    free_if_set(tree->attr_slots);
+    free_if_set(tree->attr_recs);
+    free_if_set(tree->shadows);
+    free_if_set(tree->shadow_index.entries);
     select_cache_free(tree);
-    PyMem_Free(tree->meta_labels);
-    PyMem_Free(tree->owned_data);
+    free_if_set(tree->meta_labels);
+    free_if_set(tree->owned_data);
     th_error_sink_free(&tree->errors);
     PyMem_Free(tree);
 }

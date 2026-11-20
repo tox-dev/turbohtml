@@ -12,7 +12,7 @@
 
 static uint64_t path_id_hash(const Py_UCS4 *value, Py_ssize_t len, int ci, int keyed);
 
-static int element_attr_value(PyObject *value, Py_UCS4 **points, Py_ssize_t *len, int *has_value);
+static int element_attr_value(PyObject *value, Py_UCS4 *scratch, Py_UCS4 **points, Py_ssize_t *len, int *has_value);
 
 /* Encode a str key into a freshly allocated UTF-8 buffer for an attribute lookup;
    *out_len its length. Folded to match an HTML tree's lowercased names, kept verbatim
@@ -141,7 +141,7 @@ TH_NODE_API(static, int, attrs_ass_subscript, (PyObject * self, PyObject *key, P
     Py_UCS4 *points;
     Py_ssize_t value_len;
     int has_value;
-    int bad = element_attr_value(value, &points, &value_len, &has_value) < 0;
+    int bad = element_attr_value(value, NULL, &points, &value_len, &has_value) < 0;
     int rc = -1;
     if (!bad) {
         Py_BEGIN_CRITICAL_SECTION(owner->handle);
@@ -1819,19 +1819,32 @@ TH_NODE_API(static, PyObject *, element_attr, (PyObject * self, PyObject *args, 
 static void drop_index(HandleObject *handle) {
     handle->mutation_version++;
     th_tree_note_element_edit(handle->tree);
-    PyMem_Free(handle->index_offsets);
-    PyMem_Free(handle->index_nodes);
-    handle->index_offsets = NULL;
-    handle->index_nodes = NULL;
+    /* only a whole-tree query builds the index, and most edits find none to free */
+    if (handle->index_offsets != NULL) {
+        PyMem_Free(handle->index_offsets);
+        handle->index_offsets = NULL;
+    }
+    if (handle->index_nodes != NULL) {
+        PyMem_Free(handle->index_nodes);
+        handle->index_nodes = NULL;
+    }
     handle->index_built = 0;
-    path_id_map_free(handle->path_ids);
-    handle->path_ids = NULL;
-    path_positions_free(handle->path_positions);
-    handle->path_positions = NULL;
-    th_markdown_ordinals_free(handle->md_ordinals);
-    handle->md_ordinals = NULL;
-    path_positions_free(handle->path_child_positions);
-    handle->path_child_positions = NULL;
+    if (handle->path_ids != NULL) {
+        path_id_map_free(handle->path_ids);
+        handle->path_ids = NULL;
+    }
+    if (handle->path_positions != NULL) {
+        path_positions_free(handle->path_positions);
+        handle->path_positions = NULL;
+    }
+    if (handle->md_ordinals != NULL) {
+        th_markdown_ordinals_free(handle->md_ordinals);
+        handle->md_ordinals = NULL;
+    }
+    if (handle->path_child_positions != NULL) {
+        path_positions_free(handle->path_child_positions);
+        handle->path_child_positions = NULL;
+    }
 }
 
 /* Drop the cached element index so the next whole-tree query rebuilds it. Called
@@ -2833,11 +2846,10 @@ PyType_Spec element_spec = {
    or a control is allowed there, since the tokenizer produces such names from
    markup and serializes them back unchanged. */
 static int name_rejects(Py_UCS4 character, int is_attr) {
-    if (is_attr) {
-        return is_space(character) || character == '\0' || character == '/' || character == '=' || character == '>';
-    }
-    return character <= ' ' || character == '/' || character == '>' || character == '<' || character == '=' ||
-           character == '"' || character == '\'';
+    /* Every rejected character is below '@', so one bit per code point under 64 decides it: TAB, LF, FF, CR, space,
+       NUL, '/', '=' and '>' for an attribute; NUL to space, '/', '>', '<', '=', '"' and '\'' for a tag. */
+    uint64_t rejected = is_attr ? UINT64_C(0x6000800100003601) : UINT64_C(0x70008085ffffffff);
+    return character < 64 && (rejected >> character) & 1;
 }
 
 int th_validate_markup_name(PyObject *name, int is_attr) {
@@ -2849,7 +2861,8 @@ int th_validate_markup_name(PyObject *name, int is_attr) {
     int kind = PyUnicode_KIND(name);
     const void *data = PyUnicode_DATA(name);
     for (Py_ssize_t index = 0; index < len; index++) {
-        Py_UCS4 character = PyUnicode_READ(kind, data, index);
+        Py_UCS4 character =
+            kind == PyUnicode_1BYTE_KIND ? ((const Py_UCS1 *)data)[index] : PyUnicode_READ(kind, data, index);
         if (name_rejects(character, is_attr)) {
             PyObject *ch = PyUnicode_FromOrdinal((int)character);
             if (ch != NULL) { /* GCOVR_EXCL_BR_LINE: a forbidden character is ASCII and always builds */
@@ -2865,9 +2878,13 @@ int th_validate_markup_name(PyObject *name, int is_attr) {
     return 0;
 }
 
+/* On-stack room for the code points of a short attribute value. */
+#define ELEMENT_ATTR_VALUE_STACK_POINTS 64
+
 /* Resolve one attribute value to code points: None is valueless (points stays
-   NULL, has_value 0); a str is itself; a list of str joins on a space. */
-static int element_attr_value(PyObject *value, Py_UCS4 **points, Py_ssize_t *len, int *has_value) {
+   NULL, has_value 0); a str is itself; a list of str joins on a space. A value that fits `scratch` (when not NULL)
+   is copied there; a longer one into a buffer the caller frees when it is not `scratch`. */
+static int element_attr_value(PyObject *value, Py_UCS4 *scratch, Py_UCS4 **points, Py_ssize_t *len, int *has_value) {
     *points = NULL;
     *len = 0;
     *has_value = 0;
@@ -2892,7 +2909,9 @@ static int element_attr_value(PyObject *value, Py_UCS4 **points, Py_ssize_t *len
         return -1;
     }
     *len = PyUnicode_GET_LENGTH(as_str);
-    *points = PyUnicode_AsUCS4Copy(as_str);
+    *points = scratch != NULL && *len < ELEMENT_ATTR_VALUE_STACK_POINTS
+                  ? PyUnicode_AsUCS4(as_str, scratch, ELEMENT_ATTR_VALUE_STACK_POINTS, 0)
+                  : PyUnicode_AsUCS4Copy(as_str);
     Py_DECREF(as_str);
     if (*points == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -2974,7 +2993,7 @@ static int fill_wide_element_attrs(th_tree *tree, th_node *node, PyObject *attrs
         Py_UCS4 *points;
         Py_ssize_t value_len;
         int has_value;
-        int bad = value == NULL || element_attr_value(value, &points, &value_len, &has_value) < 0;
+        int bad = value == NULL || element_attr_value(value, NULL, &points, &value_len, &has_value) < 0;
         Py_XDECREF(value);
         if (bad) {
             return -1;
@@ -2996,26 +3015,42 @@ static int fill_wide_element_attrs(th_tree *tree, th_node *node, PyObject *attrs
 /* Fill a constructed element's attribute slots from the keys of attrs. fold lowercases
    each name for an HTML tree; an XML tree keeps case, so its names are stored verbatim.
    Two keys that fold to one name keep the first, as the HTML tokenizer does for a
-   repeated attribute, so the element never carries the same name twice. */
-static int fill_element_attrs(th_tree *tree, th_node *node, PyObject *attrs, PyObject *keys, int fold) {
-    Py_ssize_t count = PyList_GET_SIZE(keys);
-    if (fold && count >= TH_WIDE_ATTR_COUNT) {
-        return fill_wide_element_attrs(tree, node, attrs, keys);
-    }
+   repeated attribute, so the element never carries the same name twice. keys is NULL for an exact dict walked in
+   place, which is safe while reading a value runs no Python code: a value other than a str, None or an exact list
+   (a list subclass iterates through Python and can edit the dict) stops the walk with 1, before anything reads it,
+   and the caller starts over from a snapshot of the keys. count is the slots the node was made with. */
+static int fill_element_attrs(th_tree *tree, th_node *node, PyObject *attrs, PyObject *keys, Py_ssize_t count,
+                              int fold) {
     Py_ssize_t filled = 0;
+    Py_ssize_t position = 0;
     for (Py_ssize_t index = 0; index < count; index++) {
-        PyObject *name = PyList_GET_ITEM(keys, index);
+        PyObject *name;
+        PyObject *value = NULL;
+        if (keys == NULL) {
+            /* the walk holds the dict's critical section, which joining a list value can suspend under free
+               threading; a dict another thread shrank meanwhile ends the walk */
+            if (!PyDict_Next(attrs, &position, &name, &value)) { /* GCOVR_EXCL_BR_LINE: needs a concurrent edit */
+                break;                                           /* GCOVR_EXCL_LINE: concurrent-edit path */
+            }
+        } else {
+            name = PyList_GET_ITEM(keys, index);
+        }
         if (!PyUnicode_Check(name)) {
             PyErr_SetString(PyExc_TypeError, "attribute name must be a str");
             return -1;
         }
-        if (th_validate_markup_name(name, 1) < 0) {
+        /* an ASCII str holds its UTF-8, so one pass checks and folds it; any other name is checked first */
+        int ascii = PyUnicode_IS_ASCII(name);
+        if (!ascii && th_validate_markup_name(name, 1) < 0) {
             return -1;
         }
         Py_ssize_t name_len;
-        const char *name_utf8 = PyUnicode_AsUTF8AndSize(name, &name_len);
+        const char *name_utf8 = ascii ? (const char *)PyUnicode_DATA(name) : PyUnicode_AsUTF8AndSize(name, &name_len);
         if (name_utf8 == NULL) { /* GCOVR_EXCL_BR_LINE: a lone-surrogate name cannot encode, hard to force */
             return -1;           /* GCOVR_EXCL_LINE: surrogate path */
+        }
+        if (ascii) {
+            name_len = PyUnicode_GET_LENGTH(name);
         }
         char stack[ELEMENT_ATTR_NAME_STACK_BYTES];
         char *stored = name_len <= (Py_ssize_t)sizeof(stack) ? stack : PyMem_Malloc((size_t)name_len);
@@ -3023,9 +3058,18 @@ static int fill_element_attrs(th_tree *tree, th_node *node, PyObject *attrs, PyO
             PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
             return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
         }
+        int rejected = name_len == 0;
         for (Py_ssize_t byte = 0; byte < name_len; byte++) {
             char ch = name_utf8[byte];
+            rejected |= name_rejects((unsigned char)ch, 1);
             stored[byte] = fold && ch >= 'A' && ch <= 'Z' ? (char)(ch + 32) : ch;
+        }
+        if (rejected) { /* only an ASCII name gets here unchecked; the check raises the error it carries */
+            if (stored != stack) {
+                PyMem_Free(stored);
+            }
+            th_validate_markup_name(name, 1);
+            return -1;
         }
         if (fold && has_attr_named(tree, node, filled, stored, name_len)) {
             if (stored != stack) {
@@ -3033,11 +3077,18 @@ static int fill_element_attrs(th_tree *tree, th_node *node, PyObject *attrs, PyO
             }
             continue;
         }
-        PyObject *value = PyObject_GetItem(attrs, name);
+        if (keys == NULL && value != Py_None && !PyUnicode_Check(value) && !PyList_CheckExact(value)) {
+            if (stored != stack) {
+                PyMem_Free(stored);
+            }
+            return 1;
+        }
+        value = value == NULL ? PyObject_GetItem(attrs, name) : Py_NewRef(value);
+        Py_UCS4 scratch[ELEMENT_ATTR_VALUE_STACK_POINTS];
         Py_UCS4 *points;
         Py_ssize_t value_len;
         int has_value;
-        int bad = value == NULL || element_attr_value(value, &points, &value_len, &has_value) < 0;
+        int bad = value == NULL || element_attr_value(value, scratch, &points, &value_len, &has_value) < 0;
         Py_XDECREF(value);
         if (bad) {
             if (stored != stack) {
@@ -3049,7 +3100,9 @@ static int fill_element_attrs(th_tree *tree, th_node *node, PyObject *attrs, PyO
         if (stored != stack) {
             PyMem_Free(stored);
         }
-        PyMem_Free(points);
+        if (points != scratch) {
+            PyMem_Free(points);
+        }
         if (rc < 0) {         /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
             return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -3072,8 +3125,10 @@ static int fill_element_attrs(th_tree *tree, th_node *node, PyObject *attrs, PyO
 static int tag_spelling(PyObject *tag, int xml, int keep_case, uint16_t *atom_out, Py_UCS4 **points_out) {
     uint16_t atom = TH_TAG_UNKNOWN;
     if (!xml) { /* an XML tree stores every element as an unknown atom, keeping its spelling */
-        Py_ssize_t utf8_len;
-        const char *utf8 = PyUnicode_AsUTF8AndSize(tag, &utf8_len);
+        Py_ssize_t utf8_len = PyUnicode_GET_LENGTH(tag);
+        /* an ASCII str holds its UTF-8 */
+        const char *utf8 =
+            PyUnicode_IS_ASCII(tag) ? (const char *)PyUnicode_DATA(tag) : PyUnicode_AsUTF8AndSize(tag, &utf8_len);
         char stack[ELEMENT_TAG_LOWER_STACK_BYTES];
         if (utf8 != NULL && utf8_len <= (Py_ssize_t)sizeof(stack)) {
             for (Py_ssize_t byte = 0; byte < utf8_len; byte++) {
@@ -3111,7 +3166,10 @@ PyObject *make_element(PyTypeObject *type, PyObject *tag, PyObject *attrs, int x
     Py_ssize_t tag_len = PyUnicode_GET_LENGTH(tag);
     PyObject *keys = NULL;
     Py_ssize_t attr_count = 0;
-    if (attrs != NULL && attrs != Py_None) {
+    int walk_dict = attrs != NULL && PyDict_CheckExact(attrs) && PyDict_GET_SIZE(attrs) < TH_WIDE_ATTR_COUNT;
+    if (walk_dict) {
+        attr_count = PyDict_GET_SIZE(attrs);
+    } else if (attrs != NULL && attrs != Py_None) {
         keys = PyMapping_Keys(attrs);
         if (keys == NULL) {
             if (PyErr_ExceptionMatches(PyExc_AttributeError)) { /* a non-mapping has no keys() to enumerate */
@@ -3142,23 +3200,42 @@ PyObject *make_element(PyTypeObject *type, PyObject *tag, PyObject *attrs, int x
         Py_XDECREF(keys);        /* GCOVR_EXCL_LINE: allocation-failure path */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    if (keys != NULL && fill_element_attrs(tree, node, attrs, keys, !xml && !keep_case) < 0) {
+    int fold = !xml && !keep_case;
+    int filled;
+    if (walk_dict) {
+        Py_BEGIN_CRITICAL_SECTION(attrs);
+        filled = fill_element_attrs(tree, node, attrs, NULL, attr_count, fold);
+        Py_END_CRITICAL_SECTION();
+        if (filled > 0) { /* a value can run Python code: start over from a snapshot of the keys */
+            keys = PyDict_Keys(attrs);
+            if (keys == NULL) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                th_tree_free(tree); /* GCOVR_EXCL_LINE: allocation-failure path */
+                return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            /* no Python code ran since the count, so the keys fill the node's slots exactly */
+            Py_ssize_t count = attr_count;
+#ifdef Py_GIL_DISABLED
+            if (PyList_GET_SIZE(keys) < count) { /* another thread can have shrunk the dict meanwhile */
+                count = PyList_GET_SIZE(keys);
+            }
+#endif
+            filled = fill_element_attrs(tree, node, attrs, keys, count, fold);
+        }
+    } else if (keys != NULL && fold && attr_count >= TH_WIDE_ATTR_COUNT) {
+        filled = fill_wide_element_attrs(tree, node, attrs, keys);
+    } else {
+        filled = keys == NULL ? 0 : fill_element_attrs(tree, node, attrs, keys, attr_count, fold);
+    }
+    if (filled < 0) {
         th_tree_free(tree);
-        Py_DECREF(keys);
+        Py_XDECREF(keys);
         return NULL;
     }
     Py_XDECREF(keys);
     return wrap_fresh_tree_node(state, tree, node);
 }
 
-static PyObject *element_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
-    static char *keywords[] = {"tag", "attrs", "children", NULL};
-    PyObject *tag;
-    PyObject *attrs = NULL;
-    PyObject *children = NULL;
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OO", keywords, &tag, &attrs, &children)) {
-        return NULL;
-    }
+static PyObject *element_construct(PyTypeObject *type, PyObject *tag, PyObject *attrs, PyObject *children) {
     if (!PyUnicode_Check(tag)) {
         PyErr_Format(PyExc_TypeError, "tag must be a str, not %.80s", Py_TYPE(tag)->tp_name);
         return NULL;
@@ -3174,6 +3251,53 @@ static PyObject *element_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
         Py_DECREF(element);
         return NULL;
     }
+    return element;
+}
+
+static PyObject *element_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
+    static char *keywords[] = {"tag", "attrs", "children", NULL};
+    PyObject *tag;
+    PyObject *attrs = NULL;
+    PyObject *children = NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OO", keywords, &tag, &attrs, &children)) {
+        return NULL;
+    }
+    return element_construct(type, tag, attrs, children);
+}
+
+/* Element(...) with one to three positional arguments skips building the argument tuple and parsing it; Element is
+   final and its tp_init is object's, so tp_new alone is the whole call. Any other shape takes the tp_new route. */
+PyObject *element_vectorcall(PyObject *type, PyObject *const *args, size_t nargsf, PyObject *kwnames) {
+    Py_ssize_t nargs = PyVectorcall_NARGS(nargsf);
+    if (kwnames == NULL && nargs >= 1 && nargs <= 3) {
+        return element_construct((PyTypeObject *)type, args[0], nargs > 1 ? args[1] : NULL, nargs > 2 ? args[2] : NULL);
+    }
+    PyObject *positional = PyTuple_New(nargs);
+    if (positional == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    for (Py_ssize_t index = 0; index < nargs; index++) {
+        PyTuple_SET_ITEM(positional, index, Py_NewRef(args[index]));
+    }
+    PyObject *named = NULL;
+    if (kwnames != NULL) {
+        named = PyDict_New();
+        if (named == NULL) {       /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            Py_DECREF(positional); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;           /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        for (Py_ssize_t index = 0; index < PyTuple_GET_SIZE(kwnames); index++) {
+            PyObject *name = PyTuple_GET_ITEM(kwnames, index);
+            if (PyDict_SetItem(named, name, args[nargs + index]) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                Py_DECREF(named);                                       /* GCOVR_EXCL_LINE: allocation-failure path */
+                Py_DECREF(positional);                                  /* GCOVR_EXCL_LINE: allocation-failure path */
+                return NULL;                                            /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+        }
+    }
+    PyObject *element = element_new((PyTypeObject *)type, positional, named);
+    Py_DECREF(positional);
+    Py_XDECREF(named);
     return element;
 }
 
@@ -3791,50 +3915,35 @@ static int is_builder_mapping(module_state *state, PyObject *item, PyObject *map
 /* Append every node from children into section (a head or body element of the
    fresh shell), through the same adoption path as extend(). Returns 0, or -1 with
    an exception set when children is not iterable or holds a non-node. */
-/* The node list a builder's arguments become, from `first` on: a str becomes a Text node, anything else passes
-   through for the tree to accept or reject. With a `mapping_type`, a mapping past the first argument is the
-   TypeError the element builder raises for attributes out of place. */
-static PyObject *build_children(module_state *state, PyObject *items, Py_ssize_t first, PyObject *mapping_type) {
+/* The node list a document section's items become: a str becomes a Text node, anything else passes through for the
+   tree to accept or reject. */
+static PyObject *build_children(module_state *state, PyObject *items) {
     PyObject *sequence = PySequence_Fast(items, "children must be an iterable");
     if (sequence == NULL) {
         return NULL;
     }
     Py_ssize_t count = PySequence_Fast_GET_SIZE(sequence);
-    PyObject *children = PyList_New(count - first);
+    PyObject *children = PyList_New(count);
     if (children == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         Py_DECREF(sequence); /* GCOVR_EXCL_LINE */
         return NULL;         /* GCOVR_EXCL_LINE */
     }
-    for (Py_ssize_t index = first; index < count; index++) {
+    for (Py_ssize_t index = 0; index < count; index++) {
         PyObject *item = PySequence_Fast_GET_ITEM(sequence, index);
-        PyObject *child;
-        if (PyUnicode_Check(item)) {
-            child = PyObject_CallOneArg(state->text_type, item);
-        } else {
-            int late_mapping = mapping_type == NULL ? 0 : is_builder_mapping(state, item, mapping_type);
-            if (late_mapping < 0) {
-                child = NULL; /* the shape test itself failed */
-            } else if (late_mapping) {
-                PyErr_SetString(PyExc_TypeError,
-                                "a mapping argument sets attributes and must come first, before any child");
-                child = NULL;
-            } else {
-                child = Py_NewRef(item);
-            }
+        PyObject *child = PyUnicode_Check(item) ? PyObject_CallOneArg(state->text_type, item) : Py_NewRef(item);
+        if (child == NULL) {     /* GCOVR_EXCL_BR_LINE: a Text from a str fails only to allocate */
+            Py_DECREF(children); /* GCOVR_EXCL_LINE: allocation-failure path */
+            Py_DECREF(sequence); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;         /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        if (child == NULL) {
-            Py_DECREF(children);
-            Py_DECREF(sequence);
-            return NULL;
-        }
-        PyList_SET_ITEM(children, index - first, child);
+        PyList_SET_ITEM(children, index, child);
     }
     Py_DECREF(sequence);
     return children;
 }
 
 static int shell_fill(module_state *state, PyObject *handle, th_node *section, PyObject *children) {
-    PyObject *nodes = build_children(state, children, 0, NULL);
+    PyObject *nodes = build_children(state, children);
     if (nodes == NULL) {
         return -1;
     }
@@ -4332,11 +4441,15 @@ TH_NODE_API(, PyObject *, node_decompose, (PyObject * self, PyObject *ignored), 
 TH_NODE_API(static, int, element_set_text, (PyObject * self, PyObject *value, void *closure), (self, value, closure),
             (PyObject * self, PyObject *value, void *Py_UNUSED(closure)), (NodeObject *)self,
             value != NULL && is_node(value, state_of(self)) ? (NodeObject *)value : NULL) {
-    Py_ssize_t len;
-    Py_UCS4 *points = assigned_str(value, "text", &len);
-    if (points == NULL) {
+    if (value == NULL) {
+        PyErr_SetString(PyExc_TypeError, "cannot delete text");
         return -1;
     }
+    if (!PyUnicode_Check(value)) {
+        PyErr_SetString(PyExc_TypeError, "text must be a str");
+        return -1;
+    }
+    Py_ssize_t len = PyUnicode_GET_LENGTH(value);
     th_node *node = ((NodeObject *)self)->node;
     th_tree *tree = tree_of(self);
     int error = 0;
@@ -4345,7 +4458,7 @@ TH_NODE_API(static, int, element_set_text, (PyObject * self, PyObject *value, vo
     while (node->first_child != NULL) {
         th_node_remove_observed(tree, node->first_child);
     }
-    th_node *text = len > 0 ? th_tree_make_data_node(tree, TH_NODE_TEXT, points, len) : NULL;
+    th_node *text = len > 0 ? th_tree_make_text_str(tree, value) : NULL;
     /* GCOVR_EXCL_START: covered by the fuzz build's allocation-failure sweep */
     if (len > 0 && text == NULL) {
         PyErr_NoMemory();
@@ -4356,7 +4469,6 @@ TH_NODE_API(static, int, element_set_text, (PyObject * self, PyObject *value, vo
         th_node_append_child_observed(tree, node, text);
     }
     Py_END_CRITICAL_SECTION();
-    PyMem_Free(points);
     return error ? -1 : 0; /* GCOVR_EXCL_BR_LINE: error is set only on the excluded allocation failure */
 }
 
@@ -4753,32 +4865,231 @@ TH_NODE_API(static, PyObject *, element_insert_adjacent_html, (PyObject * self, 
     Py_RETURN_NONE;
 }
 
-/* _build_element(tag, args, mapping_type) -> Element: the turbohtml.build call. A leading mapping among `args` sets
-   the attributes; every other argument is a child, a str becoming a Text node, a node passing through, and a
-   mapping past the first position a TypeError. `mapping_type` is collections.abc.Mapping. */
-PyObject *turbohtml_build_element(PyObject *module, PyObject *args) {
-    PyObject *tag, *parts, *mapping_type;
-    if (!PyArg_ParseTuple(args, "UO!O:_build_element", &tag, &PyTuple_Type, &parts, &mapping_type)) {
+/* Link the builder's children into element, a fresh one with no other reference: a str becomes a Text node made
+   straight in the element's tree, and a node is appended as append() would. Every node is type-checked first, so a bad
+   argument fails before any node leaves its tree. */
+static int build_link_children(module_state *state, PyObject *element, PyObject *const *parts, Py_ssize_t count) {
+    for (Py_ssize_t index = 0; index < count; index++) {
+        PyObject *part = parts[index];
+        if (PyUnicode_Check(part)) {
+            continue;
+        }
+        if (!PyObject_TypeCheck(part, (PyTypeObject *)state->node_type)) {
+            PyErr_SetString(PyExc_TypeError, "child must be a node");
+            return -1;
+        }
+        if (PyObject_TypeCheck(part, (PyTypeObject *)state->document_type)) {
+            PyErr_SetString(PyExc_TypeError, "a Document cannot be inserted as a child");
+            return -1;
+        }
+    }
+    NodeObject *self = (NodeObject *)element;
+    int error = 0;
+    Py_BEGIN_CRITICAL_SECTION(self->handle);
+    for (Py_ssize_t index = 0; !error && index < count; index++) {
+        PyObject *part = parts[index];
+        if (PyUnicode_Check(part)) {
+            th_tree *tree = tree_of(element);
+            th_node *text = th_tree_make_text_str(tree, part);
+            if (text == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+                error = 1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+                break;            /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            handle_drop_index_edit(self->handle, self->node, &text, 1);
+            th_node_append_child_observed(tree, self->node, text);
+        } else if (is_fragment_arg(state, part)) {
+            PyObject *list = PyList_New(1);
+            if (list == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                error = 1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+                break;          /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            PyList_SET_ITEM(list, 0, Py_NewRef(part));
+            error = append_gathered(element, self->node, list) < 0;
+            Py_DECREF(list);
+        } else {
+            error = append_one(element, self->node, part) < 0;
+        }
+    }
+    Py_END_CRITICAL_SECTION();
+    return error ? -1 : 0;
+}
+
+/* Build tag from the builder arguments in parts: a leading mapping (by mapping_type) sets the attributes; every other
+   part is a child, a str becoming a Text node, a node passing through, and a mapping past the first position a
+   TypeError. */
+static PyObject *build_tagged(module_state *state, PyObject *tag, PyObject *mapping_type, PyObject *const *parts,
+                              Py_ssize_t count) {
+    if (!PyUnicode_Check(tag)) {
+        PyErr_Format(PyExc_TypeError, "tag must be a str, not %.80s", Py_TYPE(tag)->tp_name);
         return NULL;
     }
-    module_state *state = PyModule_GetState(module);
-    PyObject *attrs = Py_None;
+    PyObject *attrs = NULL;
     Py_ssize_t first = 0;
-    if (PyTuple_GET_SIZE(parts) > 0) {
-        int leading = is_builder_mapping(state, PyTuple_GET_ITEM(parts, 0), mapping_type);
+    if (count > 0) {
+        int leading = is_builder_mapping(state, parts[0], mapping_type);
         if (leading < 0) {
             return NULL;
         }
         if (leading) {
-            attrs = PyTuple_GET_ITEM(parts, 0);
+            attrs = parts[0];
             first = 1;
         }
     }
-    PyObject *children = build_children(state, parts, first, mapping_type);
-    if (children == NULL) {
+    for (Py_ssize_t index = first; index < count; index++) {
+        if (PyUnicode_Check(parts[index])) {
+            continue;
+        }
+        int late_mapping = is_builder_mapping(state, parts[index], mapping_type);
+        if (late_mapping < 0) { /* the shape test itself failed */
+            return NULL;
+        }
+        if (late_mapping) {
+            PyErr_SetString(PyExc_TypeError,
+                            "a mapping argument sets attributes and must come first, before any child");
+            return NULL;
+        }
+    }
+    if (th_validate_markup_name(tag, 0) < 0) {
         return NULL;
     }
-    PyObject *element = PyObject_CallFunctionObjArgs(state->element_type, tag, attrs, children, NULL);
-    Py_DECREF(children);
+    PyObject *element = make_element((PyTypeObject *)state->element_type, tag, attrs, 0, 0);
+    if (element == NULL || count == first) {
+        return element;
+    }
+    uint16_t atom = ((NodeObject *)element)->node->atom;
+    /* the fragment serializer writes `frame` without children too, though the parser keeps it an ordinary element */
+    if (atom == TH_TAG_FRAME || th_tag_is_void(atom)) {
+        PyErr_Format(PyExc_ValueError, "void element %R cannot have children", tag);
+        Py_DECREF(element);
+        return NULL;
+    }
+    if (build_link_children(state, element, parts + first, count - first) < 0) {
+        Py_DECREF(element);
+        return NULL;
+    }
     return element;
 }
+
+/* build_element(tag, mapping_type, *parts) -> Element: the turbohtml.build call form, E(tag, *parts).
+   `mapping_type` is collections.abc.Mapping. */
+PyObject *turbohtml_build_element(PyObject *module, PyObject *const *args, Py_ssize_t nargs) {
+    if (nargs < 2) {
+        PyErr_Format(PyExc_TypeError, "build_element() takes at least 2 arguments (%zd given)", nargs);
+        return NULL;
+    }
+    return build_tagged(PyModule_GetState(module), args[0], args[1], args + 2, nargs - 2);
+}
+
+/* What E.<tag> returns: a callable building tag from its arguments as build_element() does. */
+typedef struct {
+    PyObject_HEAD PyObject *tag;
+} TagFactoryObject;
+
+static PyObject *tag_factory_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
+    PyObject *tag;
+    if (kwds != NULL && PyDict_GET_SIZE(kwds) > 0) {
+        PyErr_SetString(PyExc_TypeError, "TagFactory() takes no keyword arguments");
+        return NULL;
+    }
+    if (!PyArg_ParseTuple(args, "U:TagFactory", &tag)) {
+        return NULL;
+    }
+    TagFactoryObject *self = (TagFactoryObject *)type->tp_alloc(type, 0);
+    if (self == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    self->tag = Py_NewRef(tag);
+    return (PyObject *)self;
+}
+
+static void tag_factory_dealloc(PyObject *self) {
+    PyTypeObject *type = Py_TYPE(self);
+    Py_DECREF(((TagFactoryObject *)self)->tag);
+    type->tp_free(self);
+    Py_DECREF(type);
+}
+
+static PyObject *tag_factory_call(PyObject *self, PyObject *args, PyObject *kwds) {
+    PyObject *tag = ((TagFactoryObject *)self)->tag;
+    if (kwds != NULL && PyDict_GET_SIZE(kwds) > 0) {
+        PyErr_Format(PyExc_TypeError, "E.%U() takes no keyword arguments", tag);
+        return NULL;
+    }
+    module_state *state = state_of(self);
+    return build_tagged(state, tag, state->mapping_abc, ((PyTupleObject *)args)->ob_item, PyTuple_GET_SIZE(args));
+}
+
+static PyObject *tag_factory_reduce(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+    return Py_BuildValue("O(O)", Py_TYPE(self), ((TagFactoryObject *)self)->tag);
+}
+
+static PyObject *tag_factory_repr(PyObject *self) {
+    return PyUnicode_FromFormat("E.%U", ((TagFactoryObject *)self)->tag);
+}
+
+static PyMethodDef tag_factory_methods[] = {
+    {"__reduce__", tag_factory_reduce, METH_NOARGS, NULL},
+    {NULL, NULL, 0, NULL},
+};
+
+static PyType_Slot tag_factory_slots[] = {
+    {Py_tp_new, tag_factory_new},   {Py_tp_dealloc, tag_factory_dealloc}, {Py_tp_call, tag_factory_call},
+    {Py_tp_repr, tag_factory_repr}, {Py_tp_methods, tag_factory_methods}, {0, NULL},
+};
+
+PyType_Spec tag_factory_spec = {
+    .name = "turbohtml._html.TagFactory",
+    .basicsize = sizeof(TagFactoryObject),
+    .flags = Py_TPFLAGS_DEFAULT,
+    .slots = tag_factory_slots,
+};
+
+/* The base of turbohtml.build.ElementMaker: an attribute the normal lookup does not find names a tag, and reading it
+   returns that tag's factory. The lookup runs first, so what a subclass or an instance defines wins, and a dunder name
+   stays an AttributeError so the copy and pickle protocols are not hijacked. A Python __getattr__ would do the same,
+   but its frame costs more than building the element it names. */
+static PyObject *tag_maker_getattro(PyObject *self, PyObject *name) {
+#ifdef PYPY_VERSION
+    PyObject *found = PyObject_GenericGetAttr(self, name);
+    if (found != NULL || !PyErr_ExceptionMatches(PyExc_AttributeError)) {
+        return found;
+    }
+    PyErr_Clear();
+#else
+    PyObject *found = _PyObject_GenericGetAttrWithDict(self, name, NULL, 1);
+    if (found != NULL || PyErr_Occurred()) {
+        return found;
+    }
+#endif
+    Py_ssize_t len = PyUnicode_GET_LENGTH(name); /* the lookup above rejects a name that is not a str */
+    if (len >= 2 && PyUnicode_READ_CHAR(name, 0) == '_' && PyUnicode_READ_CHAR(name, 1) == '_' &&
+        PyUnicode_READ_CHAR(name, len - 2) == '_' && PyUnicode_READ_CHAR(name, len - 1) == '_') {
+        PyErr_SetObject(PyExc_AttributeError, name);
+        return NULL;
+    }
+    PyObject *module = PyType_GetModuleByDef(Py_TYPE(self), &htmlmodule);
+    if (module == NULL) { /* GCOVR_EXCL_BR_LINE: every instance's type derives from TagMaker */
+        return NULL;      /* GCOVR_EXCL_LINE: unreachable */
+    }
+    PyTypeObject *type = (PyTypeObject *)((module_state *)PyModule_GetState(module))->tag_factory_type;
+    TagFactoryObject *factory = (TagFactoryObject *)type->tp_alloc(type, 0);
+    if (factory == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    factory->tag = Py_NewRef(name);
+    return (PyObject *)factory;
+}
+
+static PyType_Slot tag_maker_slots[] = {
+    {Py_tp_getattro, tag_maker_getattro},
+    {Py_tp_new, PyType_GenericNew},
+    {0, NULL},
+};
+
+PyType_Spec tag_maker_spec = {
+    .name = "turbohtml._html.TagMaker",
+    .basicsize = sizeof(PyObject),
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+    .slots = tag_maker_slots,
+};

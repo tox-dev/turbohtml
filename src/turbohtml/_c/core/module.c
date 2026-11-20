@@ -259,7 +259,7 @@ static PyMethodDef html_methods[] = {
     {"annotation_tags", turbohtml_annotation_tags, METH_VARARGS, annotation_tags_doc},
     {"_reconstruct", turbohtml_reconstruct, METH_VARARGS, NULL},
     {"_build_document", (PyCFunction)(void (*)(void))turbohtml_build_document, METH_VARARGS | METH_KEYWORDS, NULL},
-    {"_build_element", turbohtml_build_element, METH_VARARGS, NULL},
+    {"_build_element", (PyCFunction)(void (*)(void))turbohtml_build_element, METH_FASTCALL, NULL},
     {"_tokenize_states", turbohtml_tokenize_states, METH_VARARGS, NULL},
     {"_sax_events", turbohtml_sax_events, METH_O, NULL},
     {"_sax_dispatch", turbohtml_sax_dispatch, METH_VARARGS, NULL},
@@ -673,6 +673,8 @@ static int html_traverse(PyObject *module, visitproc visit, void *arg) {
     Py_VISIT(state->document_type);              /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->document_fragment_type);     /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->shadow_root_type);           /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->tag_maker_type);             /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->tag_factory_type);           /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->parser_type);                /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->parse_error_type);           /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->parse_error_exc);            /* GCOVR_EXCL_BR_LINE: same */
@@ -763,6 +765,8 @@ static int html_clear(PyObject *module) {
     Py_CLEAR(state->document_type);
     Py_CLEAR(state->document_fragment_type);
     Py_CLEAR(state->shadow_root_type);
+    Py_CLEAR(state->tag_maker_type);
+    Py_CLEAR(state->tag_factory_type);
     Py_CLEAR(state->parser_type);
     Py_CLEAR(state->parse_error_type);
     Py_CLEAR(state->parse_error_exc);
@@ -844,7 +848,7 @@ static PyModuleDef_Slot html_slots[] = {
     {0, NULL},
 };
 
-static struct PyModuleDef htmlmodule = {
+struct PyModuleDef htmlmodule = {
     PyModuleDef_HEAD_INIT,
     .m_name = "_html",
     .m_doc = "C accelerator for turbohtml escaping, unescaping, and tokenizing.",

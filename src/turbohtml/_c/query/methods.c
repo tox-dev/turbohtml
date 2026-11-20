@@ -30,8 +30,12 @@ void handle_clear_caches(HandleObject *handle) {
         xp_free(handle->xpath_cache[index].prog);
         Py_DECREF(handle->xpath_cache[index].key);
     }
-    PyMem_Free(handle->sel_cache);
-    PyMem_Free(handle->xpath_cache);
+    if (handle->sel_cache != NULL) {
+        PyMem_Free(handle->sel_cache);
+    }
+    if (handle->xpath_cache != NULL) {
+        PyMem_Free(handle->xpath_cache);
+    }
 }
 
 /* The tag atom every alternative of compiled selects as its subject (rightmost

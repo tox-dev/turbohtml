@@ -21,9 +21,11 @@
 
 #ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
 /* One aligned slot, so a short input opens several blocks and walks the doubling path. */
-#define ARENA_BLOCK ((Py_ssize_t)16)
+#define ARENA_FIRST_BLOCK ((Py_ssize_t)16)
 #else
-#define ARENA_BLOCK ((Py_ssize_t)64 * 1024)
+/* A tree's first block fits Python's small-object allocator, so a constructed element or text node, whose tree holds a
+   few hundred bytes, does not cost a 64 KiB allocation; a parse outgrows it within a few doublings. */
+#define ARENA_FIRST_BLOCK ((Py_ssize_t)(512 - sizeof(arena_block)))
 #endif
 #define ARENA_MAX_BLOCK ((Py_ssize_t)256 * 1024)
 
@@ -260,7 +262,7 @@ static inline void *arena_alloc(th_tree *tree, Py_ssize_t size) {
     size = (size + 15) & ~(Py_ssize_t)15; /* 16-byte align */
     arena_block *block = tree->arena;
     if (block == NULL || block->used + size > block->cap) {
-        Py_ssize_t cap = ARENA_BLOCK;
+        Py_ssize_t cap = ARENA_FIRST_BLOCK;
         if (block != NULL) {
             cap = block->cap < ARENA_MAX_BLOCK ? block->cap * 2 : ARENA_MAX_BLOCK;
         }
