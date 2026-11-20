@@ -2502,9 +2502,40 @@ def test_walk_predicate_on_an_attribute_agrees_with_the_plain_walk(expression: s
 
 
 @pytest.mark.parametrize(
+    ("expression", "plain"),
+    [
+        pytest.param("count(//b)", "count(//*[self::b][position() > 0])", id="document"),
+        pytest.param("count(descendant::b[c])", "count(descendant::*[self::b][c][position() > 0])", id="descendant"),
+        pytest.param(
+            "count(descendant-or-self::node())", "count(descendant-or-self::node()[position() > 0])", id="or-self"
+        ),
+        pytest.param(
+            "count(//b) + count(//c)",
+            "count(//*[self::b][position() > 0]) + count(//*[self::c][position() > 0])",
+            id="second-count",
+        ),
+        pytest.param(
+            "//a[count(.//b) = 2]/@i", "//a[count(.//*[self::b][position() > 0]) = 2]/@i", id="count-per-context"
+        ),
+        pytest.param(
+            "//*/@i[count(descendant-or-self::node()) = 1]",
+            "//*/@i[count(descendant-or-self::node()[position() > 0]) = 1]",
+            id="attribute-context",
+        ),
+    ],
+)
+def test_descendant_count_agrees_with_the_plain_walk(expression: str, plain: str) -> None:
+    document: Final[turbohtml.Node] = _random_document(7, 300)
+    assert document.xpath(expression) == document.xpath(plain)
+
+
+@pytest.mark.parametrize(
     ("expression", "error", "message"),
     [
         pytest.param("//a[ancestor::x:b[2]]", ValueError, "undefined namespace prefix", id="unbound-prefix"),
+        pytest.param("count(//b[count(1) > 0])", TypeError, "count", id="count-descendant-predicate"),
+        pytest.param("count(//x:b)", ValueError, "undefined namespace prefix", id="count-descendant-unbound-prefix"),
+        pytest.param("count(//b) + count(//c[count(1) > 0])", TypeError, "count", id="second-count-predicate"),
         pytest.param("//a[ancestor::b[count(1)][2]]", TypeError, "count", id="predicate"),
         pytest.param("//a[descendant::b[count(1)]]", TypeError, "count", id="descendant-predicate"),
         pytest.param("//*/@i[ancestor-or-self::node()[count(1)][2]]", TypeError, "count", id="attribute-predicate"),
