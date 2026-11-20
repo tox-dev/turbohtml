@@ -93,7 +93,8 @@ static inline int ns_append(xp_nodeset *ns, struct th_node *node, Py_ssize_t att
 }
 
 /* The four XPath 1.0 value types an expression can evaluate to. */
-enum xp_result_kind { XP_NODESET, XP_NUMBER, XP_STRING, XP_BOOLEAN };
+/* XP_PYSTRING is a string already built as a str, which only an evaluation for a Python caller returns. */
+enum xp_result_kind { XP_NODESET, XP_NUMBER, XP_STRING, XP_BOOLEAN, XP_PYSTRING };
 
 typedef struct {
     enum xp_result_kind kind;
@@ -101,7 +102,8 @@ typedef struct {
     double number;    /* XP_NUMBER */
     Py_UCS4 *string;  /* XP_STRING, owned */
     Py_ssize_t string_len;
-    int boolean; /* XP_BOOLEAN */
+    int boolean;      /* XP_BOOLEAN */
+    PyObject *object; /* XP_PYSTRING, owned */
 } xp_result;
 
 void xp_result_free(xp_result *result);
@@ -168,6 +170,11 @@ struct th_tree;
 int xp_eval(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,
             const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx, xp_result *out,
             const char **feature);
+
+/* xp_eval for a caller that turns the result into a Python object: a string result may come back as XP_PYSTRING,
+   built as the str straight away instead of through UCS-4. */
+int xp_eval_object(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,
+                   const xp_namespaces *namespaces, xp_result *out, const char **feature);
 
 int xp_eval_snapshot(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,
                      const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,

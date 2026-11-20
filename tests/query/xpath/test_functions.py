@@ -1720,6 +1720,46 @@ def test_concat_of_a_chain_emptied_by_set_text() -> None:
     assert document.xpath("str:concat(//i)") == "é"
 
 
+@pytest.mark.parametrize(
+    ("markup", "expression", "expected"),
+    [
+        pytest.param("<i>abc</i><i>def</i>", "str:concat(//i)", "abcdef", id="ascii-input"),
+        pytest.param(f"<i>ab</i><p>{'x' * 400}</p>", "str:concat(//i)", "ab", id="short-read-of-ascii-input"),
+        pytest.param("<i>é</i><i>a</i>", "str:concat(//i)", "éa", id="latin1-input"),
+        pytest.param("<i>é</i><p>界</p>", "str:concat(//i)", "é", id="latin1-text-of-bmp-input"),
+        pytest.param("<i>界</i><i>a</i>", "str:concat(//i)", "界a", id="bmp-text"),
+        pytest.param("<i>😀</i><i>界</i><i>a</i>", "str:concat(//i)", "😀界a", id="astral-first"),
+        pytest.param('<i a="é">b</i>', "str:concat(//i | //i/@a)", "bé", id="latin1-attribute"),
+        pytest.param('<i a="界">b</i>', "str:concat(//i | //i/@a)", "b界", id="bmp-attribute"),
+        pytest.param("<i>a</i><!--c-->", "str:concat(//i | //comment())", "ac", id="comment"),
+        pytest.param("<i>a</i>", "str:concat(/)", "a", id="document-is-built"),
+        pytest.param("<i>a<b>c</b></i>", "str:concat(//i)", "ac", id="element-is-built"),
+    ],
+)
+def test_concat_at_the_root_takes_the_narrowest_width(markup: str, expression: str, expected: str) -> None:
+    document: Final[Document] = parse(markup)
+    result: Final[str] = cast("str", document.xpath(expression))
+    assert (result, XPath(expression)(document)) == (expected, expected)
+    # a str stored wider than its characters need compares unequal to the same characters
+    assert result == "".join(list(result))
+
+
+@pytest.mark.parametrize(
+    ("markup", "text", "expected"),
+    [
+        pytest.param("<i>a</i><b>x</b>", "界", "a界", id="ascii-span-beside-bmp-text"),
+        pytest.param("<i>a</i><b>x</b>", "😀", "a😀", id="ascii-span-beside-astral-text"),
+        pytest.param("<i>界</i><b>x</b>", "😀", "界😀", id="bmp-span-beside-astral-text"),
+        pytest.param("<i>a</i><b>x</b>", "y", "ay", id="ascii-span-beside-set-text"),
+    ],
+)
+def test_concat_at_the_root_widens_spans_beside_set_text(markup: str, text: str, expected: str) -> None:
+    document: Final[Document] = parse(markup)
+    cast("Element", document.xpath_one("//b")).set_text(text)
+    result: Final[str] = cast("str", document.xpath("str:concat(//i | //b)"))
+    assert (result, "".join(list(result))) == (expected, expected)
+
+
 def _reversed(_context: SimpleNamespace, nodes: list[Element]) -> list[Element]:
     return nodes[::-1]
 
@@ -1791,6 +1831,11 @@ def _nested(depth: int, *, numbered: bool = False) -> Document:
     # every <a> has the million characters as its string-value, so each one below the first repeats them
     opened: Final[str] = "".join(f"<a>{index}" if numbered else "<a>" for index in range(depth))
     return parse_xml(f"<r>{opened}{'x' * 1_000_000}{'</a>' * depth}<b/></r>")
+
+
+def test_concat_at_the_root_bounds_nested_members() -> None:
+    with pytest.raises(ValueError, match="repeat more than 2621440 characters"):
+        _nested(4).xpath("str:concat(//a)")
 
 
 @pytest.mark.parametrize(

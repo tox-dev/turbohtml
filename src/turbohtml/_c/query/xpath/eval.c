@@ -2344,6 +2344,9 @@ void xp_result_free(xp_result *result) {
     if (result->kind == XP_STRING) {
         PyMem_Free(result->string);
         result->string = NULL;
+    } else if (result->kind == XP_PYSTRING) {
+        Py_DECREF(result->object);
+        result->object = NULL;
     } else if (result->kind == XP_NODESET) {
         xp_nodeset_free(&result->nodes);
     }
@@ -2722,6 +2725,7 @@ static int apply_predicates(const xp_program *prog, int32_t pred_head, int32_t s
 #ifdef TH_OPERATION_LIMIT
                 ctx->operations,
 #endif
+                0,
             };
             /* the strings a predicate builds are freed with its value, so the next node starts from what the evaluation
                had spent before this one */
@@ -6000,7 +6004,7 @@ static TH_NOINLINE void xp_caches_free(xp_caches *caches) {
 static int eval_at(const xp_program *prog, struct th_tree *tree, const xp_item *context, struct th_node *known_root,
                    Py_ssize_t pos, Py_ssize_t size, const xp_bindings *vars, const xp_namespaces *namespaces,
                    xp_extension_fn extension, void *extension_ctx, xp_lang_memo **langs, xp_id_cache *ids,
-                   xp_result *out, const char **feature, int exists) {
+                   xp_result *out, const char **feature, int exists, int want_object) {
     if (namespaces == NULL && prog->bound.len > 0) {
         namespaces = &prog->bound;
     }
@@ -6015,6 +6019,7 @@ static int eval_at(const xp_program *prog, struct th_tree *tree, const xp_item *
 #ifdef TH_OPERATION_LIMIT
         &operations,
 #endif
+        want_object,
     };
     int rc = eval_guarded(prog, prog->root, &ctx, out, exists);
     if (caches != NULL) {
@@ -6031,7 +6036,7 @@ int xp_eval_at(const xp_program *prog, struct th_tree *tree, const xp_item *cont
                xp_extension_fn extension, void *extension_ctx, xp_lang_memo **langs, xp_id_cache *ids, xp_result *out,
                const char **feature) {
     return eval_at(prog, tree, context, known_root, pos, size, vars, namespaces, extension, extension_ctx, langs, ids,
-                   out, feature, 0);
+                   out, feature, 0, 0);
 }
 
 int xp_eval_condition_at(const xp_program *prog, struct th_tree *tree, const xp_item *context,
@@ -6039,7 +6044,7 @@ int xp_eval_condition_at(const xp_program *prog, struct th_tree *tree, const xp_
                          const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
                          xp_lang_memo **langs, xp_id_cache *ids, xp_result *out, const char **feature) {
     return eval_at(prog, tree, context, known_root, pos, size, vars, namespaces, extension, extension_ctx, langs, ids,
-                   out, feature, 1);
+                   out, feature, 1, 0);
 }
 
 int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_node *context, xp_extension_fn extension,
@@ -6073,6 +6078,7 @@ int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_n
 #ifdef TH_OPERATION_LIMIT
         &operations,
 #endif
+        0,
     };
     int rc = eval_expr(prog, prog->root, &ctx, out);
     if (caches != NULL) {
@@ -6315,6 +6321,7 @@ static xp_ctx walk_context(xp_pattern_walk *walk, xp_item item, xp_extension_fn 
 #ifdef TH_OPERATION_LIMIT
         &walk->operations,
 #endif
+        0,
     };
 }
 
@@ -6384,6 +6391,12 @@ int xp_eval(const xp_program *prog, struct th_tree *tree, struct th_node *contex
                       NULL, out, feature);
 }
 
+int xp_eval_object(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,
+                   const xp_namespaces *namespaces, xp_result *out, const char **feature) {
+    return eval_at(prog, tree, &(xp_item){context, -1}, NULL, 1, 1, vars, namespaces, NULL, NULL, NULL, NULL, out,
+                   feature, 0, 1);
+}
+
 int xp_eval_snapshot(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,
                      const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
                      xp_before_python_fn before_python, xp_result *out, const char **feature) {
@@ -6399,6 +6412,7 @@ int xp_eval_snapshot(const xp_program *prog, struct th_tree *tree, struct th_nod
 #ifdef TH_OPERATION_LIMIT
         &operations,
 #endif
+        0,
     };
     xp_live_frame frame = {.node = context, .vars = vars};
     xp_live_enter(&ctx, &frame);

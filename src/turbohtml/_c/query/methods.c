@@ -1314,6 +1314,9 @@ static PyObject *xpath_scalar_to_py(const xp_result *result) {
     if (result->kind == XP_STRING) {
         return ucs4_to_str(result->string, result->string_len);
     }
+    if (result->kind == XP_PYSTRING) {
+        return Py_NewRef(result->object);
+    }
     return PyBool_FromLong(result->boolean);
 }
 
@@ -2067,7 +2070,7 @@ static PyObject *xpath_eval_object(PyObject *self, PyObject *arg, const xp_bindi
         status = callbacks ? xp_eval_snapshot(prog, tree, origin, vars, namespaces,
                                               extensions != NULL ? xpath_call_extension : NULL, &ext_ctx,
                                               xpath_before_python, &result, &feature)
-                           : xp_eval(prog, tree, origin, vars, namespaces, NULL, NULL, &result, &feature);
+                           : xp_eval_object(prog, tree, origin, vars, namespaces, &result, &feature);
         if (status == 0) {
             out = xpath_result_to_py(state, handle, tree, smart_strings, &result, callbacks ? &ext_ctx : NULL);
         }
@@ -2110,7 +2113,7 @@ static PyObject *xpath_run_program(module_state *state, PyObject *handle, th_nod
     status = callbacks
                  ? xp_eval_snapshot(prog, tree, origin, vars, NULL, extensions != NULL ? xpath_call_extension : NULL,
                                     &ext_ctx, xpath_before_python, &result, &feature)
-                 : xp_eval(prog, tree, origin, vars, NULL, NULL, NULL, &result, &feature);
+                 : xp_eval_object(prog, tree, origin, vars, NULL, &result, &feature);
     if (status == 0) {
         out = xpath_result_to_py(state, handle, tree, smart_strings, &result, callbacks ? &ext_ctx : NULL);
     }
