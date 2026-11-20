@@ -800,6 +800,129 @@ static void fold_to_logical(F *folder, int32_t idx, uint16_t op, int32_t left, i
     replace_with(folder, idx, logic);
 }
 
+/* The value of a `!<digit>` boolean literal such as `!0` or `!1`: 1, 0, or -1 for anything else. */
+static int bool_literal(const jm_program *prog, int32_t idx) {
+    const jm_node *node = &prog->nodes[idx];
+    if (node->kind != JN_UNARY || node->op != JT_NOT || prog->nodes[node->a].kind != JN_NUM ||
+        prog->nodes[node->a].str_len != 1) {
+        return -1;
+    }
+    return prog->nodes[node->a].str[0] == '0';
+}
+
+/* Whether the expression always yields a boolean: a `!` or a comparison (7.2.13-7.2.15, 13.10). */
+static int yields_boolean(const jm_program *prog, int32_t idx) {
+    const jm_node *node = &prog->nodes[idx];
+    if (node->kind == JN_UNARY) {
+        return node->op == JT_NOT;
+    }
+    return node->kind == JN_BINARY &&
+           (node->op == JT_EQ_EQ || node->op == JT_NE || node->op == JT_EQ_EQ_EQ || node->op == JT_NE_EQ ||
+            node->op == JT_LT || node->op == JT_GT || node->op == JT_LE || node->op == JT_GE);
+}
+
+/* Whether the expression as the right operand of op (&& or ||) prints no parentheses a conditional's branch would
+   not: a lower precedence form, or a `??` that the grammar forbids mixing with either, needs them, while a sequence
+   needs them in both places. */
+static int fits_logical_operand(const jm_program *prog, int32_t idx, uint16_t op) {
+    const jm_node *node = &prog->nodes[idx];
+    switch (node->kind) {
+    case JN_COND:
+    case JN_ASSIGN:
+    case JN_ARROW:
+    case JN_YIELD:
+        return 0;
+    case JN_LOGICAL:
+        return node->op == JT_AND || node->op == op;
+    default:
+        return 1;
+    }
+}
+
+/* The boolean complement of an expression whose value is used, so the result must be exactly true or false: an
+   (in)equality flips its operator, anything a `!` binds without parentheses gains one, and -1 when neither fits or
+   on allocation failure. */
+static int32_t negate_value(F *folder, int32_t idx) {
+    jm_node *node = &folder->prog->nodes[idx];
+    if (node->kind == JN_BINARY &&
+        (node->op == JT_EQ_EQ || node->op == JT_NE || node->op == JT_EQ_EQ_EQ || node->op == JT_NE_EQ)) {
+        node->op = node->op == JT_EQ_EQ      ? JT_NE
+                   : node->op == JT_NE       ? JT_EQ_EQ
+                   : node->op == JT_EQ_EQ_EQ ? JT_NE_EQ
+                                             : JT_EQ_EQ_EQ;
+        return idx;
+    }
+    if (node->kind != JN_IDENT && node->kind != JN_CALL && node->kind != JN_MEMBER_EXPR && node->kind != JN_UNARY) {
+        return -1;
+    }
+    int32_t neg = jm_node_new(folder->prog, JN_UNARY);
+    if (neg < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        return -1; /* GCOVR_EXCL_LINE */
+    }
+    folder->prog->nodes[neg].op = JT_NOT;
+    folder->prog->nodes[neg].a = idx;
+    return neg;
+}
+
+/* Replace `c?!0:!1` with the boolean of c, `!!c` or c itself when c is a boolean, and `c?!1:!0` with `!c`. Returns
+   whether it applied. */
+static int fold_boolean_test(F *folder, int32_t idx, int truthy) {
+    int32_t test = folder->prog->nodes[idx].a;
+    int wraps = truthy ? 2 * !yields_boolean(folder->prog, test) : 1;
+    for (int wrap = 0; wrap < wraps; wrap++) {
+        int32_t neg = jm_node_new(folder->prog, JN_UNARY);
+        if (neg < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path keeps the conditional */
+            return 0;  /* GCOVR_EXCL_LINE */
+        }
+        folder->prog->nodes[neg].op = JT_NOT;
+        folder->prog->nodes[neg].a = test;
+        test = neg;
+    }
+    replace_with(folder, idx, test);
+    return 1;
+}
+
+/* Fold a conditional with a boolean literal branch into a short circuit of the same value: `c?x:!0` is `!c||x`,
+   `c?!1:x` is `!c&&x`, and with a boolean c, `c?!0:x` is `c||x` and `c?x:!1` is `c&&x`. Returns whether it
+   applied. */
+static TH_NOINLINE int fold_boolean_branch(F *folder, int32_t idx, int32_t depth) {
+    jm_program *prog = folder->prog;
+    int32_t test = prog->nodes[idx].a;
+    int32_t cons = prog->nodes[idx].b;
+    int32_t alt = prog->nodes[idx].c;
+    int cons_bool = bool_literal(prog, cons);
+    int alt_bool = bool_literal(prog, alt);
+    uint16_t op;
+    int32_t rest;
+    if (alt_bool >= 0 && cons_bool < 0) {
+        op = alt_bool ? JT_OR : JT_AND;
+        rest = cons;
+    } else if (cons_bool >= 0 && alt_bool < 0) {
+        op = cons_bool ? JT_OR : JT_AND;
+        rest = alt;
+    } else if (cons_bool >= 0 && cons_bool != alt_bool) {
+        return fold_boolean_test(folder, idx, cons_bool);
+    } else {
+        return 0;
+    }
+    if (!fits_logical_operand(prog, rest, op)) {
+        return 0;
+    }
+    /* the test stands as is when its truthy side keeps the literal's place, else it must be negated */
+    int negate = (rest == cons) == (op == JT_OR);
+    if (!negate && !yields_boolean(prog, test)) {
+        return 0;
+    }
+    if (negate) {
+        test = negate_value(folder, test);
+        if (test < 0) {
+            return 0;
+        }
+    }
+    fold_to_logical(folder, idx, op, test, rest, depth);
+    return 1;
+}
+
 /* Conditional algebra (13.14): rewrite a `test ? cons : alt` whose branches share structure into a
    shorter equivalent. `test` is already known impure (a pure one folds to the taken branch earlier), so
    only rewrites that keep test's single evaluation and order are applied. */
@@ -812,6 +935,9 @@ static void fold_conditional(F *folder, int32_t idx, int32_t depth) {
         /* `x?y:y` is left as written: dropping the test would lose the ReferenceError an unresolvable
            read throws, and the fold pass has no binding resolution to prove the read safe (#435). The
            `x?x:y` / `x?y:x` rewrites below stay valid because they keep evaluating the test. */
+        return;
+    }
+    if (fold_boolean_branch(folder, idx, depth)) {
         return;
     }
     if (prog->nodes[test].kind == JN_IDENT && same_expr(prog, test, cons)) {
