@@ -1029,9 +1029,9 @@ static const sqname_entry *schema_node_entry(const th_schema *schema, th_node *n
     return &schema->sqnames[schema->sqname_by_seq[node->seq]];
 }
 
+/* Only XSD asks, and an XSD schema always builds the cache, so the node has an entry. */
 static const qname *schema_node_qname(const th_schema *schema, th_node *node) {
-    const sqname_entry *entry = schema_node_entry(schema, node);
-    return entry == NULL ? NULL : &entry->name;
+    return &schema_node_entry(schema, node)->name;
 }
 
 /* The node after `node` in document order, past its descendants, without leaving `root`'s subtree; NULL at its end.

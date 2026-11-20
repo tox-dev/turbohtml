@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import string
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # runs the fixed interpreter on in-repository stylesheets
 import sys
 import threading
@@ -2255,6 +2256,36 @@ def test_transform_many_wildcard_rules_cache_their_dispatch() -> None:
     rules = "".join(f'<xsl:template match="*[@k={index}]">{index}</xsl:template>' for index in range(16))
     body = f'<xsl:template match="/"><xsl:apply-templates select="r/*"/></xsl:template>{rules}'
     assert _run('<r><a k="3"/><b k="15"/><c k="99">x</c><a k="3"/></r>', body) == "315x3"
+
+
+def test_transform_cached_dispatch_keeps_each_mode_apart() -> None:
+    # the mode name hashes with its top 22 bits clear, so its lookup starts at the slot of the default-mode entry
+    rules = "".join(f'<xsl:template match="*[@k={index}]">{index}</xsl:template>' for index in range(16))
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="r/*"/>|'
+        '<xsl:apply-templates select="r/*" mode="ewca"/></xsl:template>'
+        f'<xsl:template match="*" mode="ewca">M</xsl:template>{rules}'
+    )
+    assert _run('<r><a k="3"/><b k="7"/></r>', body) == "37|MM"
+
+
+def test_transform_cached_dispatch_keeps_each_attribute_of_an_element_apart() -> None:
+    rules = "".join(f'<xsl:template match="*[@k={index}]">{index}</xsl:template>' for index in range(16))
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="r/x/@*"/></xsl:template>'
+        f'<xsl:template match="@*"><xsl:value-of select="."/></xsl:template>{rules}'
+    )
+    attributes = " ".join(f'a{index}="{index % 10}"' for index in range(40))
+    assert _run(f"<r><x {attributes}/></r>", body) == string.digits * 4
+
+
+def test_transform_named_rule_after_a_higher_priority_wildcard() -> None:
+    unused = "".join(f'<xsl:template match="unused{index}"/>' for index in range(16))
+    body = (
+        '<xsl:template match="/"><xsl:apply-templates select="r/x"/></xsl:template>'
+        f'<xsl:template match="*[@skip]" priority="2">W</xsl:template><xsl:template match="x">X</xsl:template>{unused}'
+    )
+    assert _run('<r><x/><x skip="1"/></r>', body) == "XW"
 
 
 def test_transform_avt_expression_with_quoted_brace() -> None:
