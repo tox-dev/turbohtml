@@ -640,6 +640,32 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
         # head is dropped; a twice-used function in a block keeps its name; a multi-declarator single use
         # is not inlined (the whole statement cannot be emptied without losing its siblings)
         pytest.param("function f(){var x;x=g()}", "function f(){g()}", id="dead-store-impure"),
+        # a let, const or class reached before its declaration throws, so the access is never dead or pure
+        pytest.param("function f(){x=2;let x=1}", "function f(){a=2;let a=1}", id="dead-store-before-let-kept"),
+        pytest.param("function f(){C=1;class C{}}", "function f(){a=1;class a{}}", id="dead-store-before-class-kept"),
+        pytest.param(
+            "function f(){var y;y=x;let x=1;return x}",
+            "function f(){a;let a=1;return a}",
+            id="early-read-in-dead-store-kept",
+        ),
+        pytest.param(
+            "function f(){(x,g());let x=1;return x}",
+            "function f(){a,g();let a=1;return a}",
+            id="early-read-in-sequence-kept",
+        ),
+        pytest.param(
+            "function f(){g();function g(){x=1}let x}",
+            "function f(){(function(){a=1}());let a}",
+            id="hoisted-store-kept",
+        ),
+        pytest.param(
+            "function f(){switch(1){case 0:let x=1;case 1:x=2}}",
+            "function f(){switch(1){case 0:let a=1;case 1:a=2}}",
+            id="store-past-skipped-case-kept",
+        ),
+        pytest.param(
+            "function f(){let x=1;var y;y=x;x=3;return g()}", "function f(){return g()}", id="late-store-dropped"
+        ),
         pytest.param("function f(){0,g()}", "function f(){g()}", id="seq-drop-pure-head"),
         pytest.param("function f(x){return x,g()}", "function f(a){return g()}", id="seq-drop-pure-local-head"),
         pytest.param("function f(y){return g(),y,h()}", "function f(a){return g(),h()}", id="seq-drop-pure-mid"),

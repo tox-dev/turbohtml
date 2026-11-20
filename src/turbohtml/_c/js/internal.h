@@ -316,6 +316,7 @@ typedef struct {
     int32_t scope_next; /* next symbol declared in the same scope, or -1 */
     uint8_t decl;       /* 0 var / 1 let / 2 const / 3 param / 4 function / 5 catch / 6 class */
     uint8_t read_before_init;
+    uint8_t early;  /* a let, const or class reached where it may be uninitialized, which throws (9.1.1.1) */
     uint8_t pinned; /* kept as written: never renamed, dropped or inlined (the Annex B block-function case) */
     uint32_t uses;
     int32_t slot;       /* rename slot: bindings sharing a slot take the same short name */
