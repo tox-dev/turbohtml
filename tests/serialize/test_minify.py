@@ -117,12 +117,21 @@ def test_minify_writes_raw_text_carriage_return_as_line_feed(tag: str) -> None:
         ),
         pytest.param("a <!--x--> b", "a b", id="collapse-merges-across-stripped-comment"),
         pytest.param("a <b>x</b> b", "a <b>x</b> b", id="collapse-keeps-space-around-element"),
-        # the fused collapse still escapes &, < and > between the folded whitespace runs
-        pytest.param(
-            "a &  b   <  c & d > e", "a &amp; b &lt; c &amp; d &gt; e", id="collapse-escapes-specials-in-text"
-        ),
-        # a non-break space is not ASCII whitespace, so WHATWG escapes it rather than folding
-        pytest.param("a\u00a0\u00a0b", "a&nbsp;&nbsp;b", id="collapse-escapes-nbsp-under-whatwg"),
+        # between the folded whitespace runs, &, < and > need no reference when none can start markup or a reference
+        pytest.param("a &  b   <  c & d > e", "a & b < c & d > e", id="collapse-writes-inert-specials-bare"),
+        # a non-break space is not ASCII whitespace, so it is written as itself rather than folded
+        pytest.param("a\u00a0\u00a0b", "a\u00a0\u00a0b", id="collapse-writes-nbsp-bare"),
+        pytest.param("a &amp;lt; b", "a &amp;lt; b", id="amp-starting-a-reference"),
+        pytest.param("a &amp;notx b", "a &amp;notx b", id="amp-starting-a-legacy-prefix"),
+        pytest.param("a &amp;ltx; b", "a &amp;ltx; b", id="amp-starting-a-legacy-reference-before-semicolon"),
+        pytest.param("a &amp;#1 b", "a &amp;#1 b", id="amp-starting-a-numeric-reference"),
+        pytest.param("a &amp;xyz; b", "a &xyz; b", id="amp-before-an-unknown-name"),
+        pytest.param("a &amp;q b", "a &q b", id="amp-before-a-one-letter-name"),
+        pytest.param("a &amp;z", "a &amp;z", id="amp-name-at-text-end"),
+        pytest.param("a &amp;", "a &amp;", id="amp-at-text-end"),
+        pytest.param("a &lt;b &lt;! &lt;/ &lt;? &lt;", "a &lt;b &lt;! &lt;/ &lt;? &lt;", id="lt-opening-markup"),
+        pytest.param("<pre>a &lt;1 &amp; &gt;</pre>", "<pre>a <1 & ></pre>", id="preserved-text-writes-inert-bare"),
+        pytest.param("<pre>a&#13;&amp;</pre>", "<pre>a&#13;&amp;</pre>", id="preserved-text-keeps-cr"),
         pytest.param("<a href='x'>t</a>", "<a href=x>t</a>", id="unquote-safe-value"),
         pytest.param("<a title='a b'>t</a>", '<a title="a b">t</a>', id="unquote-keeps-quotes-on-space"),
         pytest.param('<input disabled="">', "<input disabled>", id="unquote-empty-value-becomes-bare-name"),
@@ -194,20 +203,51 @@ def test_collapse_named_formatter() -> None:
 
 
 @pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("<pre>caf\u00e9 &amp; &gt;</pre>", "<pre>caf&eacute; &amp; &gt;</pre>", id="preserved-text"),
+        pytest.param("<a x='plain/'></a>", "<a x=plain/></a>", id="attribute-without-reference"),
+        pytest.param("<a x='caf\u00e9'></a>", '<a x="caf&eacute;"></a>', id="attribute-with-reference"),
+    ],
+)
+def test_named_formatter_keeps_references_under_minify(source: str, expected: str) -> None:
+    out = parse_fragment(source, "div").serialize(
+        Html(layout=Minify(omit_optional_tags=False), formatter=Formatter.NAMED_ENTITIES), inner=True
+    )
+    assert out == expected
+
+
+@pytest.mark.parametrize(
     ("value", "expected"),
     [
         pytest.param("a=b", '<a x="a=b">', id="equals"),
         pytest.param("a<b", '<a x="a&lt;b">', id="lt"),
         pytest.param("a>b", '<a x="a&gt;b">', id="gt"),
         pytest.param("a`b", '<a x="a`b">', id="backtick"),
-        pytest.param("a&b", '<a x="a&amp;b">', id="amp"),
-        pytest.param("ab/", '<a x="ab/">', id="trailing-slash"),
     ],
 )
 def test_unquote_keeps_quotes_on_unsafe(value: str, expected: str) -> None:
     # the value contains a character that bars unquoting, so it stays quoted
     out = frag(f'<a x="{value}">', omit_optional_tags=False)
     assert out.startswith(expected)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        # the unquoted value state ends only at whitespace or ">", so a trailing slash stays in the value
+        pytest.param("ab/", "<a x=ab/>", id="trailing-slash"),
+        pytest.param("a&amp;b", "<a x=a&b>", id="amp-before-unknown-name"),
+        # the delimiter after the value ends the name, but a legacy name needs no ";"
+        pytest.param("a&amp;not", "<a x=a&amp;not>", id="amp-legacy-name-at-end"),
+        pytest.param("a&amp;", "<a x=a&>", id="amp-at-end"),
+        pytest.param("?a=1&amp;b=2", '<a x="?a=1&b=2">', id="amp-in-quoted-value"),
+        pytest.param("a&#13;b", '<a x="a&#13;b">', id="carriage-return"),
+        pytest.param("a&nbsp;b", "<a x=a\u00a0b>", id="nbsp"),
+    ],
+)
+def test_unquote_writes_shortest_value(value: str, expected: str) -> None:
+    assert frag(f'<a x="{value}">', omit_optional_tags=False).startswith(expected)
 
 
 def test_unquote_off_keeps_quotes() -> None:
@@ -618,10 +658,12 @@ def test_omit_body_start_kept_before_whitespace() -> None:
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
-        # a value holding a double quote can't be unquoted; WHATWG escapes it to &quot;
-        pytest.param("<span x='a\"b'>t</span>", '<span x="a&quot;b">t</span>', id="double-quote"),
-        # a value holding a single quote can't be unquoted; WHATWG leaves it literal
+        # a value holding only double quotes takes single quotes, so neither needs a reference
+        pytest.param("<span x='a\"b'>t</span>", "<span x='a\"b'>t</span>", id="double-quote"),
         pytest.param('<span x="a\'b">t</span>', '<span x="a\'b">t</span>', id="single-quote"),
+        # holding both, the value takes the rarer quote and escapes only that one
+        pytest.param("<span x='a\"b&#39;c&#39;'>t</span>", "<span x=\"a&quot;b'c'\">t</span>", id="more-single-quotes"),
+        pytest.param("<span x='a\"b\"c&#39;'>t</span>", "<span x='a\"b\"c&#39;'>t</span>", id="more-double-quotes"),
     ],
 )
 def test_unquote_keeps_quotes_on_quote_chars(source: str, expected: str) -> None:
@@ -876,11 +918,9 @@ def css_frag(source: str, *, minify_css: CSSMinify | None = _CSS, unquote_attrib
         ),
         # a style attribute holds no nested rule, so the text after a {} block stays in the declaration the block voids
         pytest.param('<p style="margin:0{}top:0;left:0">x</p>', "<p style=margin:0{};left:0>x", id="style-attr-block"),
-        # a minified value carrying a double quote (a string literal) keeps its quotes and escapes
+        # a minified value carrying a double quote (a string literal) takes single quotes
         pytest.param(
-            "<p style='content: \"hi there\"'>x</p>",
-            '<p style="content:&quot;hi there&quot;">x',
-            id="attr-needs-quotes",
+            "<p style='content: \"hi there\"'>x</p>", "<p style='content:\"hi there\"'>x", id="attr-needs-quotes"
         ),
         pytest.param('<p style="  /* only a comment */  ">x</p>', "<p style>x", id="empty-attr-folds-to-bare-name"),
         # the style attribute is CSS on any element, so an SVG rect's declarations minify too
@@ -952,10 +992,10 @@ def test_non_style_attribute_untouched_by_minify_css(source: str, expected: str)
 @pytest.mark.parametrize(
     ("literal", "expected"),
     [
-        pytest.param("ascii", '<p style="content:&quot;ascii&quot;">x', id="one-byte"),
-        pytest.param("café", '<p style="content:&quot;café&quot;">x', id="two-byte"),
-        pytest.param("a€b", '<p style="content:&quot;a€b&quot;">x', id="three-byte"),
-        pytest.param("a\U0001f600b", '<p style="content:&quot;a\U0001f600b&quot;">x', id="four-byte"),
+        pytest.param("ascii", "<p style='content:\"ascii\"'>x", id="one-byte"),
+        pytest.param("café", "<p style='content:\"café\"'>x", id="two-byte"),
+        pytest.param("a€b", "<p style='content:\"a€b\"'>x", id="three-byte"),
+        pytest.param("a\U0001f600b", "<p style='content:\"a\U0001f600b\"'>x", id="four-byte"),
     ],
 )
 def test_style_attribute_transcodes_every_utf8_length(literal: str, expected: str) -> None:
