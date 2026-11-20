@@ -1655,6 +1655,7 @@ struct xp_caches {
     xp_lang_memo *langs;
     walk_map walks;
     xp_index *index;
+    int counted_descendants;
 };
 
 static xp_caches *caches_get(xp_caches **caches) {
@@ -5246,12 +5247,51 @@ static int walk_exists(const xp_program *prog, int32_t path_idx, xp_ctx *ctx, xp
     return walk_rest_run(&plan, nearest, out);
 }
 
+/* The count of a descendant step without a position, walked over the subtree once instead of read from the index: an
+   evaluation that counts once, such as count(//a), would otherwise number the whole tree to read one span of it. The
+   first such count of an evaluation walks; a later one, a predicate's count from the next context, builds the index
+   and reads every span after from it. 0 leaves the count to the index. */
+static int count_descendants_once(const xp_program *prog, int32_t path_idx, xp_ctx *ctx, Py_ssize_t *count) {
+    xp_caches *caches = caches_get(ctx->caches);
+    if (caches == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    if (caches->counted_descendants || ctx->attr != -1) {
+        return 0;
+    }
+    caches->counted_descendants = 1;
+    walk_plan plan;
+    struct th_node *start = NULL;
+    int rc = walk_begin(prog, path_idx, ctx, &plan, &start);
+    if (rc < 0) {
+        return rc;
+    }
+    Py_ssize_t total = 0;
+    for (struct th_node *node = plan.axis == AX_DESCENDANT ? subtree_next(start, start) : start; node != NULL;
+         node = subtree_next(node, start)) {
+        int good = walk_good(&plan, node);
+        if (good < 0) {
+            return good;
+        }
+        total += good;
+    }
+    *count = total;
+    return 1;
+}
+
 int xp_count_walk(const xp_program *prog, int32_t path_idx, xp_ctx *ctx, Py_ssize_t *count) {
     if (prog->nodes[path_idx].first < 0 || prog->nodes[prog->nodes[path_idx].first].next >= 0) {
         return 0;
     }
     Py_ssize_t target = 0;
     int route = path_route(prog, path_idx, ctx, &target);
+    if (route == XP_ROUTE_INDEX && target == XP_POSITION_ANY) {
+        int counted = count_descendants_once(prog, path_idx, ctx, count);
+        if (counted != 0) {
+            return counted;
+        }
+    }
     if (route == XP_ROUTE_INDEX) {
         walk_plan selected;
         xp_item picked;
