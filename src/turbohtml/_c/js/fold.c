@@ -2149,13 +2149,16 @@ int jm_fold_touched(jm_program *prog) {
     return fold_passes(prog);
 }
 
-void jm_fold_touch(jm_program *prog, int32_t scope) {
-    if (prog->fold_marks == NULL) {
-        return;
+void jm_fold_touch_function(jm_program *prog, int32_t func) {
+    if (prog->fold_marks != NULL) {
+        mark_slot(prog->fold_marks, prog->nodes[func].b)->stamp = 0;
     }
+}
+
+void jm_fold_touch(jm_program *prog, int32_t scope) {
     for (; scope >= 0; scope = prog->scopes[scope].parent) {
         if (prog->scopes[scope].node >= 0) {
-            mark_slot(prog->fold_marks, prog->nodes[prog->scopes[scope].node].b)->stamp = 0;
+            jm_fold_touch_function(prog, prog->scopes[scope].node);
         }
     }
 }

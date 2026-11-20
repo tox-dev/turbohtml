@@ -537,6 +537,9 @@ int jm_fold_touched(jm_program *prog);
    global scope, and of every function around it. */
 void jm_fold_touch(jm_program *prog, int32_t scope);
 
+/* Note that a rewrite changed the function at func, whose own enclosing functions the caller notes as well. */
+void jm_fold_touch_function(jm_program *prog, int32_t func);
+
 /* The resolution of a settled tree, which jm_mangle reuses instead of resolving the tree again. */
 typedef struct jm_analysis jm_analysis;
 

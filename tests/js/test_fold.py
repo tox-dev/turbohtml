@@ -1083,6 +1083,138 @@ def test_compresses(source: str, expected: str) -> None:
     assert minify_js(source) == expected
 
 
+_DEEP_TEST: Final[str] = f"{'a===(' * 15}a===1{')' * 15}"
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("function f(a){return a?g(1):g(2)}", "function f(a){return g(a?1:2)}", id="one-argument"),
+        pytest.param("function f(a,b){return a?g(b,1):g(b,2)}", "function f(b,a){return g(a,b?1:2)}", id="shared-name"),
+        pytest.param(
+            "function f(a,b){return!a&&b!==1?g('x',2):g('x',3)}",
+            "function f(b,a){return g('x',b||a===1?3:2)}",
+            id="logical-test",
+        ),
+        pytest.param(
+            "function f(a){function g(){}return a?g(1):g(2)}",
+            "function f(a){return function(){}(a?1:2)}",
+            id="local-callee",
+        ),
+        pytest.param(
+            "function f(a){try{}catch(e){return e?g(1):g(2)}}",
+            "function f(b){try{}catch(a){return g(a?1:2)}}",
+            id="catch-test",
+        ),
+        pytest.param(
+            "function f(){var b=h();h();return b?g(1):g(2)}",
+            "function f(){var a=h();return h(),g(a?1:2)}",
+            id="var-test",
+        ),
+        pytest.param("function f(a){return G&&a?g(1):g(2)}", "function f(a){return G&&a?g(1):g(2)}", id="global-and"),
+        pytest.param("function f(a){return a?g(1):g(22)}", "function f(a){return g(a?1:22)}", id="literal-length"),
+        pytest.param(
+            "function f(){function k(){}return k?g(1):g(2)}",
+            "function f(){return g(function(){}?1:2)}",
+            id="function-test",
+        ),
+        pytest.param(
+            "function f(a){return a!==1?g(1):g(2)}", "function f(a){return g(a!==1?1:2)}", id="strict-inequality"
+        ),
+        pytest.param(
+            "function f(a){return a==='s'?g(1):g(2)}", "function f(a){return g(a==='s'?1:2)}", id="string-test"
+        ),
+        pytest.param("function f(a){return a.b?g(1):g(2)}", "function f(a){return a.b?g(1):g(2)}", id="member-test"),
+        pytest.param("var a=h();a?g(1):g(2)", "var a=h();a?g(1):g(2)", id="top-level-test"),
+        pytest.param(
+            "function f(a){return!G===a?g(1):g(2)}", "function f(a){return!G===a?g(1):g(2)}", id="not-global-test"
+        ),
+        pytest.param(
+            "function f(a){return a&&G?g(1):g(2)}", "function f(a){return a&&G?g(1):g(2)}", id="logical-global"
+        ),
+        pytest.param("function f(a){return a?g(h(1)):g(h(2))}", "function f(a){return g(h(a?1:2))}", id="nested-calls"),
+        pytest.param("function f(a){if(a?g(1):g(2))x()}", "function f(a){g(a?1:2)&&x()}", id="if-test"),
+        pytest.param(
+            "function f(a){if(!(a?g(1):g(2)))x();else y()}", "function f(a){g(a?1:2)?y():x()}", id="negated-if-test"
+        ),
+        pytest.param("function f(a){while(a?g(1):g(2))x()}", "function f(a){for(;g(a?1:2);)x()}", id="while-test"),
+        pytest.param(
+            "function f(a){do x();while(a?g(1):g(2))}", "function f(a){do x();while(g(a?1:2))}", id="do-while-test"
+        ),
+        pytest.param("function f(a){for(;a?g(1):g(2);)x()}", "function f(a){for(;g(a?1:2);)x()}", id="for-test"),
+        pytest.param(
+            "function f(a,b){return b&&(a?g(1):g(2))}", "function f(b,a){return a&&g(b?1:2)}", id="logical-right"
+        ),
+        pytest.param(
+            "function f(a){return(a?g(1):g(2))?x():y()}",
+            "function f(a){return g(a?1:2)?x():y()}",
+            id="conditional-test",
+        ),
+        pytest.param(
+            "function f(a){if(a)return function(b){return b?g(1):g(2)}}",
+            "function f(a){if(a)return function(b){return g(b?1:2)}}",
+            id="in-function-under-if",
+        ),
+        pytest.param("function f(a,b){return a?g(a):g(b)}", "function f(b,a){return g(b||a)}", id="test-is-arm"),
+        pytest.param("function f(a,b){return a?g(b):g(a)}", "function f(b,a){return g(b&&a)}", id="test-is-other-arm"),
+        pytest.param(
+            "function f(a){var b;return a?g(b=1):g(b=2)}",
+            "function f(b){var a;return g(a=b?1:2)}",
+            id="assignment-arms",
+        ),
+        pytest.param(
+            "function f(a){var b;return a?g(b=1):g(2)}",
+            "function f(b){var a;return g(b?a=1:2)}",
+            id="one-assignment-arm",
+        ),
+        pytest.param(
+            "function f(a,b){return a?b?g(1):g(2):h()}",
+            "function f(b,a){return b?g(a?1:2):h()}",
+            id="conditional-in-arm",
+        ),
+        pytest.param(
+            "function f(a){return a===1?g(x(),1):g(x(),2)}",
+            "function f(a){return a===1?g(x(),1):g(x(),2)}",
+            id="call-argument",
+        ),
+        pytest.param("function f(a){return a?g(1,2):g(3,4)}", "function f(a){return a?g(1,2):g(3,4)}", id="two-differ"),
+        pytest.param("function f(a){return a?g(1):g(1)}", "function f(a){return a?g(1):g(1)}", id="none-differ"),
+        pytest.param("function f(a){return a?g(1):g(1,2)}", "function f(a){return a?g(1):g(1,2)}", id="argument-count"),
+        pytest.param(
+            "function f(a){return a?g(1,2):g(1)}", "function f(a){return a?g(1,2):g(1)}", id="argument-count-shorter"
+        ),
+        pytest.param("function f(a){return a?g(...x):g(1)}", "function f(a){return a?g(...x):g(1)}", id="spread-first"),
+        pytest.param(
+            "function f(a){return a?g(1):g(...x)}", "function f(a){return a?g(1):g(...x)}", id="spread-second"
+        ),
+        pytest.param("function f(a){return a?g?.(1):g?.(2)}", "function f(a){return a?g?.(1):g?.(2)}", id="optional"),
+        pytest.param(
+            "function f(a){return a?o.g(1):o.g(2)}", "function f(a){return a?o.g(1):o.g(2)}", id="member-callee"
+        ),
+        pytest.param("function f(a){return a?g(1):h(2)}", "function f(a){return a?g(1):h(2)}", id="other-callee"),
+        pytest.param("function f(a){return a?g(1):new g(2)}", "function f(a){return a?g(1):new g(2)}", id="new"),
+        pytest.param("function f(a){return a?g(1):2}", "function f(a){return a?g(1):2}", id="one-call"),
+        pytest.param("function f(a){return G?g(1):g(2)}", "function f(a){return G?g(1):g(2)}", id="global-test"),
+        pytest.param(
+            "function f(a){let b=a;return h(),b?g(1):g(2)}",
+            "function f(b){let a=b;return h(),a?g(1):g(2)}",
+            id="let-test",
+        ),
+        pytest.param(
+            "function f(a){return a==1?g(1):g(2)}", "function f(a){return a==1?g(1):g(2)}", id="loose-equality"
+        ),
+        pytest.param("function f(a){return-a?g(1):g(2)}", "function f(a){return-a?g(1):g(2)}", id="unary-test"),
+        pytest.param(
+            f"function f(a){{return {_DEEP_TEST}?g(1):g(2)}}",
+            f"function f(a){{return {_DEEP_TEST}?g(1):g(2)}}",
+            id="deep-test",
+        ),
+    ],
+)
+def test_hoists_call_out_of_conditional(source: str, expected: str) -> None:
+    assert minify_js(source) == expected
+
+
 _TALL: Final[str] = f"{'g(' * 17}1{')' * 17}"
 
 
@@ -1667,6 +1799,12 @@ def test_indirect_eval_leaves_locals_renamable() -> None:
             "function k(x){function f(){}var s=new Set;do s.add(f);while(x--);return s.size}console.log(k(3))",
             id="do-while-closure-identity",
         ),
+        pytest.param(
+            "var log=[];function g(...v){log.push(v);return v.length}"
+            "function f(a,b){return[a===1?g(b,1):g(b,2),!a||b?g(3):g(4)]}"
+            "console.log(JSON.stringify([f(1,0),f(2,5),f(0,0),log]))",
+            id="hoisted-call",
+        ),
     ],
 )
 def test_folding_preserves_behavior(snippet: str) -> None:
@@ -1899,9 +2037,7 @@ def test_guard_chain_growth_preserves_return_order(count: int) -> None:
     source: Final[str] = (
         f"function f(x){{{''.join(f'if(x==={index})return g({index});' for index in range(count))}return g(-1)}}"
     )
-    expected: Final[str] = (
-        f"function f(a){{return {''.join(f'a==={index}?g({index}):' for index in range(count))}g(-1)}}"
-    )
+    expected: Final[str] = f"function f(a){{return g({''.join(f'a==={index}?{index}:' for index in range(count))}-1)}}"
     assert minify_js(source) == expected
 
 

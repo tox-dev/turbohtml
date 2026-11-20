@@ -1750,6 +1750,119 @@ static void drop_unread_expr_name(jm_program *prog, jm_node *node, int *changed)
     }
 }
 
+/* The bits collapse_walk adds to its change flag for a hoist_call rewrite, which leaves the analysis exact: HOISTED
+   for one anywhere below, which every function around it notes for the fold, and HOISTED_HERE for one below and in
+   the same function. A call in a test negates at another price than a conditional, so a hoist in a test leaves fold
+   more to do. */
+enum { HOISTED = 2, HOISTED_HERE = 4 };
+
+/* Whether two nodes are the same name, resolving to the same binding, or the same number or string literal. */
+static int same_leaf(const jm_program *prog, int32_t left, int32_t right) {
+    const jm_node *first = &prog->nodes[left];
+    const jm_node *second = &prog->nodes[right];
+    if (first->kind != second->kind || first->str_len != second->str_len || first->sym != second->sym ||
+        (first->kind != JN_IDENT && first->kind != JN_NUM && first->kind != JN_STRING)) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < first->str_len; index++) {
+        if (first->str[index] != second->str[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Whether evaluating the expression at idx can neither throw nor run code: number and string literals and reads of a
+   local var, parameter, function or catch binding, which no temporal dead zone guards, joined by `!`, strict
+   (in)equality, which never converts an operand, and the logical operators. height levels bound the descent. */
+static int quiet_test(const jm_program *prog, int32_t idx, int height) {
+    const jm_node *node = &prog->nodes[idx];
+    if (height == 0) {
+        return 0;
+    }
+    switch (node->kind) {
+    case JN_NUM:
+    case JN_STRING:
+        return 1;
+    case JN_IDENT: {
+        if (node->sym < 0) {
+            return 0;
+        }
+        const jm_sym *sym = &prog->syms[node->sym];
+        return prog->scopes[sym->scope].parent >= 0 &&
+               (sym->decl == 0 || sym->decl == 3 || sym->decl == 4 || sym->decl == 5);
+    }
+    case JN_UNARY:
+        return node->op == JT_NOT && quiet_test(prog, node->a, height - 1);
+    case JN_BINARY:
+        if (node->op != JT_EQ_EQ_EQ && node->op != JT_NE_EQ) {
+            return 0;
+        }
+        return quiet_test(prog, node->a, height - 1) && quiet_test(prog, node->b, height - 1);
+    case JN_LOGICAL:
+        return quiet_test(prog, node->a, height - 1) && quiet_test(prog, node->b, height - 1);
+    default:
+        return 0;
+    }
+}
+
+/* Rewrite `c?g(a):g(b)` as `g(c?a:b)` when both arms call the same name with arguments that differ in exactly one
+   place and are names or literals elsewhere: the call now reads the name, and the arguments before the differing
+   one, ahead of the test, which a quiet test makes unobservable. Adds HOISTED to changed, and 1 too when the
+   rewrite leaves another pass or fold something to do: the dropped arm read a binding, whose read count the analysis
+   then overstates, or the new conditional is one fold_conditional rewrites. Returns the new conditional, else -1. */
+static int32_t hoist_call(jm_program *prog, int32_t idx, int *changed) {
+    int32_t cons = prog->nodes[idx].b;
+    int32_t alt = prog->nodes[idx].c;
+    if (prog->nodes[cons].kind != JN_CALL || prog->nodes[alt].kind != JN_CALL ||
+        ((prog->nodes[cons].flags | prog->nodes[alt].flags) & JN_F_OPTIONAL) ||
+        prog->nodes[prog->nodes[cons].a].kind != JN_IDENT ||
+        !same_leaf(prog, prog->nodes[cons].a, prog->nodes[alt].a)) {
+        return -1;
+    }
+    int32_t *link = &prog->nodes[cons].b;
+    int32_t *differing = NULL;
+    int32_t other = -1;
+    int32_t left = prog->nodes[cons].b;
+    int32_t right = prog->nodes[alt].b;
+    for (; left >= 0 && right >= 0; left = prog->nodes[left].next, right = prog->nodes[right].next) {
+        if (prog->nodes[left].kind == JN_SPREAD || prog->nodes[right].kind == JN_SPREAD) {
+            return -1;
+        }
+        if (!same_leaf(prog, left, right)) {
+            if (differing != NULL) {
+                return -1;
+            }
+            differing = link;
+            other = right;
+        }
+        link = &prog->nodes[left].next;
+    }
+    int32_t test = prog->nodes[idx].a;
+    if (left >= 0 || right >= 0 || differing == NULL || !quiet_test(prog, test, 16)) {
+        return -1;
+    }
+    int32_t arg = *differing;
+    int open = prog->nodes[prog->nodes[alt].a].sym >= 0 || same_leaf(prog, test, arg) || same_leaf(prog, test, other) ||
+               (prog->nodes[arg].kind == JN_ASSIGN && prog->nodes[other].kind == JN_ASSIGN);
+    for (int32_t item = prog->nodes[alt].b; item >= 0; item = prog->nodes[item].next) {
+        open |= item != other && prog->nodes[item].sym >= 0;
+    }
+    /* the conditional takes the node of the dropped arm, so the rewrite allocates nothing and the node pointers the
+       walks above it hold stay valid */
+    prog->nodes[alt] = prog->nodes[idx];
+    prog->nodes[alt].b = arg;
+    prog->nodes[alt].c = other;
+    prog->nodes[alt].flags &= ~(uint32_t)JN_F_VALUE;
+    prog->nodes[alt].next = prog->nodes[arg].next;
+    prog->nodes[arg].next = -1;
+    prog->nodes[other].next = -1;
+    *differing = alt;
+    jm_node_replace(prog, idx, cons);
+    *changed |= HOISTED | HOISTED_HERE | open;
+    return alt;
+}
+
 static void collapse_walk(jm_program *prog, int32_t idx, int *changed) {
     if (idx < 0) {
         return;
@@ -1785,6 +1898,42 @@ static void collapse_walk(jm_program *prog, int32_t idx, int *changed) {
     case JN_TEMPLATE:
         collapse_chain(prog, node->a, changed);
         return;
+    case JN_COND: {
+        int test = 0;
+        collapse_walk(prog, node->a, &test);
+        *changed |= test | (test & HOISTED_HERE ? 1 : 0);
+        collapse_walk(prog, prog->nodes[idx].b, changed);
+        collapse_walk(prog, prog->nodes[idx].c, changed);
+        /* the new conditional's arms may call one name again: c?g(h(1)):g(h(2)) -> g(c?h(1):h(2)) -> g(h(c?1:2)) */
+        for (int32_t cond = idx; cond >= 0;) {
+            cond = hoist_call(prog, cond, changed);
+        }
+        return;
+    }
+    case JN_IF:
+    case JN_WHILE:
+    case JN_DOWHILE:
+    case JN_FOR:
+    case JN_LOGICAL:
+    case JN_UNARY: {
+        int32_t tested = node->kind == JN_DOWHILE || node->kind == JN_FOR ? node->b : node->a;
+        int test = 0;
+        collapse_walk(prog, tested, &test);
+        *changed |= test | (test & HOISTED_HERE ? 1 : 0);
+        if (node->kind == JN_LOGICAL) {
+            test = 0;
+            collapse_walk(prog, node->b, &test);
+            *changed |= test | (test & HOISTED_HERE ? 1 : 0);
+            return;
+        }
+        int32_t children[4] = {node->a, node->b, node->c, node->d};
+        for (int child = 0; child < 4; child++) {
+            if (children[child] != tested) {
+                collapse_walk(prog, children[child], changed);
+            }
+        }
+        return;
+    }
     case JN_CALL:
     case JN_NEW:
         collapse_walk(prog, node->a, changed);  /* callee */
@@ -1796,14 +1945,19 @@ static void collapse_walk(jm_program *prog, int32_t idx, int *changed) {
         collapse_chain(prog, node->b, changed); /* members */
         return;
     case JN_FUNC:
-        drop_unread_expr_name(prog, node, changed);
-        collapse_chain(prog, node->a, changed); /* params (defaults may hold a function) */
-        collapse_walk(prog, node->b, changed);  /* body */
+    case JN_ARROW: {
+        int inner = 0;
+        if (node->kind == JN_FUNC) {
+            drop_unread_expr_name(prog, node, &inner);
+        }
+        collapse_chain(prog, node->a, &inner); /* params (defaults may hold a function) */
+        collapse_walk(prog, node->b, &inner);  /* body: a block, or an arrow expression */
+        if (inner & HOISTED) {
+            jm_fold_touch_function(prog, idx);
+        }
+        *changed |= inner & ~HOISTED_HERE;
         return;
-    case JN_ARROW:
-        collapse_chain(prog, node->a, changed); /* params (defaults may hold a function) */
-        collapse_walk(prog, node->b, changed);  /* body: a block, or an arrow expression */
-        return;
+    }
     case JN_VAR:
         for (int32_t declr = node->a; declr >= 0; declr = prog->nodes[declr].next) {
             collapse_walk(prog, prog->nodes[declr].b, changed);
@@ -2263,6 +2417,7 @@ int jm_compress(jm_program *prog, jm_analysis **settled) {
             prog->resolved = 1;
             int changed = 0;
             collapse_chain(prog, prog->nodes[prog->root].a, &changed);
+            changed &= 1; /* alone, a hoist leaves nothing for another pass or fold to do */
             changed |= drop_unused(prog, global);
             changed |= inline_single_use(prog, global);
             changed |= propagate_value_literals(prog, global);
