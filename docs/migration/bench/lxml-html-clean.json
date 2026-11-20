@@ -8,126 +8,126 @@
   "rows": [
     [
       "sanitize — comment",
-      2.2179012312643445e-06,
-      3.1861594322890596e-05
+      3.3490999518844453e-06,
+      3.289637173248631e-05
     ],
     [
       "sanitize — post 4 KiB",
-      5.786911852586248e-05,
-      0.000789817817273312
-    ],
-    [
-      "linkify HTML — comment (1 link, 1 email)",
-      2.833639196916001e-06,
-      6.928771550581321e-06
-    ],
-    [
-      "linkify HTML — prose (1 KiB)",
-      4.209216648121128e-05,
-      2.2991062156307862e-05
-    ],
-    [
-      "linkify HTML — markup (4 KiB)",
-      0.00011087927229406584,
-      0.0001395619845349453
+      4.4440716931385774e-05,
+      0.0005323683726752885
     ],
     [
       "sanitize a parsed tree — post 4 KiB",
-      2.301309897726848e-05,
-      0.0004433374422205816
+      3.2247679443268376e-05,
+      0.000738206779169559
+    ],
+    [
+      "linkify HTML — comment (1 link, 1 email)",
+      2.454661116265318e-06,
+      7.543038966003242e-06
+    ],
+    [
+      "linkify HTML — prose (1 KiB)",
+      4.8123938474020636e-05,
+      3.090798333786893e-05
+    ],
+    [
+      "linkify HTML — markup (4 KiB)",
+      6.0366690561863834e-05,
+      0.0001655364977703281
     ],
     [
       "linkify a parsed tree — markup (4 KiB)",
-      3.8318818117962415e-05,
-      0.0001288206666837747
+      5.388514016052189e-05,
+      0.00019397238540174537
     ],
     [
       "linkify a parsed tree — wide text, one link",
-      7.720048197370488e-05,
-      "omits rel=\"nofollow\""
+      6.750676229406357e-05,
+      0.00099383907969847
     ],
     [
       "linkify a parsed tree — ASCII text, one link",
-      3.561011447648828e-05,
-      "omits rel=\"nofollow\""
+      7.241572501470728e-05,
+      0.0006651133001772299
     ],
     [
       "linkify a parsed tree — wide text, no links",
-      7.013849462964573e-05,
-      0.0005766515712214944
+      2.565014939932553e-05,
+      0.0006647962032426828
     ],
     [
       "linkify a parsed tree — 1024 wide-text links",
-      0.0007390321506439552,
-      "omits rel=\"nofollow\""
+      0.0012852930045482935,
+      0.07129430688219145
     ]
   ],
   "spread": [
     [
       null,
-      0.11516641797097808,
-      0.1363996860233178
+      0.07218355260778692,
+      0.18833837570028283
     ],
     [
       null,
-      0.07033256013111998,
-      0.08439247041833078
+      0.04447070587402339,
+      0.010815700940487161
     ],
     [
       null,
-      0.011325012124501117,
-      0.1543128775631675
+      0.14301274388303434,
+      0.20605205198822044
     ],
     [
       null,
-      0.02196262985378034,
-      0.009715185602970897
+      0.026466866319161456,
+      0.04132677737529041
     ],
     [
       null,
-      0.01391027709579616,
-      0.011463713324468537
+      0.5654853409583653,
+      0.1847411299748758
     ],
     [
       null,
-      0.010954823311116607,
-      0.007235349936476951
+      0.01551323945716079,
+      0.17707570048397966
     ],
     [
       null,
-      0.027549034962003238,
-      0.011040248017480233
+      0.05612804792128027,
+      0.2484797972631619
     ],
     [
       null,
-      0.01400169856216121,
-      null
+      0.07341787060425141,
+      0.18887312619330854
     ],
     [
       null,
-      0.025066538015657086,
-      null
+      0.06615726461895224,
+      0.14054366449682476
     ],
     [
       null,
-      0.02541032233009691,
-      0.004690499470641959
+      0.07548773734994937,
+      0.14251878204989332
     ],
     [
       null,
-      0.018782798523369726,
-      null
+      0.3740914959865628,
+      0.10883266237017503
     ]
   ],
   "row_notes": {
-    "2": "links URLs inside existing markup and never linkifies email addresses; on the prose case it produces no links at all, so that timing is the cost of finding nothing",
+    "2": "blocklist policy rather than turbohtml's allowlist; not security equivalence",
     "3": "links URLs inside existing markup and never linkifies email addresses; on the prose case it produces no links at all, so that timing is the cost of finding nothing",
     "4": "links URLs inside existing markup and never linkifies email addresses; on the prose case it produces no links at all, so that timing is the cost of finding nothing",
-    "5": "blocklist policy rather than turbohtml's allowlist; not security equivalence",
+    "5": "links URLs inside existing markup and never linkifies email addresses; on the prose case it produces no links at all, so that timing is the cost of finding nothing",
     "6": "host exclusions disabled; URL/mailto linking but no bare email addresses",
-    "7": "host exclusions disabled; autolink omits rel=\"nofollow\", so linked outputs differ",
-    "8": "host exclusions disabled; autolink omits rel=\"nofollow\", so linked outputs differ",
-    "9": "host exclusions disabled; autolink omits rel=\"nofollow\", so linked outputs differ",
-    "10": "host exclusions disabled; autolink omits rel=\"nofollow\", so linked outputs differ"
+    "7": "host exclusions disabled; URL/mailto linking but no bare email addresses",
+    "8": "host exclusions disabled; URL/mailto linking but no bare email addresses",
+    "9": "host exclusions disabled; URL/mailto linking but no bare email addresses",
+    "10": "host exclusions disabled; URL/mailto linking but no bare email addresses"
   }
 }

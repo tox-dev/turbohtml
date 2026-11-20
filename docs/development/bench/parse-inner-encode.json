@@ -9,53 +9,53 @@
   "rows": [
     [
       "daring fireball (10 kB)",
-      3.578863023297648e-05,
-      0.25412948258842033,
-      0.036922076338669285
+      5.568660890276078e-05,
+      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/inner_runner.js', 'jsdom'] returned non-zero exit status 1.",
+      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/inner_runner.js', 'parse5'] returned non-zero exit status 1."
     ],
     [
       "ars technica (56 kB)",
-      0.0001789036732589011,
-      0.27393038908485323,
-      0.041529701508504026
+      0.0002562453435776509,
+      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/inner_runner.js', 'jsdom'] returned non-zero exit status 1.",
+      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/inner_runner.js', 'parse5'] returned non-zero exit status 1."
     ],
     [
       "mozilla blog (95 kB)",
-      0.00036971291812430235,
-      0.2715109894925263,
-      0.04444826742595372
+      0.00041784208277893716,
+      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/inner_runner.js', 'jsdom'] returned non-zero exit status 1.",
+      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/inner_runner.js', 'parse5'] returned non-zero exit status 1."
     ],
     [
       "whatwg spec (235 kB)",
-      0.0009113009726509821,
-      0.3269496144882093,
-      0.05529916317512592
+      0.002230428903461264,
+      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/inner_runner.js', 'jsdom'] returned non-zero exit status 1.",
+      "Command ['node', '/home/bernat/git/filelock/turbohtml/turbohtml-sec/.sec-triage/wt/bench/tools/bench/node/inner_runner.js', 'parse5'] returned non-zero exit status 1."
     ]
   ],
   "spread": [
     [
       null,
-      0.004472366623403746,
-      0.03992050219013708,
-      0.020464218589003217
+      0.23604985478596338,
+      null,
+      null
     ],
     [
       null,
-      0.007185591446388618,
-      0.022738524475104223,
-      0.022845628169143702
+      0.15563029269417528,
+      null,
+      null
     ],
     [
       null,
-      0.010491871230291529,
-      0.023451983611536182,
-      0.01637710885686726
+      0.2559907374107692,
+      null,
+      null
     ],
     [
       null,
-      0.005412670481526325,
-      0.009789086434922175,
-      0.015720795985360022
+      0.19997904235461292,
+      null,
+      null
     ]
   ],
   "notes": {

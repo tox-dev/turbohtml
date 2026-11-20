@@ -7,26 +7,26 @@
   "metrics": [],
   "rows": [
     [
-      "1024 children, shared ancestor",
-      1.7496007616083867e-05,
+      "32,768 children, shared ancestor",
+      0.00011671000551842781,
       "Pyquery closest retains duplicate ancestors for multiple roots"
     ],
     [
       "1024 children, distinct ancestors",
-      3.30035854972266e-05,
-      0.008992374120862224
+      1.7003210294911733e-05,
+      0.010245391524464745
     ]
   ],
   "spread": [
     [
       null,
-      0.010277027486656331,
+      0.33997412574496644,
       null
     ],
     [
       null,
-      0.012270255589286072,
-      0.010174383113537723
+      0.01808827952315493,
+      0.06879582091776217
     ]
   ],
   "notes": {}

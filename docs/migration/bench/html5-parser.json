@@ -7,186 +7,186 @@
   "metrics": [],
   "rows": [
     [
-      "wpt tiny (0.6 kB)",
-      1.5334036621942697e-06,
-      1.678871623648585e-05
+      "parse to a tree — wpt tiny (0.6 kB)",
+      1.5062045098416613e-06,
+      2.1891009542211274e-05
     ],
     [
-      "wpt small (4 kB)",
-      1.2224174712471836e-05,
-      9.342497427174597e-05
+      "parse to a tree — wpt small (4 kB)",
+      1.086535358982843e-05,
+      9.307914632851558e-05
     ],
     [
-      "wpt medium (9.6 kB)",
-      3.2532304601318174e-05,
-      0.00021875952148775468
+      "parse to a tree — wpt medium (9.6 kB)",
+      2.7421395580518036e-05,
+      0.00020508754296694558
     ],
     [
-      "wpt large (92 kB)",
-      0.0002764673595455254,
-      0.002878326171715647
+      "parse to a tree — wpt large (92 kB)",
+      0.0004081811695641591,
+      0.0026247195798835793
     ],
     [
-      "wpt CJK (124 kB)",
-      0.0005315126403123335,
-      0.0034129009263779153
+      "parse to a tree — wpt CJK (124 kB)",
+      0.0004831533968134257,
+      0.002603038698741026
     ],
     [
-      "whatwg spec (235 kB)",
-      0.0005188610162273714,
-      0.006553631088536349
+      "parse to a tree — whatwg spec (235 kB)",
+      0.0007491914386794936,
+      0.005213136368699149
     ],
     [
-      "common tags (13 kB)",
-      7.847152885176456e-05,
-      0.0003870872736229103
+      "parse to a tree — common tags (13 kB)",
+      6.681876268051686e-05,
+      0.0003416766197896474
     ],
     [
       "parse under a formatting ancestor — 256 spans / 1,000 samp elements",
-      0.00030204172362573444,
-      "unavailable: html5-parser uses libxml2 2.9.13; installed lxml uses 2.14.6"
+      0.00011332926520803236,
+      0.000367675549669381
     ],
     [
       "parse under a formatting ancestor — 0 spans / 1,000 samp elements",
-      8.741940381848204e-05,
-      "unavailable: html5-parser uses libxml2 2.9.13; installed lxml uses 2.14.6"
-    ],
-    [
-      "parse ignored block end tags — 256 spans / 1,000 ignored address end tags",
-      7.620852594527605e-05,
-      "unavailable: html5-parser uses libxml2 2.9.13; installed lxml uses 2.14.6"
-    ],
-    [
-      "parse nested formatting attributes — 256 b elements / distinct attributes",
-      4.9955719771332954e-05,
-      "unavailable: html5-parser uses libxml2 2.9.13; installed lxml uses 2.14.6"
-    ],
-    [
-      "parse nested formatting attributes — 256 b elements / identical attributes",
-      4.9689298612065615e-05,
-      "unavailable: html5-parser uses libxml2 2.9.13; installed lxml uses 2.14.6"
-    ],
-    [
-      "parse text beside a NUL — 1,000 paragraphs / early NUL",
-      7.107561307672465e-05,
-      "unavailable: html5-parser uses libxml2 2.9.13; installed lxml uses 2.14.6"
-    ],
-    [
-      "parse text beside a NUL — 1,000 paragraphs / no NUL",
-      7.09768120600529e-05,
-      "unavailable: html5-parser uses libxml2 2.9.13; installed lxml uses 2.14.6"
+      0.00012556228491196938,
+      0.00028274492838704647
     ],
     [
       "parse foster-parented text — 1,024 table rows / fostered text runs",
-      0.00016239688323670028,
-      "unavailable: html5-parser uses libxml2 2.9.13; installed lxml uses 2.14.6"
+      0.00014678963237220918,
+      0.0010963782982003067
     ],
     [
-      "parse foster-parented text — 1 table rows / fostered text runs",
-      9.250114873182724e-07,
-      "unavailable: html5-parser uses libxml2 2.9.13; installed lxml uses 2.14.6"
+      "parse foster-parented text — 300 table rows / fostered text runs",
+      4.166622232896581e-05,
+      0.0002027297386424228
     ],
     [
       "parse normalized newlines — 1,000 paragraphs / CRLF",
-      8.024827355560168e-05,
-      "unavailable: html5-parser uses libxml2 2.9.13; installed lxml uses 2.14.6"
+      7.432618808470201e-05,
+      0.0018810225145292254
     ],
     [
       "parse normalized newlines — 1,000 paragraphs / LF",
-      6.902340084025127e-05,
-      "unavailable: html5-parser uses libxml2 2.9.13; installed lxml uses 2.14.6"
+      6.164213648342335e-05,
+      0.0026746754908496466
+    ],
+    [
+      "parse text beside a NUL — 1,000 paragraphs / early NUL",
+      9.33035842038521e-05,
+      0.0023392876273192085
+    ],
+    [
+      "parse text beside a NUL — 1,000 paragraphs / no NUL",
+      0.0001236047585820188,
+      0.0026589358832704115
+    ],
+    [
+      "parse nested formatting attributes — 256 b elements / distinct attributes",
+      2.441232747791844e-05,
+      0.000637886768026874
+    ],
+    [
+      "parse nested formatting attributes — 256 b elements / identical attributes",
+      4.738928103407147e-05,
+      0.0001197488369475271
+    ],
+    [
+      "parse ignored block end tags — 256 spans / 1,000 ignored address end tags",
+      6.202046070148033e-05,
+      0.0006245168197286451
     ]
   ],
   "spread": [
     [
       null,
-      0.017811865698954474,
-      0.021963594961852337
+      0.055687664085884596,
+      0.27270230250533084
     ],
     [
       null,
-      0.01685403719786021,
-      0.019643245580404388
+      0.14501934660167712,
+      0.2537515763497197
     ],
     [
       null,
-      0.06175512673196942,
-      0.028970637513803365
+      0.08141380216934119,
+      0.16102476928896237
     ],
     [
       null,
-      0.012307617305106688,
-      0.030868540424426306
+      0.2786151095572327,
+      0.16372725094778384
     ],
     [
       null,
-      0.05211193990106708,
-      0.022500646038996017
+      0.04721965606914756,
+      0.09295581992668861
     ],
     [
       null,
-      0.025296079551833082,
-      0.03443018817718284
+      0.2226383832698468,
+      0.01654297561764915
     ],
     [
       null,
-      0.0198834288564672,
-      0.01906238222885146
+      0.19977648282764995,
+      0.18124773684912576
     ],
     [
       null,
-      0.007107456068145223,
-      null
+      0.21933346381146127,
+      0.09905463053379156
     ],
     [
       null,
-      0.0100350789478704,
-      null
+      0.11150018539811962,
+      0.039362432115673626
     ],
     [
       null,
-      0.022101797675473427,
-      null
+      0.0479696538282434,
+      0.36513397277176923
     ],
     [
       null,
-      0.009435383797476665,
-      null
+      0.03169189951033185,
+      0.09355922444568261
     ],
     [
       null,
-      0.020709800396554418,
-      null
+      0.1255100671608167,
+      0.16115433280853447
     ],
     [
       null,
-      0.016635002923066876,
-      null
+      0.040479226228163294,
+      0.11340576341548672
     ],
     [
       null,
-      0.016115265561391097,
-      null
+      0.2444151129547714,
+      0.1883746343943811
     ],
     [
       null,
-      0.04770622171924298,
-      null
+      0.22116328682328842,
+      0.10286305431534969
     ],
     [
       null,
-      0.026844825446522138,
-      null
+      0.040538486592402424,
+      0.05217206102734102
     ],
     [
       null,
-      0.029713806092820295,
-      null
+      0.25963211740332315,
+      0.08470211428514693
     ],
     [
       null,
-      0.016147480479929033,
-      null
+      0.28025241371999604,
+      0.2650519069844591
     ]
   ],
   "row_notes": {}

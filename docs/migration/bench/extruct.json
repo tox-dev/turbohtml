@@ -8,95 +8,95 @@
   "rows": [
     [
       "social-card extraction — head",
-      1.6371414407837885e-06,
-      2.0375432325655158e-05
+      3.059711224058977e-06,
+      3.259412612284981e-05
     ],
     [
       "social-card extraction — article 8 KiB",
-      2.237302314019492e-05,
-      8.89704504298076e-05
-    ],
-    [
-      "structured-data extraction — product",
-      6.0712570627193445e-06,
-      9.722358925046137e-05
-    ],
-    [
-      "structured-data extraction — catalog 8 KiB",
-      5.962114624935566e-05,
-      0.0008416651037502258
+      2.748777912676322e-05,
+      0.00013701294975589917
     ],
     [
       "social-card extraction — 1,024 OpenGraph properties",
-      0.00018019057896860127,
-      0.0011496970464577316
+      0.0001981659202300534,
+      0.00100023878585489
     ],
     [
       "social-card extraction — 1,024 Twitter properties",
-      0.00010993975140157393,
-      0.0005991552325970891
+      0.00011098664493734608,
+      0.00046606824332305526
     ],
     [
       "social-card extraction — mixed duplicate properties",
-      0.00014086051756597348,
-      0.001001175646858125
+      0.0003364606194376544,
+      0.0008965961968518362
+    ],
+    [
+      "structured-data extraction — product",
+      1.2809499693015407e-05,
+      7.279148304727793e-05
+    ],
+    [
+      "structured-data extraction — catalog 8 KiB",
+      0.00019284810175956106,
+      0.0010424103587032127
     ],
     [
       "structured-data extraction — mixed social properties",
-      0.00018380654580596456,
-      0.0011251880149150868
+      0.00022142333503059793,
+      0.0009882887590113873
     ]
   ],
   "spread": [
     [
       null,
-      0.024163395539074976,
-      0.015115244708820513
+      0.1804099404441867,
+      0.14814470987403
     ],
     [
       null,
-      0.004701463761076492,
-      0.022060751757744374
+      0.06701942699375979,
+      0.2958479002065988
     ],
     [
       null,
-      0.015921396106953343,
-      0.13147216518934368
+      0.07363971187351767,
+      0.10845500835289006
     ],
     [
       null,
-      0.01666399167527829,
-      0.08712593639007091
+      0.13297201477119125,
+      0.12173864330526299
     ],
     [
       null,
-      0.08874189628280753,
-      0.024496349880583582
+      0.3165891390896922,
+      0.03986998235526452
     ],
     [
       null,
-      0.0068774349035082664,
-      0.022505159868739286
+      0.19552139731257467,
+      0.137116829297854
     ],
     [
       null,
-      0.010887075479064178,
-      0.01129807531423557
+      0.4150378517166131,
+      0.15949625778998477
     ],
     [
       null,
-      0.007278012430049827,
-      0.01107098796559001
+      0.08168641266672902,
+      0.035586497451377486
     ]
   ],
   "row_notes": {
     "0": "retains 512 repeated-head property pairs; turbohtml returns four dictionary entries",
     "1": "retains 512 repeated-head property pairs; turbohtml returns four dictionary entries",
+    "2": "retains 512 repeated-head property pairs; turbohtml returns four dictionary entries",
+    "3": "retains 512 repeated-head property pairs; turbohtml returns four dictionary entries",
     "4": "retains 512 repeated-head property pairs; turbohtml returns four dictionary entries",
-    "5": "retains 512 repeated-head property pairs; turbohtml returns four dictionary entries",
-    "6": "retains 512 repeated-head property pairs; turbohtml returns four dictionary entries",
-    "2": "retains 512 mixed-social property pairs; turbohtml stores last values and Twitter fields",
-    "3": "retains 512 mixed-social property pairs; turbohtml stores last values and Twitter fields",
+    "5": "retains 512 mixed-social property pairs; turbohtml stores last values and Twitter fields",
+    "6": "retains 512 mixed-social property pairs; turbohtml stores last values and Twitter fields",
     "7": "retains 512 mixed-social property pairs; turbohtml stores last values and Twitter fields"
   }
 }

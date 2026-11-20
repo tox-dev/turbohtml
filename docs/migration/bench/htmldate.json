@@ -7,105 +7,127 @@
   "metrics": [],
   "rows": [
     [
-      "post (4 KiB)",
-      5.9304065735214335e-06,
-      1.688457954903318e-05
-    ],
-    [
-      "longform (16 KiB)",
-      1.030123477659591e-05,
-      3.404049680473994e-05
-    ],
-    [
-      "100 meta candidates",
-      1.828077740384515e-05,
-      5.459096957357209e-05
-    ],
-    [
       "score visible date candidates — 1000 distinct visible dates",
-      0.00028813639870956345,
-      "returns no date with original_date=False; expected 2002-09-26"
+      7.39460102432569e-05,
+      0.0008404553898268811
     ],
     [
       "score visible date candidates — 1000 repeated visible dates",
-      0.0002723804200286395,
-      "returns no date with original_date=False; expected 2000-01-01"
+      6.96461580171596e-05,
+      0.0006180234201110579
     ],
     [
       "publication-date extraction — post (4 KiB)",
-      5.9304065735214335e-06,
-      1.688457954903318e-05
+      6.37737470248941e-06,
+      2.394316360086653e-05
     ],
     [
       "publication-date extraction — longform (16 KiB)",
-      1.030123477659591e-05,
-      3.404049680473994e-05
+      9.429415504058625e-06,
+      4.150778908780239e-05
     ],
     [
       "publication-date extraction — 100 meta candidates",
-      1.828077740384515e-05,
-      5.459096957357209e-05
+      1.7254572367401502e-05,
+      7.491227522820054e-05
+    ],
+    [
+      "publication-date extraction — early temporal ISO date, 36 KiB text",
+      9.101228019995726e-06,
+      5.096838120645468e-05
+    ],
+    [
+      "publication-date extraction — late temporal ISO date, 36 KiB text",
+      9.721754576534163e-06,
+      0.0011202978022386864
     ],
     [
       "publication-date extraction — temporal text without dates, 36 KiB",
-      0.0035919474806481353,
-      6.765724346754116e-05
+      3.623316302399834e-05,
+      0.006048368520168879
+    ],
+    [
+      "publication-date extraction — single temporal ISO date, 72 KiB text",
+      1.8134315863467993e-05,
+      0.0029047388165812055
+    ],
+    [
+      "publication-date extraction — early temporal numeric date, 36 KiB text",
+      1.1300630794271645e-05,
+      4.85283442384817e-05
+    ],
+    [
+      "publication-date extraction — early temporal written date, 36 KiB text",
+      1.3121247840193935e-05,
+      8.698885155524749e-05
     ]
   ],
   "spread": [
     [
       null,
-      0.004697496985019512,
-      0.009112355406770883
+      0.023837644919914393,
+      0.07900943870186142
     ],
     [
       null,
-      0.007721833090606347,
-      0.016598368815392547
+      0.2405577042657117,
+      0.09537481946337263
     ],
     [
       null,
-      0.008026401759229225,
-      0.021206735172214816
+      0.16943869461981187,
+      0.09884095072011925
     ],
     [
       null,
-      0.029323840440314167,
-      null
+      0.05081050958111361,
+      0.3497160552933037
     ],
     [
       null,
-      0.023545110328657404,
-      null
+      0.030243788249143876,
+      0.24802788872232645
     ],
     [
       null,
-      0.004697496985019512,
-      0.009112355406770883
+      0.2024782543193889,
+      0.07902658651743642
     ],
     [
       null,
-      0.007721833090606347,
-      0.016598368815392547
+      0.023711459471425812,
+      0.13963830302019675
     ],
     [
       null,
-      0.008026401759229225,
-      0.021206735172214816
+      0.22630802117115748,
+      0.04257576654886915
     ],
     [
       null,
-      0.01238570704891151,
-      0.06523183083822687
+      0.04608330267504372,
+      0.1509385529119661
+    ],
+    [
+      null,
+      0.18091766728654848,
+      0.043333531930073305
+    ],
+    [
+      null,
+      0.027993068720450154,
+      0.1257474965618633
     ]
   ],
   "row_notes": {
-    "0": "returns no date for the 100-candidate case, so its timing there is the cost of giving up rather than of finding the date turbohtml reports",
-    "1": "returns no date for the 100-candidate case, so its timing there is the cost of giving up rather than of finding the date turbohtml reports",
-    "2": "returns no date for the 100-candidate case, so its timing there is the cost of giving up rather than of finding the date turbohtml reports",
+    "2": "misses visible <time> dates turbohtml finds (2024-05-06); also returns no date for the 100-candidate case, so that timing measures finding nothing",
+    "3": "misses visible <time> dates turbohtml finds (2024-05-06); also returns no date for the 100-candidate case, so that timing measures finding nothing",
+    "4": "misses visible <time> dates turbohtml finds (2024-05-06); also returns no date for the 100-candidate case, so that timing measures finding nothing",
     "5": "misses visible <time> dates turbohtml finds (2024-05-06); also returns no date for the 100-candidate case, so that timing measures finding nothing",
     "6": "misses visible <time> dates turbohtml finds (2024-05-06); also returns no date for the 100-candidate case, so that timing measures finding nothing",
     "7": "misses visible <time> dates turbohtml finds (2024-05-06); also returns no date for the 100-candidate case, so that timing measures finding nothing",
-    "8": "misses visible <time> dates turbohtml finds (2024-05-06); also returns no date for the 100-candidate case, so that timing measures finding nothing"
+    "8": "misses visible <time> dates turbohtml finds (2024-05-06); also returns no date for the 100-candidate case, so that timing measures finding nothing",
+    "9": "misses visible <time> dates turbohtml finds (2024-05-06); also returns no date for the 100-candidate case, so that timing measures finding nothing",
+    "10": "misses visible <time> dates turbohtml finds (2024-05-06); also returns no date for the 100-candidate case, so that timing measures finding nothing"
   }
 }

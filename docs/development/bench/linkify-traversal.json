@@ -1,19 +1,59 @@
 {
-  "label": "linkify with callbacks",
+  "label": "linkify with native tree traversal",
   "parties": [
     "turbohtml"
   ],
   "metrics": [],
   "rows": [
     [
+      "text-heavy tree",
+      0.0002525009843755773
+    ],
+    [
+      "2,000 small text nodes",
+      0.0003204812862615351
+    ],
+    [
+      "2,000 skipped nodes",
+      0.000502221450142315
+    ],
+    [
+      "400 callback links",
+      0.0004843379735613477
+    ],
+    [
+      "2,000 nodes without text",
+      0.00023994037117915922
+    ],
+    [
       "wide text, two callbacks",
-      0.000126930007665275
+      0.00024245368082915776
     ]
   ],
   "spread": [
     [
       null,
-      0.024510942560004276
+      0.07614305286709017
+    ],
+    [
+      null,
+      0.08748987660062045
+    ],
+    [
+      null,
+      0.22796206283291512
+    ],
+    [
+      null,
+      0.02025502615012393
+    ],
+    [
+      null,
+      0.24652524645171553
+    ],
+    [
+      null,
+      0.17564145856051855
     ]
   ],
   "notes": {}

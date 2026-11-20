@@ -8,25 +8,26 @@
   "rows": [
     [
       "1000 distinct visible dates",
-      0.00028813639870956345,
-      "returns no date with original_date=False; expected 2002-09-26"
+      7.39460102432569e-05,
+      0.0008404553898268811
     ],
     [
       "1000 repeated visible dates",
-      0.0002723804200286395,
-      "returns no date with original_date=False; expected 2000-01-01"
+      6.96461580171596e-05,
+      0.0006180234201110579
     ]
   ],
   "spread": [
     [
       null,
-      0.029323840440314167,
-      null
+      0.023837644919914393,
+      0.07900943870186142
     ],
     [
       null,
-      0.023545110328657404,
-      null
+      0.2405577042657117,
+      0.09537481946337263
     ]
-  ]
+  ],
+  "notes": {}
 }

@@ -8,743 +8,743 @@
   "rows": [
     [
       "parse to a tree — wpt tiny (0.6 kB)",
-      1.5334036621942697e-06,
-      0.00015230860410990013
+      1.5062045098416613e-06,
+      0.00024215478053501253
     ],
     [
       "parse to a tree — wpt small (4 kB)",
-      1.2224174712471836e-05,
-      0.0009237017400967792
+      1.086535358982843e-05,
+      0.0012464441956884305
     ],
     [
       "parse to a tree — wpt medium (9.6 kB)",
-      3.2532304601318174e-05,
-      0.0021227655153476612
+      2.7421395580518036e-05,
+      0.0018035893794907073
     ],
     [
       "parse to a tree — wpt large (92 kB)",
-      0.0002764673595455254,
-      0.025373241330574576
+      0.0004081811695641591,
+      0.053080038407400325
     ],
     [
       "parse to a tree — wpt CJK (124 kB)",
-      0.0005315126403123335,
-      0.04260918839281658
+      0.0004831533968134257,
+      0.036450012075025975
     ],
     [
       "parse to a tree — whatwg spec (235 kB)",
-      0.0005188610162273714,
-      0.046444299499853514
+      0.0007491914386794936,
+      0.056591081841907
     ],
     [
       "parse to a tree — common tags (13 kB)",
-      7.847152885176456e-05,
-      0.00662149555743478
+      6.681876268051686e-05,
+      0.005436853271263923
     ],
     [
-      "parse a fragment — table-row fragment (2 kB)",
-      1.0227146783966154e-05,
-      0.0008857247994455975
+      "parse encoded bytes to a tree — 680 paragraphs, UTF-16LE",
+      4.085655410790423e-05,
+      0.005107968851734768
     ],
     [
-      "tokenize — typical markup",
-      2.8561959171706047e-05,
-      0.0008055513522625309
+      "parse encoded bytes to a tree — 680 paragraphs, UTF-16BE",
+      4.068403092887252e-05,
+      0.0062669467365897924
     ],
     [
-      "tokenize — text-heavy prose",
-      5.954697800033178e-07,
-      0.0001425882195462691
+      "parse encoded bytes to a tree — 680 paragraphs, UTF-8",
+      4.860828515163007e-05,
+      0.0036697439974886946
     ],
     [
-      "tokenize — attribute-heavy",
-      1.83345803215218e-05,
-      0.0008124254844309083
-    ],
-    [
-      "tokenize — script-heavy",
-      1.1592376067663205e-05,
-      0.000486198187180283
-    ],
-    [
-      "tokenize — entity-heavy",
-      1.7275624190441857e-05,
-      0.0012132620990238745
-    ],
-    [
-      "tokenize — wpt tiny (0.6 kB)",
-      1.4485039717312038e-06,
-      4.776554108095373e-05
-    ],
-    [
-      "tokenize — wpt small (4 kB)",
-      1.185696262121875e-05,
-      0.0004232035048516991
-    ],
-    [
-      "tokenize — wpt medium (9.6 kB)",
-      2.7726086081258927e-05,
-      0.001148626057480821
-    ],
-    [
-      "tokenize — wpt large (92 kB)",
-      0.0003293670928125418,
-      0.008968273209272107
-    ],
-    [
-      "tokenize — wpt CJK (124 kB)",
-      0.0005633580866136375,
-      0.02212622872805999
-    ],
-    [
-      "tokenize — whatwg spec (235 kB)",
-      0.0006508805745018739,
-      0.01912958421841419
-    ],
-    [
-      "tokenize — ecmascript spec (3 MB)",
-      0.006271904625464231,
-      0.17888774642293961
-    ],
-    [
-      "tokenize — whatwg spec source (7.9 MB)",
-      0.036961380232241936,
-      0.849232368064501
-    ],
-    [
-      "serialize a parsed tree — daring fireball (10 kB)",
-      6.523800323658217e-06,
-      0.00046784521521203715
-    ],
-    [
-      "serialize a parsed tree — ars technica (56 kB)",
-      3.478643540214913e-05,
-      0.0018869709192586015
-    ],
-    [
-      "serialize a parsed tree — mozilla blog (95 kB)",
-      6.740825052512871e-05,
-      0.004107636936775331
-    ],
-    [
-      "serialize a parsed tree — whatwg spec (235 kB)",
-      0.00017435751010452805,
-      0.013508812063567651
-    ],
-    [
-      "walk every descendant — daring fireball (10 kB)",
-      3.3725729012464476e-06,
-      0.000281402418484807
-    ],
-    [
-      "walk every descendant — ars technica (56 kB)",
-      1.3316697001404995e-05,
-      0.0011705679524614727
-    ],
-    [
-      "walk every descendant — mozilla blog (95 kB)",
-      2.8539196437786057e-05,
-      0.0025776405195756524
-    ],
-    [
-      "walk every descendant — whatwg spec (235 kB)",
-      9.7467753012855e-05,
-      0.008988001302592844
-    ],
-    [
-      "serialize body children — daring fireball (10 kB)",
-      9.359944669995457e-06,
-      0.0003785980661632493
-    ],
-    [
-      "serialize body children — ars technica (56 kB)",
-      4.2464491040542875e-05,
-      0.0015569991713467364
-    ],
-    [
-      "serialize body children — mozilla blog (95 kB)",
-      8.87867843175627e-05,
-      0.0035499973722229092
-    ],
-    [
-      "serialize body children — whatwg spec (235 kB)",
-      0.0002502627500386249,
-      0.013029503517221505
-    ],
-    [
-      "serialize minified body children — daring fireball (10 kB)",
-      1.0367376868695525e-05,
-      0.00047651650190042955
-    ],
-    [
-      "serialize minified body children — ars technica (56 kB)",
-      4.548952794417952e-05,
-      0.0019054296887285698
-    ],
-    [
-      "serialize minified body children — mozilla blog (95 kB)",
-      8.202441502665654e-05,
-      0.004134417504246812
-    ],
-    [
-      "serialize minified body children — whatwg spec (235 kB)",
-      0.000527911376366319,
-      0.018017943543479003
-    ],
-    [
-      "encode body children as UTF-8 — daring fireball (10 kB)",
-      1.2011069808674316e-05,
-      0.0003811814385699108
-    ],
-    [
-      "encode body children as UTF-8 — ars technica (56 kB)",
-      5.41490344403428e-05,
-      0.001568431376654189
-    ],
-    [
-      "encode body children as UTF-8 — mozilla blog (95 kB)",
-      0.00010932817895081826,
-      0.00357108850342532
-    ],
-    [
-      "encode body children as UTF-8 — whatwg spec (235 kB)",
-      0.0003043837621892938,
-      0.013060181413796576
-    ],
-    [
-      "encode minified body children as UTF-8 — daring fireball (10 kB)",
-      1.2980495588029347e-05,
-      0.00048057026773070294
-    ],
-    [
-      "encode minified body children as UTF-8 — ars technica (56 kB)",
-      5.201999276020312e-05,
-      0.001913197040266823
-    ],
-    [
-      "encode minified body children as UTF-8 — mozilla blog (95 kB)",
-      9.070673308997357e-05,
-      0.004143374128034338
-    ],
-    [
-      "encode minified body children as UTF-8 — whatwg spec (235 kB)",
-      0.0005867286511905453,
-      0.018176674496013828
-    ],
-    [
-      "consume body children chunks — daring fireball (10 kB)",
-      8.52574468505433e-06,
-      0.00037186802364885807
-    ],
-    [
-      "consume body children chunks — ars technica (56 kB)",
-      4.181784394556113e-05,
-      0.001541714397414277
-    ],
-    [
-      "consume body children chunks — mozilla blog (95 kB)",
-      8.813693746863767e-05,
-      0.003484882829070557
-    ],
-    [
-      "consume body children chunks — whatwg spec (235 kB)",
-      0.000262362087899722,
-      0.012746762166595241
-    ],
-    [
-      "normalize DOM whitespace then serialize — daring fireball (10 kB)",
-      1.374736310329657e-05,
-      0.0022080789785832167
-    ],
-    [
-      "normalize DOM whitespace then serialize — ars technica (56 kB)",
-      7.295035114414834e-05,
-      0.009158846332866233
-    ],
-    [
-      "normalize DOM whitespace then serialize — mozilla blog (95 kB)",
-      0.00013858721392049725,
-      0.018798845521814656
-    ],
-    [
-      "normalize DOM whitespace then serialize — whatwg spec (235 kB)",
-      0.0005360802263112419,
-      0.0616665277921129
+      "parse encoded bytes to a tree — 352 KiB UTF-16LE",
+      3.496466640603065e-05,
+      0.011209174604482541
     ],
     [
       "parse under a formatting ancestor — 256 spans / 1,000 samp elements",
-      0.00030204172362573444,
-      0.007067420308400566
+      0.00011332926520803236,
+      0.009045097463058482
     ],
     [
       "parse under a formatting ancestor — 0 spans / 1,000 samp elements",
-      8.741940381848204e-05,
-      0.005511174652444121
-    ],
-    [
-      "parse ignored block end tags — 256 spans / 1,000 ignored address end tags",
-      7.620852594527605e-05,
-      0.015434903492374967
-    ],
-    [
-      "parse nested formatting attributes — 256 b elements / distinct attributes",
-      4.9955719771332954e-05,
-      0.009815156417122732
-    ],
-    [
-      "parse nested formatting attributes — 256 b elements / identical attributes",
-      4.9689298612065615e-05,
-      0.002044059200125048
-    ],
-    [
-      "parse text beside a NUL — 1,000 paragraphs / early NUL",
-      7.107561307672465e-05,
-      0.008100832991476636
-    ],
-    [
-      "parse text beside a NUL — 1,000 paragraphs / no NUL",
-      7.09768120600529e-05,
-      0.008160153820062988
+      0.00012556228491196938,
+      0.005924046534528315
     ],
     [
       "parse foster-parented text — 1,024 table rows / fostered text runs",
-      0.00016239688323670028,
-      0.011610732129580963
+      0.00014678963237220918,
+      0.023639099647213394
     ],
     [
-      "parse foster-parented text — 1 table rows / fostered text runs",
-      9.250114873182724e-07,
-      6.0141419828596555e-05
+      "parse foster-parented text — 300 table rows / fostered text runs",
+      4.166622232896581e-05,
+      0.003946659161617087
     ],
     [
       "parse normalized newlines — 1,000 paragraphs / CRLF",
-      8.024827355560168e-05,
-      0.00832173942035297
+      7.432618808470201e-05,
+      0.011670454216437065
     ],
     [
       "parse normalized newlines — 1,000 paragraphs / LF",
-      6.902340084025127e-05,
-      0.008114082290558145
+      6.164213648342335e-05,
+      0.008120731338567565
     ],
     [
-      "serialize HTML attribute order — 1024 attributes, reversed, sorting True",
-      4.670566222841899e-05,
-      0.0007274752060766332
+      "parse text beside a NUL — 1,000 paragraphs / early NUL",
+      9.33035842038521e-05,
+      0.01228575040307381
     ],
     [
-      "serialize HTML attribute order — 1024 attributes, sorted, sorting True",
-      1.621493360914883e-05,
-      0.0007424068738449326
+      "parse text beside a NUL — 1,000 paragraphs / no NUL",
+      0.0001236047585820188,
+      0.010142283312416112
     ],
     [
-      "serialize HTML attribute order — 8 attributes, reversed, sorting True",
-      1.068548335148023e-06,
-      1.701252745789361e-05
+      "parse nested formatting attributes — 256 b elements / distinct attributes",
+      2.441232747791844e-05,
+      0.013869423469744409
     ],
     [
-      "serialize HTML attribute order — 1024 attributes, reversed, sorting False",
-      1.2422455284877287e-05,
-      0.0006061607526438214
+      "parse nested formatting attributes — 256 b elements / identical attributes",
+      4.738928103407147e-05,
+      0.003391502860449691
     ],
     [
-      "parse encoded bytes to a tree — tiny UTF-16LE",
-      5.823027557916305e-07,
-      3.435845777251719e-05
+      "parse ignored block end tags — 256 spans / 1,000 ignored address end tags",
+      6.202046070148033e-05,
+      0.019392435336097455
     ],
     [
-      "parse encoded bytes to a tree — tiny UTF-16BE",
-      5.783582121369572e-07,
-      3.4354168363393e-05
+      "parse a fragment — table-row fragment (2 kB)",
+      2.0554468090712892e-05,
+      0.0009724288709624791
     ],
     [
-      "parse encoded bytes to a tree — tiny UTF-8",
-      5.476649337735987e-07,
-      3.434125777346253e-05
+      "tokenize — typical markup",
+      3.221856521804511e-05,
+      0.0009851339352887104
     ],
     [
-      "parse encoded bytes to a tree — 16 KiB UTF-16LE",
-      2.3544885860241984e-06,
-      0.0004788699685226068
+      "tokenize — text-heavy prose",
+      6.348406923262218e-07,
+      0.0001631151875822449
+    ],
+    [
+      "tokenize — attribute-heavy",
+      3.104737192908639e-05,
+      0.0010866604428732293
+    ],
+    [
+      "tokenize — script-heavy",
+      1.44800587442262e-05,
+      0.0005700681566471152
+    ],
+    [
+      "tokenize — entity-heavy",
+      2.753344050390183e-05,
+      0.0013998652970940383
+    ],
+    [
+      "tokenize — wpt tiny (0.6 kB)",
+      1.9964403707402786e-06,
+      9.125237123110234e-05
+    ],
+    [
+      "tokenize — wpt small (4 kB)",
+      1.2672590132349153e-05,
+      0.0007814509535137403
+    ],
+    [
+      "tokenize — wpt medium (9.6 kB)",
+      4.8674350926821336e-05,
+      0.0014132632986729732
+    ],
+    [
+      "tokenize — wpt large (92 kB)",
+      0.00034864547428317867,
+      0.010378181683639317
+    ],
+    [
+      "tokenize — wpt CJK (124 kB)",
+      0.0006327591658873644,
+      0.0375480628919225
+    ],
+    [
+      "tokenize — whatwg spec (235 kB)",
+      0.0012629975167480249,
+      0.02220375143563918
+    ],
+    [
+      "tokenize — ecmascript spec (3 MB)",
+      0.005771904283786474,
+      0.20958877471469653
+    ],
+    [
+      "tokenize — whatwg spec source (7.9 MB)",
+      0.050680849128305755,
+      0.9993733905837872
+    ],
+    [
+      "serialize body children — daring fireball (10 kB)",
+      7.666890910288751e-06,
+      0.0005071284568505993
+    ],
+    [
+      "serialize body children — ars technica (56 kB)",
+      2.717296123506685e-05,
+      0.0020946809890726096
+    ],
+    [
+      "serialize body children — mozilla blog (95 kB)",
+      9.640706118100677e-05,
+      0.00458659147710326
+    ],
+    [
+      "serialize body children — whatwg spec (235 kB)",
+      0.00021812494166510986,
+      0.01869083719939226
+    ],
+    [
+      "serialize minified body children — daring fireball (10 kB)",
+      1.4925402539134324e-05,
+      0.000723404143047901
+    ],
+    [
+      "serialize minified body children — ars technica (56 kB)",
+      6.18310036460438e-05,
+      0.0027130285526103157
+    ],
+    [
+      "serialize minified body children — mozilla blog (95 kB)",
+      0.00013043665562596137,
+      0.005521074150722901
+    ],
+    [
+      "serialize minified body children — whatwg spec (235 kB)",
+      0.0006725999457861084,
+      0.02449244506836597
+    ],
+    [
+      "encode body children as UTF-8 — daring fireball (10 kB)",
+      1.091687557064347e-05,
+      0.0008387907407647314
+    ],
+    [
+      "encode body children as UTF-8 — ars technica (56 kB)",
+      4.008666779427017e-05,
+      0.0023840934213543124
+    ],
+    [
+      "encode body children as UTF-8 — mozilla blog (95 kB)",
+      7.771507063220421e-05,
+      0.004554573692197058
+    ],
+    [
+      "encode body children as UTF-8 — whatwg spec (235 kB)",
+      0.0002578569745499711,
+      0.01693985452487444
+    ],
+    [
+      "encode minified body children as UTF-8 — daring fireball (10 kB)",
+      1.2732178097489092e-05,
+      0.0010899242550522104
+    ],
+    [
+      "encode minified body children as UTF-8 — ars technica (56 kB)",
+      4.9222774665954225e-05,
+      0.002800795451836772
+    ],
+    [
+      "encode minified body children as UTF-8 — mozilla blog (95 kB)",
+      9.00584559398491e-05,
+      0.006912189437540898
+    ],
+    [
+      "encode minified body children as UTF-8 — whatwg spec (235 kB)",
+      0.000698829941279655,
+      0.025054557984064255
+    ],
+    [
+      "consume body children chunks — daring fireball (10 kB)",
+      8.528825060061252e-06,
+      0.0008026480532483522
+    ],
+    [
+      "consume body children chunks — ars technica (56 kB)",
+      2.7975748146028916e-05,
+      0.002037706106754437
+    ],
+    [
+      "consume body children chunks — mozilla blog (95 kB)",
+      5.807428941958885e-05,
+      0.006302403142278005
+    ],
+    [
+      "consume body children chunks — whatwg spec (235 kB)",
+      0.00022309897140265395,
+      0.016450106612440625
+    ],
+    [
+      "normalize DOM whitespace then serialize — daring fireball (10 kB)",
+      1.9946358937280213e-05,
+      0.0030614260070857807
+    ],
+    [
+      "normalize DOM whitespace then serialize — ars technica (56 kB)",
+      9.226187351790334e-05,
+      0.011801115383241268
+    ],
+    [
+      "normalize DOM whitespace then serialize — mozilla blog (95 kB)",
+      0.00013998686368571118,
+      0.024454452962527285
+    ],
+    [
+      "normalize DOM whitespace then serialize — whatwg spec (235 kB)",
+      0.001176207497640765,
+      0.11505228918492018
+    ],
+    [
+      "serialize a parsed tree — daring fireball (10 kB)",
+      6.032475449006351e-06,
+      0.0012020361002441859
+    ],
+    [
+      "serialize a parsed tree — ars technica (56 kB)",
+      2.9801759121757718e-05,
+      0.004366535043906576
+    ],
+    [
+      "serialize a parsed tree — mozilla blog (95 kB)",
+      9.571102495158357e-05,
+      0.008015317155210748
+    ],
+    [
+      "serialize a parsed tree — whatwg spec (235 kB)",
+      0.0001743907279925831,
+      0.03310051454536733
+    ],
+    [
+      "walk every descendant — daring fireball (10 kB)",
+      7.3219775423775484e-06,
+      0.0006364453856197845
+    ],
+    [
+      "walk every descendant — ars technica (56 kB)",
+      1.942116749743169e-05,
+      0.0024765433690239055
+    ],
+    [
+      "walk every descendant — mozilla blog (95 kB)",
+      4.117254234638305e-05,
+      0.005018811417752052
+    ],
+    [
+      "walk every descendant — whatwg spec (235 kB)",
+      0.00013949208138797076,
+      0.011581492057181701
+    ],
+    [
+      "serialize HTML attribute order — 1024 attributes, reversed, sorting True, 1 element",
+      4.9691238516421284e-05,
+      0.0008561107348289928
+    ],
+    [
+      "serialize HTML attribute order — 1024 attributes, sorted, sorting True, 1 element",
+      2.7269768359161618e-05,
+      0.001494253426820554
+    ],
+    [
+      "serialize HTML attribute order — 8 attributes, reversed, sorting True, 222 elements",
+      4.448646676280532e-05,
+      0.002197985271914149
+    ],
+    [
+      "serialize HTML attribute order — 1024 attributes, reversed, sorting False, 1 element",
+      1.9902797652093797e-05,
+      0.0009694971803355656
     ]
   ],
   "spread": [
     [
       null,
-      0.017811865698954474,
-      0.042200583106009534
+      0.055687664085884596,
+      0.46996041051293064
     ],
     [
       null,
-      0.01685403719786021,
-      0.03147946530672717
+      0.14501934660167712,
+      0.26515208900204273
     ],
     [
       null,
-      0.06175512673196942,
-      0.015989724472255662
+      0.08141380216934119,
+      0.056740411316991646
     ],
     [
       null,
-      0.012307617305106688,
-      0.015753149658420854
+      0.2786151095572327,
+      0.2485567551521144
     ],
     [
       null,
-      0.05211193990106708,
-      0.08704021990147963
+      0.04721965606914756,
+      0.07642186586451774
     ],
     [
       null,
-      0.025296079551833082,
-      0.0709590991317189
+      0.2226383832698468,
+      0.07344824869783949
     ],
     [
       null,
-      0.0198834288564672,
-      0.04340469672122622
+      0.19977648282764995,
+      0.03249573125567146
     ],
     [
       null,
-      0.01890351480891205,
-      0.02275956273197649
+      0.026322791265045168,
+      0.24763051680537043
     ],
     [
       null,
-      0.011232972235264977,
-      0.010499370858475828
+      0.027223405535147495,
+      0.20035398269648277
     ],
     [
       null,
-      0.011745437696169014,
-      0.0023364354509937653
+      0.15809018034030037,
+      0.05613696979941521
     ],
     [
       null,
-      0.0058113784678616755,
-      0.013315535556365133
+      0.04162789729853649,
+      0.07623128821908269
     ],
     [
       null,
-      0.009803177218247213,
-      0.004232276868120864
+      0.21933346381146127,
+      0.16186503928923057
     ],
     [
       null,
-      0.012762495413863626,
-      0.02300399558556196
+      0.11150018539811962,
+      0.04006513307007896
     ],
     [
       null,
-      0.009693429163760744,
-      0.011888242972801093
+      0.0479696538282434,
+      0.20754178415214788
     ],
     [
       null,
-      0.005342318396930577,
-      0.010662759220364268
+      0.03169189951033185,
+      0.05781284669211419
     ],
     [
       null,
-      0.005633556083779002,
-      0.007308483097899643
+      0.1255100671608167,
+      0.08670432835902236
     ],
     [
       null,
-      0.005506131488697842,
-      0.007536080691721433
+      0.040479226228163294,
+      0.06951273609459914
     ],
     [
       null,
-      0.004334602903854042,
-      0.006925611816982573
+      0.2444151129547714,
+      0.0961013331680831
     ],
     [
       null,
-      0.005253591320994505,
-      0.003870066865745998
+      0.22116328682328842,
+      0.1197053105417903
     ],
     [
       null,
-      0.006646862807835041,
-      0.012354189850796685
+      0.040538486592402424,
+      0.29932177087672057
     ],
     [
       null,
-      0.00249092403394041,
-      0.014029343011281925
+      0.25963211740332315,
+      0.26077742192788345
     ],
     [
       null,
-      0.015177318267175655,
-      0.017619146142807806
+      0.28025241371999604,
+      0.1291945427663488
     ],
     [
       null,
-      0.005332215142755112,
-      0.006048477238622652
+      0.2196210312108856,
+      0.027243813132263206
     ],
     [
       null,
-      0.010047381565456441,
-      0.0068858905278209055
+      0.08422836089962302,
+      0.04173616262782487
     ],
     [
       null,
-      0.010026722339847716,
-      0.004427338922677854
+      0.18654807816149452,
+      0.17309308687411895
     ],
     [
       null,
-      0.004488011967059775,
-      0.012494928125256837
+      0.0992914261763399,
+      0.19652941076519542
     ],
     [
       null,
-      0.004021419209960253,
-      0.011151532425596626
+      0.27840553927608774,
+      0.1157878698352035
     ],
     [
       null,
-      0.005285788396780298,
-      0.017565665553420734
+      0.17479926722581984,
+      0.05744251335741369
     ],
     [
       null,
-      0.005285593721732434,
-      0.011445626925372463
+      0.1901991452782393,
+      0.1546569614384243
     ],
     [
       null,
-      0.04900239483383481,
-      0.009173137442502262
+      0.025329142819537413,
+      0.24508892687362208
     ],
     [
       null,
-      0.02085759777073082,
-      0.006403845732870439
+      0.09898351835103807,
+      0.0799279906127846
     ],
     [
       null,
-      0.021612543940447097,
-      0.014076818143206654
+      0.06113821704033477,
+      0.018482200586150407
     ],
     [
       null,
-      0.02304510266877739,
-      0.011704987749940086
+      0.08727376124890801,
+      0.13376109714235768
     ],
     [
       null,
-      0.014114109361430012,
-      0.00463046268807009
+      0.06774062387717303,
+      0.02242922747652797
     ],
     [
       null,
-      0.03009136579512619,
-      0.005324738048924077
+      0.030636836730232285,
+      0.015525778370069486
     ],
     [
       null,
-      0.011789182365149932,
-      0.0034804196409326
+      0.17736348749984743,
+      0.09308391665113264
     ],
     [
       null,
-      0.02149523986679859,
-      0.005436618175989
+      0.19018497257129457,
+      0.029526667097942896
     ],
     [
       null,
-      0.011500230389031871,
-      0.008806204155506267
+      0.02336079180375167,
+      0.03174350769073947
     ],
     [
       null,
-      0.014436976112573876,
-      0.0054330804778279914
+      0.06097542953955258,
+      0.023733030428229353
     ],
     [
       null,
-      0.009369529991274703,
-      0.011119758881462478
+      0.21699308924109145,
+      0.10521491756095223
     ],
     [
       null,
-      0.008444578746948619,
-      0.0059936552217905665
+      0.08714216071794259,
+      0.1197491877405163
     ],
     [
       null,
-      0.017841444139988897,
-      0.008311986118264652
+      0.2410362278662309,
+      0.02840233877473793
     ],
     [
       null,
-      0.008364446452362631,
-      0.010379046475367287
+      0.22120217146962276,
+      0.014629791865458777
     ],
     [
       null,
-      0.008901517726598411,
-      0.0076482455001983165
+      0.06516765078110852,
+      0.019047469904901092
     ],
     [
       null,
-      0.02178046106323421,
-      0.009229781240097233
+      0.2153662000700901,
+      0.21949866014252334
     ],
     [
       null,
-      0.013686397394453301,
-      0.00952549296178059
+      0.1470695310784037,
+      0.17273559230477534
     ],
     [
       null,
-      0.01076103627579998,
-      0.00975867861608786
+      0.032441456615962,
+      0.018780930466117826
     ],
     [
       null,
-      0.012592529030312015,
-      0.009128076485128358
+      0.2298559462789041,
+      0.0581249755379356
     ],
     [
       null,
-      0.012204511898925796,
-      0.005275423065183074
+      0.041429500951618,
+      0.20482953242637278
     ],
     [
       null,
-      0.016522625511651557,
-      0.05155279767412484
+      0.03620281940334788,
+      0.03420810210094301
     ],
     [
       null,
-      0.009237563093023114,
-      0.02457910485747136
+      0.23618247022992028,
+      0.15198696409948487
     ],
     [
       null,
-      0.006486440692172346,
-      0.008749684049967938
+      0.04399429880108401,
+      0.02854601194761351
     ],
     [
       null,
-      0.006592477968083736,
-      0.03450614309511681
+      0.20025798874497439,
+      0.1989521604733998
     ],
     [
       null,
-      0.007107456068145223,
-      0.05518228851354549
+      0.014643913297518588,
+      0.035047801476860665
     ],
     [
       null,
-      0.0100350789478704,
-      0.04703381597032775
+      0.03347847458764563,
+      0.174646848953488
     ],
     [
       null,
-      0.022101797675473427,
-      0.045190725332990726
+      0.1908341038339431,
+      0.03576868425562013
     ],
     [
       null,
-      0.009435383797476665,
-      0.018618036333151802
+      0.12255391543067548,
+      0.06915015171882939
     ],
     [
       null,
-      0.020709800396554418,
-      0.024993306349924582
+      0.04850954042716084,
+      0.06807761866898883
     ],
     [
       null,
-      0.016635002923066876,
-      0.037673128407974085
+      0.03140130639647141,
+      0.028539069928263328
     ],
     [
       null,
-      0.016115265561391097,
-      0.03317372609196954
+      0.27588287528304495,
+      0.2516648982360731
     ],
     [
       null,
-      0.04770622171924298,
-      0.03621262557130059
+      0.031954042922584365,
+      0.15731440353895007
     ],
     [
       null,
-      0.026844825446522138,
-      0.03673837507310731
+      0.012317185842724966,
+      0.19439397333578298
     ],
     [
       null,
-      0.029713806092820295,
-      0.039295484859030644
+      0.13528279921529227,
+      0.20261527131877793
     ],
     [
       null,
-      0.016147480479929033,
-      0.03336306930333379
+      0.10453980211782403,
+      0.1991900744682956
     ],
     [
       null,
-      0.016429807436644614,
-      0.006927936846213506
+      0.24356829212889272,
+      0.19970138438555768
     ],
     [
       null,
-      0.05450659469715841,
-      0.02137223593707091
+      0.1396954530989766,
+      0.16771291177712733
     ],
     [
       null,
-      0.00837354875274473,
-      0.005446100941709912
+      0.1686899319322529,
+      0.07144929778529469
     ],
     [
       null,
-      0.003683335883646008,
-      0.006309862931941991
+      0.14432055661955553,
+      0.019441739861200416
     ],
     [
       null,
-      0.022358727685952876,
-      0.028482707474969622
+      0.17512819849959488,
+      0.19389103414644576
     ],
     [
       null,
-      0.012732253888137278,
-      0.031303101510084724
+      0.13200154335597566,
+      0.29094167053160414
     ],
     [
       null,
-      0.019591152468655126,
-      0.030961415654891522
+      0.2423126887801203,
+      0.10896042418230546
     ],
     [
       null,
-      0.01180908506426773,
-      0.03778333002914497
+      0.19223672495837654,
+      0.10144156471189543
     ]
   ],
   "row_notes": {
-    "33": "different preservation policy; removing comments can leave two spaces across token boundaries",
-    "34": "different preservation policy; removing comments can leave two spaces across token boundaries",
-    "35": "different preservation policy; removing comments can leave two spaces across token boundaries",
-    "36": "different preservation policy; removing comments can leave two spaces across token boundaries",
+    "40": "different preservation policy; removing comments can leave two spaces across token boundaries",
     "41": "different preservation policy; removing comments can leave two spaces across token boundaries",
     "42": "different preservation policy; removing comments can leave two spaces across token boundaries",
     "43": "different preservation policy; removing comments can leave two spaces across token boundaries",
-    "44": "different preservation policy; removing comments can leave two spaces across token boundaries",
-    "45": "consumes serializer tokens rather than bounded-size chunks",
-    "46": "consumes serializer tokens rather than bounded-size chunks",
-    "47": "consumes serializer tokens rather than bounded-size chunks",
-    "48": "consumes serializer tokens rather than bounded-size chunks",
-    "49": "filter/reparse/serialize; different listing, title, and foreign-text policy",
-    "50": "filter/reparse/serialize; different listing, title, and foreign-text policy",
-    "51": "filter/reparse/serialize; different listing, title, and foreign-text policy",
-    "52": "filter/reparse/serialize; different listing, title, and foreign-text policy"
+    "48": "different preservation policy; removing comments can leave two spaces across token boundaries",
+    "49": "different preservation policy; removing comments can leave two spaces across token boundaries",
+    "50": "different preservation policy; removing comments can leave two spaces across token boundaries",
+    "51": "different preservation policy; removing comments can leave two spaces across token boundaries",
+    "52": "consumes serializer tokens rather than bounded-size chunks",
+    "53": "consumes serializer tokens rather than bounded-size chunks",
+    "54": "consumes serializer tokens rather than bounded-size chunks",
+    "55": "consumes serializer tokens rather than bounded-size chunks",
+    "56": "filter/reparse/serialize; different listing, title, and foreign-text policy",
+    "57": "filter/reparse/serialize; different listing, title, and foreign-text policy",
+    "58": "filter/reparse/serialize; different listing, title, and foreign-text policy",
+    "59": "filter/reparse/serialize; different listing, title, and foreign-text policy"
   }
 }

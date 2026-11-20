@@ -8,81 +8,136 @@
   "rows": [
     [
       "article extraction — post (4 KiB)",
-      1.1995847065312168e-05,
-      0.005647291665081866
+      1.5154897756038584e-05,
+      0.006067436287654952
     ],
     [
       "article extraction — longform (16 KiB)",
-      3.4235055985239644e-05,
-      0.01609264651876098
+      4.3527467668506384e-05,
+      0.015822111042992523
     ],
     [
       "publication-date extraction — post (4 KiB)",
-      5.9304065735214335e-06,
-      0.005928435221297453
+      6.37737470248941e-06,
+      0.006031380450440338
     ],
     [
       "publication-date extraction — longform (16 KiB)",
-      1.030123477659591e-05,
-      0.01590911588452097
+      9.429415504058625e-06,
+      0.016143355702176145
     ],
     [
       "publication-date extraction — 100 meta candidates",
-      1.828077740384515e-05,
-      0.00877185786581928
+      1.7254572367401502e-05,
+      0.007446112784055004
     ],
     [
-      "main-content text — main (4 KiB)",
-      7.358195418897632e-06,
-      0.008281803166634441
+      "publication-date extraction — early temporal ISO date, 36 KiB text",
+      9.101228019995726e-06,
+      0.009643873584597411
+    ],
+    [
+      "publication-date extraction — late temporal ISO date, 36 KiB text",
+      9.721754576534163e-06,
+      0.00945995572819811
     ],
     [
       "publication-date extraction — temporal text without dates, 36 KiB",
-      0.0035919474806481353,
-      0.008869748709306199
+      3.623316302399834e-05,
+      0.009450329251315755
+    ],
+    [
+      "publication-date extraction — single temporal ISO date, 72 KiB text",
+      1.8134315863467993e-05,
+      0.011420759876091324
+    ],
+    [
+      "publication-date extraction — early temporal numeric date, 36 KiB text",
+      1.1300630794271645e-05,
+      0.009695942791586276
+    ],
+    [
+      "publication-date extraction — early temporal written date, 36 KiB text",
+      1.3121247840193935e-05,
+      0.009391196614524233
+    ],
+    [
+      "main-content text — main (4 KiB)",
+      7.124869835273273e-06,
+      0.006082024923974434
     ]
   ],
   "spread": [
     [
       null,
-      0.32069268491373526,
-      0.03236500992960642
+      0.2065899687789125,
+      0.07476831388454261
     ],
     [
       null,
-      0.004134567035208854,
-      0.03216658260703777
+      0.22936050406511246,
+      0.035374955505843186
     ],
     [
       null,
-      0.004697496985019512,
-      0.03489928844853301
+      0.16943869461981187,
+      0.05745296386658767
     ],
     [
       null,
-      0.007721833090606347,
-      0.020043951211199545
+      0.05081050958111361,
+      0.06155659381617624
     ],
     [
       null,
-      0.008026401759229225,
-      0.04277533338146369
+      0.030243788249143876,
+      0.08324214713319435
     ],
     [
       null,
-      0.045501129435955946,
-      0.034291817606264
+      0.2024782543193889,
+      0.06762029437353796
     ],
     [
       null,
-      0.01238570704891151,
-      0.0318376770940678
+      0.023711459471425812,
+      0.032582634641454666
+    ],
+    [
+      null,
+      0.22630802117115748,
+      0.05073782425818044
+    ],
+    [
+      null,
+      0.04608330267504372,
+      0.053408475038635286
+    ],
+    [
+      null,
+      0.18091766728654848,
+      0.13482071622310712
+    ],
+    [
+      null,
+      0.027993068720450154,
+      0.04061140173886443
+    ],
+    [
+      null,
+      0.22739392121764565,
+      0.026946844321617126
     ]
   ],
   "row_notes": {
     "2": "runs article extraction; misses visible <time> dates that turbohtml reports as 2024-05-06",
     "3": "runs article extraction; misses visible <time> dates that turbohtml reports as 2024-05-06",
     "4": "runs article extraction; misses visible <time> dates that turbohtml reports as 2024-05-06",
-    "6": "runs article extraction; misses visible <time> dates that turbohtml reports as 2024-05-06"
+    "5": "runs article extraction; misses visible <time> dates that turbohtml reports as 2024-05-06",
+    "6": "runs article extraction; misses visible <time> dates that turbohtml reports as 2024-05-06",
+    "7": "runs article extraction; misses visible <time> dates that turbohtml reports as 2024-05-06",
+    "8": "runs article extraction; misses visible <time> dates that turbohtml reports as 2024-05-06",
+    "9": "runs article extraction; misses visible <time> dates that turbohtml reports as 2024-05-06",
+    "10": "runs article extraction; misses visible <time> dates that turbohtml reports as 2024-05-06"
   }
 }

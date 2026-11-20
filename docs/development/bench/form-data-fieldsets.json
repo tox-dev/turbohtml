@@ -7,40 +7,38 @@
   "rows": [
     [
       "disabled / 2,048 controls / depth 64",
-      9.31856796874501e-08
+      2.7156841377262708e-05
     ],
     [
       "first legend / 2,048 disabled controls / depth 64",
-      1.3550274638636968e-07
+      5.6909408322525226e-05
     ],
     [
       "enabled / 2,048 controls / depth 64",
-      0.0001685854016424552
+      7.588739475086944e-05
     ],
     [
       "plain / 4 controls",
-      2.4663813628459746e-07
+      3.899329426602094e-05
     ]
   ],
   "spread": [
     [
       null,
-      0.024698120797093187
+      0.049822684767761694
     ],
     [
       null,
-      0.06000834933431277
+      0.18041304079528503
     ],
     [
       null,
-      0.011575095318194312
+      0.042593387495972794
     ],
     [
       null,
-      0.02913790872438488
+      0.12897954741875253
     ]
   ],
-  "notes": {
-    "turbohtml": "Disabled-target and enabled-control timings include the ancestry fix in both variants. First-legend and four-control timings retain the preceding release measurements."
-  }
+  "notes": {}
 }
