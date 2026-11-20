@@ -432,190 +432,268 @@ static void th_sb_skip_to_space(th_sb_candidate *cand, const th_detect_single_by
     cand->prev_punctuation = 0;
 }
 
-/* Feed the whole input to one single-byte candidate, accumulating its score or
-   disqualifying it on the first unmapped byte. Ports the per-kind feed methods. */
-static TH_HOT void th_sb_feed_loop(th_sb_candidate *cand, const unsigned char *buf, Py_ssize_t len,
-                                   int track_logical_punctuation, const int skip_runs) {
-    const th_detect_single_byte *data = cand->data;
-    int windows_1256 = cand->kind == TH_SB_ARABIC_FRENCH;
-    Py_ssize_t scanned_to = 0;
-    for (Py_ssize_t index = 0; index < len; index++) {
-        unsigned char byte = buf[index];
-        if (skip_runs && byte < 0x80 && index > 0 && buf[index - 1] < 0x80 && cand->alive && index >= scanned_to) {
-            Py_ssize_t run = th_decode_ascii_run(buf + index, len - index);
-            scanned_to = index + run;
-            /* Runs under 16 bytes cost more to scan for a space than the per-byte walk saves. */
-            Py_ssize_t space = run >= 16 ? th_sb_last_space(buf, index, scanned_to) : -1;
-            if (space >= 0) {
-                th_sb_skip_to_space(cand, data);
-                index = space;
-                continue;
+/* Where the walk next looks for a skip from `from` on, or len when it never will: the second byte of an ASCII run,
+   since no candidate scores an ASCII byte after an ASCII byte. Only runs where two words at an 8-byte stride are all
+   ASCII qualify, as a skip needs 16 bytes to be worth the space scan. Measuring the run waits until a live candidate
+   gets there, so one that dies before it scans nothing. */
+static Py_ssize_t th_sb_next_jump(const unsigned char *buf, Py_ssize_t from, Py_ssize_t len) {
+    for (Py_ssize_t index = (from + 7) & ~(Py_ssize_t)7; index + 16 <= len; index += 8) {
+        uint64_t low;
+        uint64_t high;
+        memcpy(&low, buf + index, sizeof(low));
+        memcpy(&high, buf + index + 8, sizeof(high));
+        if (((low | high) & UINT64_C(0x8080808080808080)) == 0) {
+            Py_ssize_t start = index;
+            while (start > from && buf[start - 1] < 0x80) {
+                start--;
             }
+            return start + 1;
         }
+    }
+    return len;
+}
+
+/* The walk a disqualified Hebrew logical candidate keeps from start on: it scores nothing, but still counts the ASCII
+   punctuation after a Hebrew letter that the visual candidate's tiebreak needs, skipping bytes it cannot map. Kept out
+   of th_sb_feed_loop so a live candidate does not test for this on every byte. */
+static void th_sb_track_punctuation(th_sb_candidate *cand, const unsigned char *buf, Py_ssize_t start, Py_ssize_t len) {
+    const th_detect_single_byte *data = cand->data;
+    for (Py_ssize_t index = start; index < len; index++) {
+        unsigned char byte = buf[index];
         unsigned char cls = th_detect_classify(data, byte);
         if (cls == 255) {
-            cand->alive = 0;
-            if (track_logical_punctuation) {
-                continue;
-            }
-            return;
+            continue;
         }
         unsigned char caseless = cls & 0x7F;
         int ascii = byte < 0x80;
-        if (!cand->alive) {
-            if (!(cand->prev_ascii && ascii) && caseless == 0 && th_detect_is_non_latin(data, cand->prev, 0) &&
-                th_detect_is_ascii_punct(byte)) {
-                cand->plausible_punctuation++;
-            }
-            cand->prev_ascii = ascii;
-            cand->prev = caseless;
-            continue;
-        }
-        int non_latin = th_detect_is_non_latin(data, caseless, windows_1256);
-
-        if (cand->kind == TH_SB_LATIN || cand->kind == TH_SB_ARABIC_FRENCH) {
-            int ascii_pair =
-                cand->kind == TH_SB_LATIN ? (cand->prev_non_ascii == 0 && ascii) : (cand->prev_ascii && ascii);
-            if (cand->kind == TH_SB_LATIN) {
-                int64_t penalty = cand->prev_non_ascii <= 2   ? 0
-                                  : cand->prev_non_ascii == 3 ? -5
-                                  : cand->prev_non_ascii == 4 ? -20
-                                                              : -200;
-                cand->score += penalty;
-            }
-            int latin_alpha = cand->kind == TH_SB_LATIN ? (caseless > 0 && caseless < data->ascii + data->non_ascii)
-                                                        : (caseless == TH_DETECT_LATIN_LETTER);
-            if (!latin_alpha) {
-                cand->case_state = TH_LAT_SPACE;
-            } else if ((cls >> 7) == 0) {
-                if (cand->case_state == TH_LAT_ALLCAPS && !ascii_pair) {
-                    cand->score += TH_DETECT_IMPLAUSIBLE_LATIN_CASE_TRANSITION_PENALTY;
-                }
-                cand->case_state = TH_LAT_LOWER;
-            } else if (cand->case_state == TH_LAT_SPACE) {
-                cand->case_state = TH_LAT_UPPER;
-            } else if (cand->case_state == TH_LAT_LOWER) {
-                if (!ascii_pair) {
-                    cand->score += TH_DETECT_IMPLAUSIBLE_LATIN_CASE_TRANSITION_PENALTY;
-                }
-                cand->case_state = TH_LAT_UPPER;
-            } else {
-                cand->case_state = TH_LAT_ALLCAPS;
-            }
-            if (cand->kind == TH_SB_ARABIC_FRENCH) {
-                if (non_latin) {
-                    cand->current_word_len++;
-                } else {
-                    if (cand->current_word_len > cand->longest_word) {
-                        cand->longest_word = cand->current_word_len;
-                    }
-                    cand->current_word_len = 0;
-                }
-                if (!ascii_pair) {
-                    cand->score += th_detect_pair_score(data, caseless, cand->prev, 1);
-                    if (cand->prev == TH_DETECT_LATIN_LETTER && non_latin) {
-                        cand->score += TH_DETECT_LATIN_ADJACENCY_PENALTY;
-                    } else if (caseless == TH_DETECT_LATIN_LETTER && th_detect_is_non_latin(data, cand->prev, 1)) {
-                        cand->score += TH_DETECT_LATIN_ADJACENCY_PENALTY;
-                    }
-                }
-            } else {
-                int ascii_ish =
-                    ascii_pair || (ascii && cand->prev == 0) || (caseless == 0 && cand->prev_non_ascii == 0);
-                if (!ascii_ish) {
-                    cand->score += th_detect_pair_score(data, caseless, cand->prev, 0);
-                }
-                if (cand->windows_1252) {
-                    th_sb_ordinal(cand, byte, caseless);
-                }
-            }
-            if (cand->kind == TH_SB_LATIN) {
-                cand->prev_non_ascii = ascii ? 0 : cand->prev_non_ascii + 1;
-            } else {
-                cand->prev_ascii = ascii;
-            }
-            cand->prev = caseless;
-            continue;
-        }
-
-        /* The caseless/Hebrew/non-Latin-cased kinds share the word-length + adjacency
-           core; the case machine and punctuation bookkeeping differ. */
-        int ascii_pair = cand->prev_ascii && ascii;
-        if (cand->kind == TH_SB_NON_LATIN_CASED) {
-            if (caseless == TH_DETECT_LATIN_LETTER) {
-                cand->case_state = TH_NL_MIX;
-            } else if (!non_latin) {
-                if (cand->case_state == TH_NL_UPPERLOWER) {
-                    cand->score += TH_DETECT_NON_LATIN_CAPITALIZATION_BONUS;
-                } else if (cand->case_state == TH_NL_ALLCAPS && cand->koi8u) {
-                    cand->score += TH_DETECT_NON_LATIN_ALL_CAPS_PENALTY;
-                } else if (cand->case_state == TH_NL_MIX) {
-                    cand->score += TH_DETECT_NON_LATIN_MIXED_CASE_PENALTY * (int64_t)cand->current_word_len;
-                }
-                cand->case_state = TH_NL_SPACE;
-            } else if ((cls >> 7) == 0) {
-                if (cand->case_state == TH_NL_SPACE) {
-                    cand->case_state = TH_NL_LOWER;
-                } else if (cand->case_state == TH_NL_UPPER) {
-                    cand->case_state = TH_NL_UPPERLOWER;
-                } else if (cand->case_state == TH_NL_ALLCAPS) {
-                    cand->case_state = TH_NL_MIX;
-                }
-            } else if (cand->case_state == TH_NL_SPACE) {
-                cand->case_state = TH_NL_UPPER;
-            } else if (cand->case_state == TH_NL_UPPER) {
-                cand->case_state = TH_NL_ALLCAPS;
-            } else if (cand->case_state == TH_NL_LOWER || cand->case_state == TH_NL_UPPERLOWER) {
-                cand->case_state = TH_NL_MIX;
-            }
-        }
-
-        if (non_latin) {
-            cand->current_word_len++;
-        } else {
-            if (cand->current_word_len > cand->longest_word) {
-                cand->longest_word = cand->current_word_len;
-            }
-            cand->current_word_len = 0;
-        }
-
-        int is_a0 = byte == 0xA0;
-        if (!ascii_pair) {
-            int skip_ibm866 = cand->ibm866 && ((is_a0 && (cand->prev_was_a0 || cand->prev == 0)) ||
-                                               (caseless == 0 && cand->prev_was_a0));
-            if (!skip_ibm866) {
-                cand->score += th_detect_pair_score(data, caseless, cand->prev, 0);
-            }
-            int prev_non_latin = th_detect_is_non_latin(data, cand->prev, 0);
-            if (cand->kind == TH_SB_LOGICAL && caseless == 0 && prev_non_latin && th_detect_is_ascii_punct(byte)) {
-                cand->plausible_punctuation++;
-            } else if (cand->kind == TH_SB_VISUAL && non_latin && cand->prev_punctuation) {
-                cand->plausible_punctuation++;
-            }
-            if (cand->prev == TH_DETECT_LATIN_LETTER && non_latin) {
-                cand->score += TH_DETECT_LATIN_ADJACENCY_PENALTY;
-            } else if (caseless == TH_DETECT_LATIN_LETTER && prev_non_latin) {
-                cand->score += TH_DETECT_LATIN_ADJACENCY_PENALTY;
-            }
+        if (!(cand->prev_ascii && ascii) && caseless == 0 && th_detect_is_non_latin(data, cand->prev, 0) &&
+            th_detect_is_ascii_punct(byte)) {
+            cand->plausible_punctuation++;
         }
         cand->prev_ascii = ascii;
         cand->prev = caseless;
-        cand->prev_was_a0 = is_a0;
-        cand->prev_punctuation = caseless == 0 && th_detect_is_ascii_punct(byte);
     }
 }
 
-/* A feed under 64 bytes takes the loop without the skip probe: probing a short feed costs more than the skips save,
-   as a 24-byte detection shows. Both calls inline the same loop with skip_runs constant. */
-static void th_sb_feed(th_sb_candidate *cand, const unsigned char *buf, Py_ssize_t len, int track_logical_punctuation) {
+/* Feed the whole input to one single-byte candidate, accumulating its score or
+   disqualifying it on the first unmapped byte. Ports the per-kind feed methods. */
+static TH_HOT void th_sb_feed_loop(th_sb_candidate *cand, const unsigned char *buf, Py_ssize_t len,
+                                   int track_logical_punctuation, int skip_runs, const int kind) {
+    const th_detect_single_byte *data = cand->data;
+    int windows_1256 = kind == TH_SB_ARABIC_FRENCH;
+    if (!cand->alive) {
+        th_sb_track_punctuation(cand, buf, 0, len);
+        return;
+    }
+    Py_ssize_t jump_from = skip_runs ? th_sb_next_jump(buf, 0, len) : len;
+    Py_ssize_t index = 0;
+    /* The walk runs up to where a skip may start and takes it there, so the per-byte loop only tests its own bound. */
+    for (;;) {
+        for (; index < jump_from; index++) {
+            unsigned char byte = buf[index];
+            unsigned char cls = th_detect_classify(data, byte);
+            if (cls == 255) {
+                cand->alive = 0;
+                if (track_logical_punctuation) {
+                    th_sb_track_punctuation(cand, buf, index + 1, len);
+                }
+                return;
+            }
+            unsigned char caseless = cls & 0x7F;
+            int ascii = byte < 0x80;
+            int non_latin = th_detect_is_non_latin(data, caseless, windows_1256);
+
+            if (kind == TH_SB_LATIN || kind == TH_SB_ARABIC_FRENCH) {
+                int ascii_pair =
+                    kind == TH_SB_LATIN ? (cand->prev_non_ascii == 0 && ascii) : (cand->prev_ascii && ascii);
+                if (kind == TH_SB_LATIN) {
+                    int64_t penalty = cand->prev_non_ascii <= 2   ? 0
+                                      : cand->prev_non_ascii == 3 ? -5
+                                      : cand->prev_non_ascii == 4 ? -20
+                                                                  : -200;
+                    cand->score += penalty;
+                }
+                int latin_alpha = kind == TH_SB_LATIN ? (caseless > 0 && caseless < data->ascii + data->non_ascii)
+                                                      : (caseless == TH_DETECT_LATIN_LETTER);
+                if (!latin_alpha) {
+                    cand->case_state = TH_LAT_SPACE;
+                } else if ((cls >> 7) == 0) {
+                    if (cand->case_state == TH_LAT_ALLCAPS && !ascii_pair) {
+                        cand->score += TH_DETECT_IMPLAUSIBLE_LATIN_CASE_TRANSITION_PENALTY;
+                    }
+                    cand->case_state = TH_LAT_LOWER;
+                } else if (cand->case_state == TH_LAT_SPACE) {
+                    cand->case_state = TH_LAT_UPPER;
+                } else if (cand->case_state == TH_LAT_LOWER) {
+                    if (!ascii_pair) {
+                        cand->score += TH_DETECT_IMPLAUSIBLE_LATIN_CASE_TRANSITION_PENALTY;
+                    }
+                    cand->case_state = TH_LAT_UPPER;
+                } else {
+                    cand->case_state = TH_LAT_ALLCAPS;
+                }
+                if (kind == TH_SB_ARABIC_FRENCH) {
+                    if (non_latin) {
+                        cand->current_word_len++;
+                    } else {
+                        if (cand->current_word_len > cand->longest_word) {
+                            cand->longest_word = cand->current_word_len;
+                        }
+                        cand->current_word_len = 0;
+                    }
+                    if (!ascii_pair) {
+                        cand->score += th_detect_pair_score(data, caseless, cand->prev, 1);
+                        if (cand->prev == TH_DETECT_LATIN_LETTER && non_latin) {
+                            cand->score += TH_DETECT_LATIN_ADJACENCY_PENALTY;
+                        } else if (caseless == TH_DETECT_LATIN_LETTER && th_detect_is_non_latin(data, cand->prev, 1)) {
+                            cand->score += TH_DETECT_LATIN_ADJACENCY_PENALTY;
+                        }
+                    }
+                } else {
+                    int ascii_ish =
+                        ascii_pair || (ascii && cand->prev == 0) || (caseless == 0 && cand->prev_non_ascii == 0);
+                    if (!ascii_ish) {
+                        cand->score += th_detect_pair_score(data, caseless, cand->prev, 0);
+                    }
+                    if (cand->windows_1252) {
+                        th_sb_ordinal(cand, byte, caseless);
+                    }
+                }
+                if (kind == TH_SB_LATIN) {
+                    cand->prev_non_ascii = ascii ? 0 : cand->prev_non_ascii + 1;
+                } else {
+                    cand->prev_ascii = ascii;
+                }
+                cand->prev = caseless;
+                continue;
+            }
+
+            /* The caseless/Hebrew/non-Latin-cased kinds share the word-length + adjacency
+               core; the case machine and punctuation bookkeeping differ. */
+            int ascii_pair = cand->prev_ascii && ascii;
+            if (kind == TH_SB_NON_LATIN_CASED) {
+                if (caseless == TH_DETECT_LATIN_LETTER) {
+                    cand->case_state = TH_NL_MIX;
+                } else if (!non_latin) {
+                    if (cand->case_state == TH_NL_UPPERLOWER) {
+                        cand->score += TH_DETECT_NON_LATIN_CAPITALIZATION_BONUS;
+                    } else if (cand->case_state == TH_NL_ALLCAPS && cand->koi8u) {
+                        cand->score += TH_DETECT_NON_LATIN_ALL_CAPS_PENALTY;
+                    } else if (cand->case_state == TH_NL_MIX) {
+                        cand->score += TH_DETECT_NON_LATIN_MIXED_CASE_PENALTY * (int64_t)cand->current_word_len;
+                    }
+                    cand->case_state = TH_NL_SPACE;
+                } else if ((cls >> 7) == 0) {
+                    if (cand->case_state == TH_NL_SPACE) {
+                        cand->case_state = TH_NL_LOWER;
+                    } else if (cand->case_state == TH_NL_UPPER) {
+                        cand->case_state = TH_NL_UPPERLOWER;
+                    } else if (cand->case_state == TH_NL_ALLCAPS) {
+                        cand->case_state = TH_NL_MIX;
+                    }
+                } else if (cand->case_state == TH_NL_SPACE) {
+                    cand->case_state = TH_NL_UPPER;
+                } else if (cand->case_state == TH_NL_UPPER) {
+                    cand->case_state = TH_NL_ALLCAPS;
+                } else if (cand->case_state == TH_NL_LOWER || cand->case_state == TH_NL_UPPERLOWER) {
+                    cand->case_state = TH_NL_MIX;
+                }
+            }
+
+            if (non_latin) {
+                cand->current_word_len++;
+            } else {
+                if (cand->current_word_len > cand->longest_word) {
+                    cand->longest_word = cand->current_word_len;
+                }
+                cand->current_word_len = 0;
+            }
+
+            int is_a0 = byte == 0xA0;
+            if (!ascii_pair) {
+                int skip_ibm866 = cand->ibm866 && ((is_a0 && (cand->prev_was_a0 || cand->prev == 0)) ||
+                                                   (caseless == 0 && cand->prev_was_a0));
+                if (!skip_ibm866) {
+                    cand->score += th_detect_pair_score(data, caseless, cand->prev, 0);
+                }
+                int prev_non_latin = th_detect_is_non_latin(data, cand->prev, 0);
+                if (kind == TH_SB_LOGICAL && caseless == 0 && prev_non_latin && th_detect_is_ascii_punct(byte)) {
+                    cand->plausible_punctuation++;
+                } else if (kind == TH_SB_VISUAL && non_latin && cand->prev_punctuation) {
+                    cand->plausible_punctuation++;
+                }
+                if (cand->prev == TH_DETECT_LATIN_LETTER && non_latin) {
+                    cand->score += TH_DETECT_LATIN_ADJACENCY_PENALTY;
+                } else if (caseless == TH_DETECT_LATIN_LETTER && prev_non_latin) {
+                    cand->score += TH_DETECT_LATIN_ADJACENCY_PENALTY;
+                }
+            }
+            cand->prev_ascii = ascii;
+            cand->prev = caseless;
+            cand->prev_was_a0 = is_a0;
+            cand->prev_punctuation = caseless == 0 && th_detect_is_ascii_punct(byte);
+        }
+        if (jump_from == len) {
+            return;
+        }
+        Py_ssize_t run_end = index + th_decode_ascii_run(buf + index, len - index);
+        Py_ssize_t space = run_end - index >= 16 ? th_sb_last_space(buf, index, run_end) : -1;
+        if (space >= 0) {
+            th_sb_skip_to_space(cand, data);
+            index = space + 1;
+        }
+        jump_from = th_sb_next_jump(buf, run_end, len);
+    }
+}
+
+/* Whether buf has an ASCII run long enough for the run skip to pay off: two adjacent all-ASCII words at an 8-byte
+   stride, which every run of 24 bytes holds. The answer is the same for every candidate, so the caller asks once; a
+   feed without such a run, short or mostly non-ASCII like Cyrillic or Greek text, then takes the loop without the
+   per-byte skip check, which costs every candidate on every byte. Missing a shorter run only forgoes a skip. */
+static int th_sb_skippable(const unsigned char *buf, Py_ssize_t len) {
+    if (len < 64) {
+        return 0;
+    }
+    int previous = 0;
+    for (Py_ssize_t index = 0; index + 8 <= len; index += 8) {
+        uint64_t word;
+        memcpy(&word, buf + index, sizeof(word));
+        int ascii = (word & UINT64_C(0x8080808080808080)) == 0;
+        if (previous && ascii) {
+            return 1;
+        }
+        previous = ascii;
+    }
+    return 0;
+}
+
+/* Each kind gets its own copy of the loop with the kind constant, so a candidate's walk carries none of the other
+   kinds' branches; a feed th_sb_skippable rules out does not look for skips at all. */
+static void th_sb_feed(th_sb_candidate *cand, const unsigned char *buf, Py_ssize_t len, int track_logical_punctuation,
+                       int skippable) {
     /* A viable visual candidate still needs punctuation from a disqualified logical candidate. */
     if (!cand->alive && !track_logical_punctuation) {
         return;
     }
-    if (len >= 64) {
-        th_sb_feed_loop(cand, buf, len, track_logical_punctuation, 1);
-    } else {
-        th_sb_feed_loop(cand, buf, len, track_logical_punctuation, 0);
+    switch (cand->kind) {
+    case TH_SB_LATIN:
+        th_sb_feed_loop(cand, buf, len, track_logical_punctuation, skippable, TH_SB_LATIN);
+        break;
+    case TH_SB_NON_LATIN_CASED:
+        th_sb_feed_loop(cand, buf, len, track_logical_punctuation, skippable, TH_SB_NON_LATIN_CASED);
+        break;
+    case TH_SB_ARABIC_FRENCH:
+        th_sb_feed_loop(cand, buf, len, track_logical_punctuation, skippable, TH_SB_ARABIC_FRENCH);
+        break;
+    case TH_SB_CASELESS:
+        th_sb_feed_loop(cand, buf, len, track_logical_punctuation, skippable, TH_SB_CASELESS);
+        break;
+    case TH_SB_LOGICAL:
+        th_sb_feed_loop(cand, buf, len, track_logical_punctuation, skippable, TH_SB_LOGICAL);
+        break;
+    default:
+        th_sb_feed_loop(cand, buf, len, track_logical_punctuation, skippable, TH_SB_VISUAL);
+        break;
     }
 }
 /* NOLINTEND(bugprone-branch-clone) */
@@ -624,7 +702,7 @@ static void th_sb_feed(th_sb_candidate *cand, const unsigned char *buf, Py_ssize
    copyright sign that runs up against EOF still reaches the word-boundary arms of its scorer. Without it a Cyrillic
    word loses its capitalization bonus and windows-1251 loses to GBK on the bare word "Привет". */
 static void th_sb_feed_eof(th_sb_candidate *cand, int track_logical_punctuation) {
-    th_sb_feed(cand, (const unsigned char *)" ", 1, track_logical_punctuation);
+    th_sb_feed(cand, (const unsigned char *)" ", 1, track_logical_punctuation, 0);
 }
 
 /* The single-byte candidate set, in chardetng's index order so ties resolve the
@@ -1747,9 +1825,10 @@ static TH_HOT void th_detect_candidates_feed(th_detect_stream *stream, const uns
     for (int slot = 0; slot < 5; slot++) {
         th_cjk_feed(&stream->cjk[slot], buf, len, final);
     }
-    th_sb_feed(&stream->visual, buf, len, 0);
+    int skippable = th_sb_skippable(buf, len);
+    th_sb_feed(&stream->visual, buf, len, 0, skippable);
     for (int slot = 0; slot < TH_SB_COUNT; slot++) {
-        th_sb_feed(&stream->sb[slot], buf, len, slot == TH_SB_LOGICAL_SLOT && stream->visual.alive);
+        th_sb_feed(&stream->sb[slot], buf, len, slot == TH_SB_LOGICAL_SLOT && stream->visual.alive, skippable);
     }
     if (final) {
         for (int slot = 0; slot < TH_SB_COUNT; slot++) {
