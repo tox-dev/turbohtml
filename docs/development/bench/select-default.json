@@ -10,89 +10,89 @@
   "rows": [
     [
       "4 forms, 4096 spans, 128 buttons, :default",
-      8.155036722238644e-05,
+      0.00011274748214873398,
       "SoupSieve requires explicit type=submit for default buttons",
       "SoupSieve requires explicit type=submit for default buttons",
       "SoupSieve requires explicit type=submit for default buttons"
     ],
     [
       "24 forms, 512 spans, 64 buttons, :default",
-      7.142056376115609e-05,
+      6.562208945221452e-05,
       "SoupSieve requires explicit type=submit for default buttons",
       "SoupSieve requires explicit type=submit for default buttons",
       "SoupSieve requires explicit type=submit for default buttons"
     ],
     [
       "1024 forms, 8 spans, 4 buttons, :default",
-      7.437714955358388e-05,
+      7.305612546749292e-05,
       "SoupSieve requires explicit type=submit for default buttons",
       "SoupSieve requires explicit type=submit for default buttons",
       "SoupSieve requires explicit type=submit for default buttons"
     ],
     [
       "2560 forms, 0 spans, 1 buttons, :default",
-      4.489401378175254e-05,
+      4.240320011372016e-05,
       "SoupSieve requires explicit type=submit for default buttons",
       "SoupSieve requires explicit type=submit for default buttons",
       "SoupSieve requires explicit type=submit for default buttons"
     ],
     [
       "1 forms, 4096 spans, 128 buttons, button",
-      4.636730359024455e-05,
-      0.16284419803414493,
-      0.11208932707183218,
-      0.11483703374882073
+      4.223756877313652e-05,
+      0.12138554649815585,
+      0.1523933956642092,
+      0.1364139579925298
     ],
     [
       "4 forms, 4096 spans, 128 explicit submit buttons",
-      0.00010962653867115553,
-      0.07198038680653554,
-      0.07050541647574088,
-      0.06888290467807869
+      8.226784851738482e-05,
+      0.08029394858410038,
+      0.07552612408908317,
+      0.09546211538254283
     ]
   ],
   "spread": [
     [
       null,
-      0.02624947530546119,
+      0.08888992031430601,
       null,
       null,
       null
     ],
     [
       null,
-      0.11312525307305916,
+      0.1169566397994087,
       null,
       null,
       null
     ],
     [
       null,
-      0.30155071240511067,
+      0.15129208608128433,
       null,
       null,
       null
     ],
     [
       null,
-      0.037848823979168264,
+      0.016907528242723475,
       null,
       null,
       null
     ],
     [
       null,
-      0.07607716315550442,
-      0.16340813873331994,
-      0.019280498867421933,
-      0.06101143308666418
+      0.02425018629146815,
+      0.16606318247593907,
+      0.269117921285683,
+      0.14116877601060307
     ],
     [
       null,
-      0.09536853053990942,
-      0.13692657173855302,
-      0.04594741488387009,
-      0.039607550671547836
+      0.020414513213095665,
+      0.12936087171978333,
+      0.13635159827999774,
+      0.1465365108634008
     ]
   ],
   "notes": {}

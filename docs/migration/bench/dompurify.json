@@ -8,111 +8,111 @@
   "rows": [
     [
       "sanitize (template-safe) — templated 4 KiB",
-      3.163507840990102e-05,
-      0.2888042014092207
-    ],
-    [
-      "sanitize (named-prop isolation) — clobbering 4 KiB",
-      3.868529249947036e-05,
-      0.42302771859491867
-    ],
-    [
-      "sanitize (custom elements) — custom 4 KiB",
-      5.227134696876116e-05,
-      0.4051728299818933
+      3.924719445862479e-05,
+      0.40515520274833156
     ],
     [
       "sanitize (template-safe) — plain 64 KiB text",
-      7.719591779202044e-05,
-      0.26205623264346894
+      4.363759575885713e-05,
+      0.42194163498740334
     ],
     [
       "sanitize (template-safe) — plain 64 KiB attribute",
-      0.00016243971087230116,
-      0.24195330908211568
+      9.853337919878414e-05,
+      0.37856587049997564
     ],
     [
       "sanitize (template-safe) — late template in 64 KiB text",
-      8.382760108816001e-05,
-      0.2499945103772916
+      0.00012790906018930552,
+      0.41504704201846226
+    ],
+    [
+      "sanitize (named-prop isolation) — clobbering 4 KiB",
+      3.169522441410777e-05,
+      0.3856238528979399
     ],
     [
       "sanitize attribute allowlists — 1024 rejected attributes",
-      6.839952595782961e-05,
-      0.24678297228335092
+      6.799409061576019e-05,
+      0.4303861677685442
     ],
     [
       "sanitize attribute allowlists — 1024 allowed attributes",
-      0.00011972109983086436,
-      0.2483603679963077
+      0.0001147671349428947,
+      0.4094438285984021
     ],
     [
-      "sanitize attribute allowlists — four allowed attributes",
-      1.2557918759685076e-06,
-      0.23604699664671594
+      "sanitize attribute allowlists — 112 elements with four allowed attributes",
+      4.72432749309822e-05,
+      0.41614058933531245
     ],
     [
       "sanitize attribute allowlists — 256 elements with four allowed attributes",
-      8.751180180865958e-05,
-      0.25713804143015295
+      9.300461181709352e-05,
+      0.4435282738500973
+    ],
+    [
+      "sanitize (custom elements) — custom 4 KiB",
+      4.8780701164711596e-05,
+      0.41764420755789616
     ]
   ],
   "spread": [
     [
       null,
-      0.0192845960462544,
-      0.23382987812584138
+      0.1340222371682505,
+      0.0540372046229716
     ],
     [
       null,
-      0.048713116935219784,
-      0.11940096227364694
+      0.13414468427118695,
+      0.07485905653540259
     ],
     [
       null,
-      0.0396668302574802,
-      0.06365377101405542
+      0.10926730770968121,
+      0.031971740263389024
     ],
     [
       null,
-      0.012597835354968152,
-      0.0633527667614407
+      0.10761729676762287,
+      0.03567185803150699
     ],
     [
       null,
-      0.01618634093116919,
-      0.02530458210820494
+      0.1781704830642422,
+      0.01896486462567026
     ],
     [
       null,
-      0.012628720661379213,
-      0.006256659921553562
+      0.027344913108604044,
+      0.07177717032907227
     ],
     [
       null,
-      0.009813155084762411,
-      0.006753935876620346
+      0.05551499219588156,
+      0.03589924300402622
     ],
     [
       null,
-      0.022621336059425786,
-      0.021856438050513217
+      0.1842783922553306,
+      0.10703854966739082
     ],
     [
       null,
-      0.013133805043872586,
-      0.037501530499620704
+      0.0450502162472184,
+      0.08535988861314255
     ],
     [
       null,
-      0.01913532033632034,
-      0.05942314007188881
+      0.050113363384912436,
+      0.07932444357074465
     ]
   ],
   "row_notes": {
+    "5": "includes Node startup and pipe I/O; not in-process JavaScript engine timing",
     "6": "includes Node startup and pipe I/O; not in-process JavaScript engine timing",
     "7": "includes Node startup and pipe I/O; not in-process JavaScript engine timing",
-    "8": "includes Node startup and pipe I/O; not in-process JavaScript engine timing",
-    "9": "includes Node startup and pipe I/O; not in-process JavaScript engine timing"
+    "8": "includes Node startup and pipe I/O; not in-process JavaScript engine timing"
   }
 }
