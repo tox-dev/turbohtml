@@ -1370,6 +1370,58 @@ def test_text_preserves_unicode(text: str) -> None:
     assert (child.text, parent.text, parent.serialize(inner=True)) == (text, text, text)
 
 
+_LONG_ASCII: Final[str] = "plain words " * 60
+_LONG_LATIN1: Final[str] = "café crème " * 60
+_LONG_BMP: Final[str] = "雪の日 " * 200
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param(f"<p>{_LONG_ASCII}</p>", [_LONG_ASCII], id="ascii-input"),
+        pytest.param(f"<p>{_LONG_ASCII}</p><i>é</i>", [_LONG_ASCII, "é"], id="ascii-text-latin1-input"),
+        pytest.param(f"<p>{_LONG_LATIN1}</p>", [_LONG_LATIN1], id="latin1-text"),
+        pytest.param(f"<p>{_LONG_ASCII * 2}é</p>", [f"{_LONG_ASCII * 2}é"], id="latin1-past-first-block"),
+        pytest.param(f"<p>ab</p><i>{_LONG_ASCII}</i>", ["ab", _LONG_ASCII], id="short-text-long-ascii-input"),
+        pytest.param(f"<p>{_LONG_ASCII}</p><i>雪</i>", [_LONG_ASCII, "雪"], id="ascii-text-bmp-input"),
+        pytest.param(f"<p>{_LONG_LATIN1}</p><i>雪</i>", [_LONG_LATIN1, "雪"], id="latin1-text-bmp-input"),
+        pytest.param(f"<p>{_LONG_BMP}</p>", [_LONG_BMP], id="bmp-text"),
+        pytest.param(f"<p>{_LONG_ASCII}</p><i>😀</i>", [_LONG_ASCII, "😀"], id="ascii-text-astral-input"),
+        pytest.param(f"<p>{_LONG_BMP}</p><i>😀</i>", [_LONG_BMP, "😀"], id="bmp-text-astral-input"),
+        pytest.param(f"<p>{_LONG_BMP}😀</p>", [f"{_LONG_BMP}😀"], id="astral-past-first-block"),
+        pytest.param(f"<p>{_LONG_ASCII}\r\n</p>", [f"{_LONG_ASCII}\n"], id="realized-copy"),
+    ],
+)
+def test_text_of_one_text_descendant_takes_the_narrowest_width(html: str, expected: list[str]) -> None:
+    document: Final[Document] = parse(html)
+    texts: Final[list[str]] = [element.text for element in cast("Element", document.find("body")).children]
+    # a str stored wider than its characters need compares unequal to the same characters stored canonically
+    assert (texts, [text.encode().decode() for text in texts]) == (expected, expected)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("ascii", id="ascii"),
+        pytest.param("é", id="latin1"),
+        pytest.param("雪", id="bmp"),
+        pytest.param("😀", id="astral"),
+    ],
+)
+def test_text_of_a_rewritten_text_descendant_takes_the_narrowest_width(text: str) -> None:
+    document: Final[Document] = parse("<p>old</p>")
+    element: Final[Element] = cast("Element", document.find("p"))
+    element.text = text
+    assert (element.text, element.text.encode().decode()) == (text, text)
+
+
+def test_text_of_a_streamed_text_descendant_matches_a_one_shot_parse() -> None:
+    parser: Final[IncrementalParser] = IncrementalParser()
+    parser.feed(f"<p>{_LONG_ASCII}")
+    parser.feed(f"{_LONG_ASCII}</p>")
+    assert parser.close().text == parse(f"<p>{_LONG_ASCII * 2}</p>").text
+
+
 @pytest.mark.parametrize(
     ("node", "expected"),
     [

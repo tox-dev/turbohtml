@@ -147,6 +147,7 @@ struct th_tree {
     size_t afe_hash_count, afe_hash_capacity;
     uint8_t afe_hash_valid;
     uint8_t seq_wrapped; /* node_seq has wrapped to 0: a seq no longer numbers one node of the tree */
+    int8_t source_ascii; /* data[0:length] is ASCII (1) or not (-1); 0 until a text read first needs it */
     uint32_t node_seq;   /* next value for node_new to stamp onto th_node::seq; fills the
                             padding after afe_hash_valid so th_tree stays <= 512 bytes */
     Py_ssize_t afe_cap;
