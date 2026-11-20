@@ -233,6 +233,16 @@ static void css_normalize_position_run(css_buf *pool, pos_val *vals, Py_ssize_t 
             }
             pos++;
         }
+        /* a lone top or bottom keyword centers the other axis, and is shorter than the offsets it stands for */
+        if (count == 2 && css_run_ieq(pool->data + vals[0].off, vals[0].len, "50%")) {
+            if (css_run_ieq(pool->data + vals[1].off, vals[1].len, "0")) {
+                css_pv_set(pool, &vals[0], PVK_IDENT, "top", PVI_TOP);
+                count = 1;
+            } else if (css_run_ieq(pool->data + vals[1].off, vals[1].len, "100%")) {
+                css_pv_set(pool, &vals[0], PVK_IDENT, "bottom", PVI_BOTTOM);
+                count = 1;
+            }
+        }
     }
     *count_io = count;
 }
@@ -315,6 +325,32 @@ static void css_handle_background_position(css_buf *pool, comp_vec *comps) {
     *comps = result;
 }
 
+/* transform-origin and perspective-origin take a background-position of one or two values (Transforms 2 §6), and
+   transform-origin a <length> z offset after it, whose 0 default can go. Their keywords compute to the same
+   percentages, so the background-position offsets stand for them. The three- and four-value forms with edge offsets
+   are not part of their grammar, so a longer value stays as written, keeping an invalid one invalid. */
+static void css_handle_origin(css_buf *pool, comp_vec *comps, int depth) {
+    for (Py_ssize_t index = 0; index < comps->len; index++) {
+        css_compkind kind = comps->items[index].kind;
+        if (kind != CK_IDENT && kind != CK_NUM && kind != CK_DIM) {
+            return;
+        }
+    }
+    Py_ssize_t count = comps->len;
+    /* rendering writes a zero length as 0 and keeps the unit of a zero <angle> or percentage, which is no z offset:
+       dropping one of those would make the value valid */
+    if (depth && count == 3 && comp_ieq(pool, &comps->items[2], "0")) {
+        count = 2;
+    }
+    if (count > 2) {
+        return;
+    }
+    pos_val run[2];
+    Py_ssize_t resolved = css_position_run(pool, comps->items, count, run);
+    comps->len = 0;
+    css_emit_position_run(comps, run, resolved);
+}
+
 /* Replace vec[at, at+remove) with the add_count components from add (which must not alias vec). Every call site
    replaces a run with no more components than it removes -- minification never expands a value -- so this only ever
    shrinks or rewrites in place and never has to grow the backing store. */
@@ -335,6 +371,101 @@ static int css_func_name_is(css_buf *pool, const css_comp *comp, const char *nam
         return 0;
     }
     return css_run_ieq(pool->data + comp->off, css_func_name_len(pool, comp), name);
+}
+
+static int css_is_substitution(css_buf *pool, const css_comp *comp) {
+    return css_func_name_is(pool, comp, "var") || css_func_name_is(pool, comp, "env") ||
+           css_func_name_is(pool, comp, "attr");
+}
+
+/* Drop the initial outside and disc from a list-style (Lists 3 §3.1). Browsers fill its slots in longhand order,
+   position, image, type, and a type may be any counter style name, outside included. So an outside goes only when no
+   other component names a position, where it could not have claimed the slot from one, and a disc only when the rest
+   are positions or images, which leaves no component that could take the type it frees. A CSS-wide keyword or a
+   substitution function keeps the value as written, since dropping either keyword could make an invalid one valid. */
+static void css_handle_list_style(css_buf *pool, comp_vec *comps) {
+    Py_ssize_t outside = -1;
+    Py_ssize_t disc = -1;
+    int positions = 0;
+    int typed = 0;
+    for (Py_ssize_t index = 0; index < comps->len; index++) {
+        const css_comp *comp = &comps->items[index];
+        if (comp->kind == CK_SEP || css_is_substitution(pool, comp) ||
+            (comp->kind == CK_IDENT && css_box_is_wide_keyword(pool, comp))) {
+            return;
+        }
+        if (comp->kind == CK_IDENT && (comp_ieq(pool, comp, "outside") || comp_ieq(pool, comp, "inside"))) {
+            positions++;
+            outside = comp_ieq(pool, comp, "outside") ? index : outside;
+        } else if (comp->kind == CK_IDENT && comp_ieq(pool, comp, "disc")) {
+            disc = index;
+            typed++;
+        } else if (comp->kind != CK_URL) {
+            typed++;
+        }
+    }
+    Py_ssize_t kept = comps->len;
+    int drop_outside = kept > 1 && positions == 1 && outside >= 0;
+    kept -= drop_outside;
+    int drop_disc = kept > 1 && disc >= 0 && typed == 1;
+    if (drop_disc) {
+        comp_vec_splice(comps, disc, 1, NULL, 0);
+    }
+    if (drop_outside) {
+        comp_vec_splice(comps, outside - (drop_disc && disc < outside), 1, NULL, 0);
+    }
+}
+
+static int css_is_easing(css_buf *pool, const css_comp *comp) {
+    if (comp->kind == CK_FUNC) {
+        Py_ssize_t name_len = css_func_name_len(pool, comp);
+        const css_char *name = pool->data + comp->off;
+        return css_run_ieq(name, name_len, "cubic-bezier") || css_run_ieq(name, name_len, "steps") ||
+               css_run_ieq(name, name_len, "linear");
+    }
+    static const char *const keywords[] = {"ease",        "linear",     "ease-in", "ease-out",
+                                           "ease-in-out", "step-start", "step-end"};
+    return comp->kind == CK_IDENT &&
+           css_prop_in(pool->data + comp->off, comp->len, keywords, sizeof(keywords) / sizeof(keywords[0]));
+}
+
+/* Drop the ease of a transition layer, the initial timing function its shorthand resets to anyway (Transitions 1 §2.5).
+   Browsers fill the slots in longhand order, property first, so an ease that leads its layer names the transitioned
+   property, and one only goes when an identifier before it claims that slot and no other timing function competes for
+   its own. A substitution function may expand to a second timing function, and a CSS-wide keyword makes the layer
+   invalid, so either keeps the value as written: dropping the ease could make it valid. */
+static void css_handle_transition(css_buf *pool, comp_vec *comps) {
+    for (Py_ssize_t index = 0; index < comps->len; index++) {
+        const css_comp *comp = &comps->items[index];
+        if (css_is_substitution(pool, comp) || (comp->kind == CK_IDENT && css_box_is_wide_keyword(pool, comp))) {
+            return;
+        }
+    }
+    Py_ssize_t start = 0;
+    Py_ssize_t write = 0;
+    for (Py_ssize_t index = 0; index <= comps->len; index++) {
+        if (index < comps->len && comps->items[index].kind != CK_SEP) {
+            continue;
+        }
+        Py_ssize_t ease = -1;
+        int easings = 0;
+        for (Py_ssize_t at = start; at < index; at++) {
+            if (css_is_easing(pool, &comps->items[at])) {
+                easings++;
+                ease = comp_ieq(pool, &comps->items[at], "ease") ? at : ease;
+            }
+        }
+        const css_comp *lead = &comps->items[start];
+        int drop = easings == 1 && ease > start && lead->kind == CK_IDENT && !comp_ieq(pool, lead, "normal") &&
+                   !comp_ieq(pool, lead, "allow-discrete");
+        for (Py_ssize_t at = start; at <= index && at < comps->len; at++) {
+            if (!(drop && at == ease)) {
+                comps->items[write++] = comps->items[at];
+            }
+        }
+        start = index + 1;
+    }
+    comps->len = write;
 }
 
 static int css_comp_is_lp(css_buf *pool, const css_comp *comp) {
@@ -1083,6 +1214,20 @@ static void css_apply_handler(css_buf *pool, const css_char *prop, Py_ssize_t pr
         css_handle_background(pool, comps);
     } else if (css_run_ieq_first(prop, prop_len, first, "background-position")) {
         css_handle_background_position(pool, comps);
+    } else if ((prop_len == 16 && css_run_ieq_first(prop, prop_len, first, "transform-origin")) ||
+               (prop_len == 24 && css_run_ieq_first(prop, prop_len, first, "-webkit-transform-origin"))) {
+        css_handle_origin(pool, comps, 1);
+    } else if ((prop_len == 18 && css_run_ieq_first(prop, prop_len, first, "perspective-origin")) ||
+               (prop_len == 26 && css_run_ieq_first(prop, prop_len, first, "-webkit-perspective-origin"))) {
+        css_handle_origin(pool, comps, 0);
+    } else if ((prop_len == 10 && css_run_ieq_first(prop, prop_len, first, "transition")) ||
+               (prop_len == 18 && css_run_ieq_first(prop, prop_len, first, "-webkit-transition")) ||
+               (prop_len == 15 && css_run_ieq_first(prop, prop_len, first, "-moz-transition")) ||
+               (prop_len == 13 && css_run_ieq_first(prop, prop_len, first, "-o-transition"))) {
+        /* the length checks skip the compares for the -webkit- and transform names that share a first letter */
+        css_handle_transition(pool, comps);
+    } else if (prop_len == 10 && css_run_ieq_first(prop, prop_len, first, "list-style")) {
+        css_handle_list_style(pool, comps);
     } else if (css_run_ieq_first(prop, prop_len, first, "background-repeat")) {
         css_handle_runs(pool, comps, css_collapse_repeat_run);
     } else if (css_run_ieq_first(prop, prop_len, first, "background-size")) {

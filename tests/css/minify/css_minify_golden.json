@@ -472,7 +472,7 @@
 [
 "background-position:center bottom",
 "background-position:center bottom",
-"background-position:50% 100%"
+"background-position:bottom"
 ],
 [
 "background-position:top right",
@@ -487,12 +487,12 @@
 [
 "background-position:top center",
 "background-position:top center",
-"background-position:50% 0"
+"background-position:top"
 ],
 [
 "background-position:bottom center",
 "background-position:bottom center",
-"background-position:50% 100%"
+"background-position:bottom"
 ],
 [
 "background-position:center left",
@@ -3316,8 +3316,8 @@
 ],
 [
 "a{background-position:center top}",
-"a{background-position:50% 0}",
-"a{background-position:50% 0}"
+"a{background-position:top}",
+"a{background-position:top}"
 ],
 [
 "a{background-position:top left}",

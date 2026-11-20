@@ -465,7 +465,22 @@ Shorthands
   <https://www.w3.org/TR/css-backgrounds-3/#backgrounds>`__), ``flex`` (`Flexbox 1 §7.1.1
   <https://www.w3.org/TR/css-flexbox-1/#flex-property>`__) and ``font`` (`Fonts 4 §2.7
   <https://www.w3.org/TR/css-fonts-4/#font-prop>`__) shorthands to their shortest equivalent form. ``a{font:bold 12px
-  x}`` → ``a{font:700 12px x}``.
+  x}`` → ``a{font:700 12px x}``. A position offset of ``50%`` with a ``0`` or ``100%`` beside it becomes the ``top`` or
+  ``bottom`` keyword that centers the other axis: ``a{background-position:center bottom}`` →
+  ``a{background-position:bottom}``.
+- Write a one- or two-value ``transform-origin`` or ``perspective-origin`` as ``background-position`` offsets, which its
+  keywords compute to, and drop a zero z offset from ``transform-origin`` (`Transforms 2 §6
+  <https://www.w3.org/TR/css-transforms-2/#transform-origin-property>`__). ``a{transform-origin:center bottom 0}`` →
+  ``a{transform-origin:bottom}``. A three-value form with a nonzero z offset stays as written.
+- Drop ``ease``, the initial timing function, from a ``transition`` layer that names its property first (`Transitions 1
+  §2.5 <https://www.w3.org/TR/css-transitions-1/#transition-shorthand-property>`__): ``a{transition:opacity .6s ease}``
+  → ``a{transition:opacity .6s}``. A layer that leads with ``ease`` keeps it, since a browser reads a leading identifier
+  as the transitioned property, and ``animation`` keeps its ``ease``, which could become the animation name.
+- Drop the initial ``outside`` and ``disc`` from ``list-style`` (`Lists 3 §3.1
+  <https://www.w3.org/TR/css-lists-3/#list-style-property>`__): ``a{list-style:disc outside}`` → ``a{list-style:disc}``,
+  ``a{list-style:url(a) outside disc}`` → ``a{list-style:url(a)}``. A list type may be any counter style name, so
+  ``outside`` stays beside ``inside`` or another ``outside``, and ``disc`` stays beside any component that could name
+  the type in its place, ``none`` included.
 - Merge ``flex-direction`` + ``flex-wrap`` into ``flex-flow``, and each Box Alignment axis pair into its ``place-``
   shorthand -- ``align-content`` + ``justify-content`` into ``place-content``, ``align-items`` + ``justify-items`` into
   ``place-items``, and ``align-self`` + ``justify-self`` into ``place-self`` (`Box Alignment 3
