@@ -1857,7 +1857,9 @@ static int str_concat(xp_ctx *ctx, const xp_result *arg, xp_result *out) {
 /* A member's string-value where it already sits, in the width it is stored at: a text or comment, the text a
    single-child chain of elements ends in, or an attribute value. 0 when it has to be built. */
 static inline int concat_item_chars(th_tree *tree, xp_item item, const void **chars, int *kind, Py_ssize_t *len) {
+    *chars = NULL;
     *kind = PyUnicode_4BYTE_KIND;
+    *len = 0;
     if (item.attr == -2) {
         return 0;
     }
