@@ -1687,6 +1687,23 @@ def test_minimal_formatter_stream_escapes_quote_in_attribute() -> None:
     assert "".join(link.serialize_iter(Html(formatter=Formatter.MINIMAL))) == _QUOTED_TITLE_LINK
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param("ab", "ab", id="ascii"),
+        pytest.param("caf\xe9 " * 64, "caf&eacute; " * 64, id="latin1-outgrows-twice-the-input"),
+        pytest.param("\u03b1\u2211" * 64, "&alpha;&sum;" * 64, id="wide"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("layout", "tail"),
+    [pytest.param(None, "</p></body></html>", id="compact"), pytest.param(Minify(), "", id="minify")],
+)
+def test_named_entities_serialize_whole_document(text: str, expected: str, layout: Minify | None, tail: str) -> None:
+    html = parse(f"<p>{text}</p>").serialize(Html(layout=layout, formatter=Formatter.NAMED_ENTITIES))
+    assert html.endswith(f"<p>{expected}{tail}")
+
+
 def test_named_entities_reparse_to_the_same_text() -> None:
     text: Final[str] = f"{''.join(chr(codepoint) for codepoint in sorted(codepoint2name))}⟨⟩"
     node: Final[Element] = Element("p", children=[Text(text)])

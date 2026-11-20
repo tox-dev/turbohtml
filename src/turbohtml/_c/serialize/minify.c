@@ -1188,7 +1188,7 @@ Py_UCS4 *th_node_minify(th_tree *tree, th_node *node, const th_minify_opts *mini
     th_serialize_opts context = *opts;
     th_xml_unwrap unwrap = {.spend = {0, 0, TH_XML_NS_BASE}};
     context.xml_unwrap = &unwrap; /* markup inside a raw-text element goes through the XML walk under xml */
-    sbuf_presize_for_root(&out, tree, node);
+    sbuf_presize_for_markup(&out, tree, node, opts->formatter);
     if (!opts->inner || node->type == TH_NODE_ELEMENT || node->type == TH_NODE_DOCUMENT ||
         node->type == TH_NODE_CONTENT) {
         serialize_minify(&out, tree, node, minify, &context);

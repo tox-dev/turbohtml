@@ -1,0 +1,2 @@
+Serializing a whole document reserves room for output that runs past the input, so the common case needs one allocation
+instead of a realloc that copies the buffer, and timings no longer shift with heap layout.

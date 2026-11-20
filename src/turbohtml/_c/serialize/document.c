@@ -1703,7 +1703,7 @@ Py_UCS4 *th_node_serialize(th_tree *tree, th_node *node, const th_serialize_opts
     context.xml_ns_spend = opts->inner ? &spend : NULL; /* the one copy a whole subtree carries multiplies nothing */
     context.xml_unwrap = &unwrap;
     opts = &context;
-    sbuf_presize_for_root(&out, tree, node);
+    sbuf_presize_for_markup(&out, tree, node, opts->formatter);
     if (indent == NULL || inner_preserves_text(tree, node, opts)) {
         serialize_compact(&out, tree, node, opts);
     } else {
