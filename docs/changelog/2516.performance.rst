@@ -1,2 +1,2 @@
-:class:`~turbohtml.build.ElementMaker` tag lookups such as ``E.div`` and positional :class:`~turbohtml.Element` calls run
-in C, and building elements is about twice as fast.
+:class:`~turbohtml.build.ElementMaker` tag lookups such as ``E.div`` and positional :class:`~turbohtml.Element` calls
+run in C, and building elements is about twice as fast.
