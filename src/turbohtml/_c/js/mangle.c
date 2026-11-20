@@ -1278,7 +1278,8 @@ static int is_immutable(const jm_sym *sym) {
 }
 
 /* If node assigns `x = EXPR` to a mutable local that is never read, the store is dead -- ECMA-262 makes
-   only EXPR's evaluation observable. Decrement x's write count (a later pass drops the now-unwritten
+   only EXPR's evaluation observable. A top-level binding is a global another script can read, so its stores stay.
+   Decrement x's write count (a later pass drops the now-unwritten
    binding) and return EXPR, else -1. */
 static int32_t dead_store_value(jm_program *prog, int32_t node) {
     if (prog->nodes[node].kind != JN_ASSIGN || prog->nodes[node].op != JT_ASSIGN ||
@@ -1286,7 +1287,8 @@ static int32_t dead_store_value(jm_program *prog, int32_t node) {
         return -1;
     }
     int32_t target = prog->nodes[prog->nodes[node].a].sym;
-    if (target < 0 || prog->syms[target].refs != 0 || is_immutable(&prog->syms[target]) || prog->syms[target].early) {
+    if (target < 0 || prog->syms[target].refs != 0 || is_immutable(&prog->syms[target]) || prog->syms[target].early ||
+        prog->scopes[prog->syms[target].scope].parent < 0) {
         return -1;
     }
     prog->syms[target].writes--;
