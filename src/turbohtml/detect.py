@@ -34,10 +34,8 @@ floor and language constraints.
 
 from __future__ import annotations
 
-__lazy_modules__ = [
-    "itertools",
-    f"{__spec__.parent}._html",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
-]
+# the native module stays eager: EncodingDetector subclasses its stream type at import
+__lazy_modules__ = ["itertools"]
 
 import codecs
 import string
@@ -154,6 +152,9 @@ class Detection:
 _DEFAULT: Final[Detection] = Detection()
 
 
+_SETTLED: Final[dict[int, EncodingMatch]] = {}
+
+
 def detect(data: bytes, options: Detection | None = None, /) -> EncodingMatch:
     """
     Detect the character encoding of a byte string, the ``chardet.detect`` / ``cchardet.detect`` successor.
@@ -165,21 +166,51 @@ def detect(data: bytes, options: Detection | None = None, /) -> EncodingMatch:
         caller can strip it.
     :raises TypeError: when ``data`` is not a bytes-like object.
     """
-    active: Final[Detection] = options or _DEFAULT
-    return _match(native_detect(data, active.tld), active)
+    if options is None or options is _DEFAULT:
+        # a settled answer comes back as the match the C detector keeps for it, the common case for short inputs
+        result: Final[EncodingMatch | tuple[str | None, bool, list[tuple[str, int]], bool] | None] = native_detect(
+            data, None, _SETTLED, _settled
+        )
+        return result if isinstance(result, EncodingMatch) else _match(result, _DEFAULT)
+    return _match(native_detect(data, options.tld), options)
 
 
-def _match(result: tuple[str | None, bool, list[tuple[str, int]], bool] | None, options: Detection) -> EncodingMatch:
-    if options is _DEFAULT and result is not None and (result[1] or result[0] is None):
-        return _settled(result[0], certain=result[1], bom=result[3])
-    return EncodingMatch(*_rank(result, options)[0])
+def _settled(winner: str | None, certain: bool, bom: bool) -> EncodingMatch:  # ruff: ignore[boolean-type-hint-positional-argument]  # the C detector calls it
+    # a settled answer has no candidate scores, so its match is fixed by three values; the C detector keeps the match
+    # in _SETTLED, a few hundred entries at most, and only for the default options, so no caller object is held
+    return EncodingMatch(*_rank((winner, certain, [], bom), _DEFAULT)[0])
+
+
+def _rank(
+    result: tuple[str | None, bool, list[tuple[str, int]], bool] | None, options: Detection
+) -> list[tuple[str | None, float, str | None, bool, str | None]]:
+    return detect_rank(result, options.allowed, options.excluded, options.language, options.threshold, _languages())
 
 
 @cache
-def _settled(winner: str | None, *, certain: bool, bom: bool) -> EncodingMatch:
-    # a settled answer has no candidate scores, so its match is fixed by three values; the key space is a few hundred
-    # entries, and only the default options are shared, so no caller object is held
-    return EncodingMatch(*_rank((winner, certain, [], bom), _DEFAULT)[0])
+def _languages() -> dict[str, str]:
+    # Built once: every detection hands this table to the C ranker, so a per-call literal would allocate on each one.
+    return {
+        "big5": "Chinese",
+        "euc-jp": "Japanese",
+        "euc-kr": "Korean",
+        "gbk": "Chinese",
+        "ibm866": "Russian",
+        "iso-2022-jp": "Japanese",
+        "iso-8859-5": "Russian",
+        "iso-8859-6": "Arabic",
+        "iso-8859-7": "Greek",
+        "iso-8859-8": "Hebrew",
+        "koi8-u": "Russian",
+        "shift_jis": "Japanese",
+        "windows-1251": "Russian",
+        "windows-1253": "Greek",
+        "windows-1254": "Turkish",
+        "windows-1255": "Hebrew",
+        "windows-1256": "Arabic",
+        "windows-1258": "Vietnamese",
+        "windows-874": "Thai",
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,36 +253,10 @@ class EncodingMatch:
     codec: str | None = None
 
 
-def _rank(
-    result: tuple[str | None, bool, list[tuple[str, int]], bool] | None, options: Detection
-) -> list[tuple[str | None, float, str | None, bool, str | None]]:
-    return detect_rank(result, options.allowed, options.excluded, options.language, options.threshold, _languages())
-
-
-@cache
-def _languages() -> dict[str, str]:
-    # Built once: every detection hands this table to the C ranker, so a per-call literal would allocate on each one.
-    return {
-        "big5": "Chinese",
-        "euc-jp": "Japanese",
-        "euc-kr": "Korean",
-        "gbk": "Chinese",
-        "ibm866": "Russian",
-        "iso-2022-jp": "Japanese",
-        "iso-8859-5": "Russian",
-        "iso-8859-6": "Arabic",
-        "iso-8859-7": "Greek",
-        "iso-8859-8": "Hebrew",
-        "koi8-u": "Russian",
-        "shift_jis": "Japanese",
-        "windows-1251": "Russian",
-        "windows-1253": "Greek",
-        "windows-1254": "Turkish",
-        "windows-1255": "Hebrew",
-        "windows-1256": "Arabic",
-        "windows-1258": "Vietnamese",
-        "windows-874": "Thai",
-    }
+def _match(
+    result: tuple[str | None, bool, list[tuple[str, int]], bool] | None, options: Detection | None
+) -> EncodingMatch:
+    return EncodingMatch(*_rank(result, options or _DEFAULT)[0])
 
 
 def detect_all(data: bytes, options: Detection | None = None, /) -> list[EncodingMatch]:
@@ -269,7 +274,7 @@ def detect_all(data: bytes, options: Detection | None = None, /) -> list[Encodin
     return list(starmap(EncodingMatch, _rank(native_detect(data, active.tld), active)))
 
 
-class EncodingDetector:
+class EncodingDetector(DetectStream):
     """
     Incremental detection over a byte stream, mirroring chardet's ``UniversalDetector``.
 
@@ -278,37 +283,16 @@ class EncodingDetector:
     so a reader loop can stop early.
 
     Every candidate carries its own state across feeds, so the detector holds a fixed amount of memory whatever the
-    stream's length; the one buffer it keeps is the leading 1024 bytes the byte-order-mark check and the ``<meta>``
-    prescan read, which the spec bounds. The result equals :func:`detect` of the concatenated bytes, whatever the chunk
-    boundaries. An instance is not thread-safe; use one per stream.
+    stream's length; it keeps the leading 1024 bytes the byte-order-mark check and the ``<meta>`` prescan read, which
+    the spec bounds, and gathers up to 4096 bytes of ASCII chunks before scoring them. The result equals
+    :func:`detect` of the concatenated bytes, whatever the chunk boundaries. An instance is not thread-safe; use one
+    per stream.
 
     :param options: the detection options; defaults to :class:`Detection` (always answer, no constraints).
     """
 
-    done: bool
-    """Whether the result can no longer change: a leading byte-order mark was seen, or :meth:`close` ran."""
-
-    def __init__(self, options: Detection | None = None, /) -> None:
-        """Start an empty stream with the given options."""
-        self._options = options or _DEFAULT
-        self._stream = DetectStream(self._options.tld)
-        self._result: EncodingMatch | None = None
-        self.done = False
-
-    @property
-    def result(self) -> EncodingMatch | None:
-        """The match :meth:`close` computed, or ``None`` while the stream is still open."""
-        return self._result
-
-    def feed(self, data: bytes) -> None:
-        """
-        Detect over one chunk of the stream; ignored once :attr:`done`.
-
-        :param data: the next bytes of the stream.
-        """
-        if self.done:
-            return
-        self.done = self._stream.feed(data)
+    # no instance dict, so construction, feed and the accessors run in C without a Python frame
+    __slots__ = ()
 
     def close(self) -> EncodingMatch:
         """
@@ -316,16 +300,7 @@ class EncodingDetector:
 
         :returns: the detector's answer.
         """
-        if self._result is None:
-            self._result = _match(self._stream.close(), self._options)
-            self.done = True
-        return self._result
-
-    def reset(self) -> None:
-        """Forget the stream and the result so the instance can start over."""
-        self._stream = DetectStream(self._options.tld)
-        self._result = None
-        self.done = False
+        return self._close(_SETTLED, _settled, _match)
 
 
 @dataclass(frozen=True, slots=True)

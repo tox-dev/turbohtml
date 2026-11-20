@@ -263,7 +263,7 @@ static PyMethodDef html_methods[] = {
     {"_minify_js_parse", turbohtml_minify_js_parse, METH_O, NULL},
     {"_decode", turbohtml_decode, METH_VARARGS, NULL},
     {"_boilerplate", turbohtml_extract_boilerplate, METH_VARARGS, NULL},
-    {"_detect", turbohtml_detect_encoding, METH_VARARGS, NULL},
+    {"_detect", (PyCFunction)(void (*)(void))turbohtml_detect_encoding, METH_FASTCALL, NULL},
     {"_detect_rank", turbohtml_detect_rank, METH_VARARGS, NULL},
     {"_detect_language", turbohtml_detect_language, METH_VARARGS, NULL},
     {"_codec_label", turbohtml_codec_label, METH_O, NULL},
@@ -424,6 +424,30 @@ static int name_hash_key_init(void) {
     pthread_once(&name_hash_key_once, name_hash_key_compute);
 #endif
     return name_hash_key_status;
+}
+
+#if defined(_WIN32)
+static INIT_ONCE detect_tables_once = INIT_ONCE_STATIC_INIT;
+
+static BOOL CALLBACK detect_tables_build_once(PINIT_ONCE once, PVOID parameter, PVOID *context) {
+    (void)once;
+    (void)parameter;
+    (void)context;
+    th_detect_tables_build();
+    return TRUE;
+}
+#else
+static pthread_once_t detect_tables_once = PTHREAD_ONCE_INIT;
+#endif
+
+/* Built on the first scored detection rather than at import, which most programs never reach; the once primitive
+   publishes the tables to every thread and interpreter, as it does the name hash key. */
+void th_detect_tables_ensure(void) {
+#if defined(_WIN32)
+    InitOnceExecuteOnce(&detect_tables_once, detect_tables_build_once, NULL, NULL);
+#else
+    pthread_once(&detect_tables_once, th_detect_tables_build);
+#endif
 }
 
 static int publish_native_names(PyObject *module) {

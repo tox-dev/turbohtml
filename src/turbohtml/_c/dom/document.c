@@ -2003,6 +2003,44 @@ static PyObject *detect_result(const char *winner, int certain, const th_detect_
     return Py_BuildValue("(zONO)", winner, certain ? Py_True : Py_False, ranked, bom ? Py_True : Py_False);
 }
 
+/* The answer for a settled detection -- a certain one, or one with no winner -- under the default options. Such an
+   answer carries no candidate scores, so (winner, certain, bom) fixes it, and winner is always one of the static
+   label strings, so its address stands in for it. `cache` maps that key to the shim's match object and `settle`
+   builds a missing one; the result is the match, or NULL with *handled 0 when the detection is not settled. */
+static PyObject *detect_settled(const char *winner, int certain, int bom, PyObject *cache, PyObject *settle,
+                                int *handled) {
+    *handled = cache != Py_None && (certain || winner == NULL);
+    if (!*handled) {
+        return NULL;
+    }
+    PyObject *key = PyLong_FromUnsignedLongLong(((unsigned long long)(uintptr_t)winner << 2) |
+                                                ((unsigned long long)certain << 1) | (unsigned long long)bom);
+    if (key == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *match = PyDict_GetItemWithError(cache, key);
+    if (match != NULL) {
+        Py_DECREF(key);
+        return Py_NewRef(match);
+    }
+    /* GCOVR_EXCL_BR_START: the key is an int, whose lookup cannot raise */
+    if (PyErr_Occurred()) {
+        Py_DECREF(key); /* GCOVR_EXCL_LINE */
+        return NULL;    /* GCOVR_EXCL_LINE */
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    match = PyObject_CallFunction(settle, "zOO", winner, certain ? Py_True : Py_False, bom ? Py_True : Py_False);
+    /* GCOVR_EXCL_BR_START: storing under an int key fails only on allocation failure */
+    if (match == NULL || PyDict_SetItem(cache, key, match) < 0) {
+        Py_DECREF(key);
+        Py_XDECREF(match);
+        return NULL;
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    Py_DECREF(key);
+    return match;
+}
+
 /* One shaped candidate: a canonical encoding name and its share of the positive score total. */
 typedef struct {
     PyObject *name; /* borrowed from the scored list the detector returned */
@@ -2270,11 +2308,23 @@ static th_tld tld_argument(const char *label) {
     return label == NULL ? TH_TLD_GENERIC : th_tld_classify(label, (Py_ssize_t)strlen(label));
 }
 
-PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *args) {
+PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *const *args, Py_ssize_t nargs) {
     (void)module;
+    /* fast-call by hand: detect() runs once per document, often on a few bytes, where tuple parsing is a visible share
+     */
+    if (nargs != 2 && nargs != 4) {
+        PyErr_Format(PyExc_TypeError, "_detect() takes 2 or 4 arguments (%zd given)", nargs);
+        return NULL;
+    }
+    PyObject *data = args[0];
     const char *label = NULL;
-    PyObject *data;
-    if (!PyArg_ParseTuple(args, "Oz:_detect", &data, &label)) {
+    if (args[1] != Py_None && (label = PyUnicode_AsUTF8(args[1])) == NULL) {
+        return NULL;
+    }
+    PyObject *cache = nargs == 4 ? args[2] : Py_None;
+    PyObject *settle = nargs == 4 ? args[3] : Py_None;
+    if (cache != Py_None && !PyDict_Check(cache)) {
+        PyErr_SetString(PyExc_TypeError, "_detect() cache must be a dict");
         return NULL;
     }
     Py_buffer view;
@@ -2300,84 +2350,174 @@ PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *args) {
         winner = entry == NULL ? NULL : entry->canonical;
     }
     PyBuffer_Release(&view);
-    return detect_result(winner, certain, &scores, bom);
+    int handled;
+    PyObject *settled = detect_settled(winner, certain, bom, cache, settle, &handled);
+    return handled ? settled : detect_result(winner, certain, &scores, bom);
 }
 
-/* The streaming detector behind turbohtml.detect.EncodingDetector. It holds one
-   th_detect_stream, whose candidates carry their own state between feeds, plus the leading
-   bytes the byte-order-mark check and the <meta> prescan need -- the spec bounds that window
-   at 1024 bytes, so the object's memory does not grow with the stream. */
+/* The leading bytes the byte-order-mark check and the <meta> prescan read; the spec bounds the prescan at 1024. */
+#define TH_DETECT_PREFIX_LIMIT 1024
+/* The most ASCII bytes a stream gathers before scoring them. */
+#define TH_DETECT_PENDING_LIMIT 4096
+
+/* Append bytes to a growable buffer, doubling from 64; -1 with MemoryError set on allocation failure. */
+static int detect_buffer_append(unsigned char **buffer, Py_ssize_t *length, Py_ssize_t *capacity,
+                                const unsigned char *bytes, Py_ssize_t count) {
+    if (*length + count > *capacity) {
+        Py_ssize_t grown_capacity = *capacity == 0 ? 64 : *capacity;
+        while (grown_capacity < *length + count) {
+            grown_capacity *= 2;
+        }
+        unsigned char *grown = PyMem_Realloc(*buffer, (size_t)grown_capacity);
+        if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        *buffer = grown;
+        *capacity = grown_capacity;
+    }
+    memcpy(*buffer + *length, bytes, (size_t)count);
+    *length += count;
+    return 0;
+}
+
+/* The streaming detector turbohtml.detect.EncodingDetector subclasses. It holds one th_detect_stream, whose
+   candidates carry their own state between feeds, the leading bytes the byte-order-mark check and the <meta> prescan
+   need, which the spec bounds at 1024, and at most TH_DETECT_PENDING_LIMIT bytes of ASCII chunks, so its memory does
+   not grow with the stream. Construction, feed, reset and the accessors run here, so a short stream costs one Python
+   frame, for close, rather than one per call. The Detection it was built with and the match close computed are
+   frozen records with no path back to the detector, so the type stays out of the cycle collector. */
 typedef struct {
     PyObject_HEAD th_detect_stream stream;
-    unsigned char prefix[1024];
+    unsigned char *prefix; /* grown as bytes arrive, so a short stream keeps a small object and a small buffer */
     Py_ssize_t prefix_len;
+    Py_ssize_t prefix_capacity;
+    /* ASCII chunks gathered, once the candidates run, before they read them: every candidate pays a fixed cost per
+       feed, so a reader handing over the ASCII body of a page 16 bytes at a time costs about what one feed does. A
+       chunk holding a non-ASCII or escape byte still reaches the candidates on its own, so a multi-byte sequence or
+       an ISO-2022-JP escape split across feeds still crosses the boundary it arrived with. */
+    unsigned char *pending;
+    Py_ssize_t pending_len;
+    Py_ssize_t pending_capacity;
+    PyObject *options; /* the Detection, or None for the defaults */
+    PyObject *result;  /* the match close computed, NULL while the stream is open */
     th_tld tld;
     int closed;
-    int fed; /* whether any bytes arrived: an unfed stream has no answer */
+    int settled; /* a leading byte-order mark decided the stream, so later bytes are ignored */
+    int fed;     /* whether any bytes arrived: an unfed stream has no answer */
 } DetectStreamObject;
+
+static void detect_stream_restart(DetectStreamObject *self) {
+    th_detect_stream_init(&self->stream);
+    self->prefix_len = 0;
+    self->pending_len = 0;
+    self->closed = 0;
+    self->settled = 0;
+    self->fed = 0;
+}
 
 static PyObject *detect_stream_new(PyTypeObject *type, PyObject *args, PyObject *kwds) {
     static char *keywords[] = {"", NULL};
-    const char *label = NULL;
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "z:_DetectStream", keywords, &label)) {
+    PyObject *options = Py_None;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O:EncodingDetector", keywords, &options)) {
         return NULL;
+    }
+    th_tld tld = TH_TLD_GENERIC;
+    if (options != Py_None) {
+        PyObject *label = PyObject_GetAttrString(options, "tld");
+        if (label == NULL) {
+            return NULL;
+        }
+        const char *text = label == Py_None ? NULL : PyUnicode_AsUTF8(label);
+        if (text == NULL && label != Py_None) {
+            Py_DECREF(label);
+            return NULL;
+        }
+        tld = tld_argument(text);
+        Py_DECREF(label);
     }
     DetectStreamObject *self = (DetectStreamObject *)type->tp_alloc(type, 0);
     if (self == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    th_detect_stream_init(&self->stream);
-    self->prefix_len = 0;
-    self->tld = tld_argument(label);
-    self->closed = 0;
-    self->fed = 0;
+    detect_stream_restart(self);
+    self->prefix = NULL;
+    self->prefix_capacity = 0;
+    self->pending = NULL;
+    self->pending_capacity = 0;
+    self->options = Py_NewRef(options);
+    self->result = NULL;
+    self->tld = tld;
     return (PyObject *)self;
 }
 
 static void detect_stream_dealloc(PyObject *self) {
+    DetectStreamObject *detector = (DetectStreamObject *)self;
+    th_detect_stream_clear(&detector->stream);
+    PyMem_Free(detector->prefix);
+    PyMem_Free(detector->pending);
+    Py_DECREF(detector->options);
+    Py_XDECREF(detector->result);
     PyTypeObject *type = Py_TYPE(self);
     type->tp_free(self);
     Py_DECREF(type);
 }
 
-static PyObject *detect_stream_feed(PyObject *self, PyObject *arg) {
+static PyObject *detect_stream_feed(PyObject *self, PyObject *const *args, Py_ssize_t nargs, PyObject *kwnames) {
+    /* parsed by hand: a reader calls feed per chunk, and data may come by keyword as in chardet's feed */
+    Py_ssize_t given = nargs + (kwnames == NULL ? 0 : PyTuple_GET_SIZE(kwnames));
+    if (given != 1 ||
+        (kwnames != NULL && PyUnicode_CompareWithASCIIString(PyTuple_GET_ITEM(kwnames, 0), "data") != 0)) {
+        PyErr_SetString(PyExc_TypeError, "feed() takes exactly one argument, data");
+        return NULL;
+    }
     DetectStreamObject *detector = (DetectStreamObject *)self;
-    if (detector->closed) {
-        PyErr_SetString(PyExc_ValueError, "the detector is closed");
-        return NULL;
-    }
     Py_buffer view;
-    if (PyObject_GetBuffer(arg, &view, PyBUF_SIMPLE) < 0) {
+    if (PyObject_GetBuffer(args[0], &view, PyBUF_SIMPLE) < 0) {
         return NULL;
     }
-    if (view.len == 0) {
+    if (view.len == 0 || detector->closed || detector->settled) {
         PyBuffer_Release(&view);
-        Py_RETURN_FALSE; /* an empty chunk changes nothing */
+        Py_RETURN_NONE; /* an empty chunk changes nothing, and a decided stream ignores what follows */
     }
     detector->fed = 1;
-    Py_ssize_t room = (Py_ssize_t)sizeof(detector->prefix) - detector->prefix_len;
+    Py_ssize_t room = TH_DETECT_PREFIX_LIMIT - detector->prefix_len;
     Py_ssize_t take = view.len < room ? view.len : room;
-    memcpy(detector->prefix + detector->prefix_len, view.buf, (size_t)take);
-    detector->prefix_len += take;
+    /* GCOVR_EXCL_BR_START: allocation failure cannot be forced from a test */
+    if (detect_buffer_append(&detector->prefix, &detector->prefix_len, &detector->prefix_capacity, view.buf, take) <
+        0) {
+        PyBuffer_Release(&view); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;             /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    /* GCOVR_EXCL_BR_STOP */
     if (th_detect_bom(detector->prefix, detector->prefix_len) != NULL) {
         PyBuffer_Release(&view);
-        Py_RETURN_TRUE; /* a byte-order mark settles the stream whatever follows, so the candidates never read it */
+        detector->settled = 1; /* a byte-order mark settles the stream whatever follows */
+        Py_RETURN_NONE;
     }
-    th_detect_stream_feed(&detector->stream, view.buf, view.len, 0);
+    int status = 0;
+    if (detector->stream.started && detector->pending_len + view.len <= TH_DETECT_PENDING_LIMIT &&
+        th_detect_first_event(view.buf, view.len) == view.len) {
+        status = detect_buffer_append(&detector->pending, &detector->pending_len, &detector->pending_capacity, view.buf,
+                                      view.len);
+    } else {
+        if (detector->pending_len > 0) {
+            th_detect_stream_feed(&detector->stream, detector->pending, detector->pending_len, 0);
+            detector->pending_len = 0;
+        }
+        th_detect_stream_feed(&detector->stream, view.buf, view.len, 0);
+    }
     PyBuffer_Release(&view);
-    if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: detection allocation failure */
-        return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (status < 0 || PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: detection allocation failure */
+        return NULL;                      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    Py_RETURN_FALSE;
+    Py_RETURN_NONE;
 }
 
-static PyObject *detect_stream_close(PyObject *self, PyObject *Py_UNUSED(ignored)) {
-    DetectStreamObject *detector = (DetectStreamObject *)self;
-    if (detector->closed) {
-        PyErr_SetString(PyExc_ValueError, "the detector is closed");
-        return NULL;
-    }
-    detector->closed = 1;
+/* The stream's answer before ranking: a settled match from the cache when the defaults apply, otherwise the raw
+   (encoding, certain, ranked, bom) row, or None when no bytes were fed. */
+static PyObject *detect_stream_answer(DetectStreamObject *detector, PyObject *cache, PyObject *settle, int *handled) {
+    *handled = 0;
     if (!detector->fed) {
         Py_RETURN_NONE; /* no bytes were ever seen: the ranker answers with the no-match row */
     }
@@ -2386,7 +2526,9 @@ static PyObject *detect_stream_close(PyObject *self, PyObject *Py_UNUSED(ignored
     th_detect_scores scores = {.count = 0, .structural = 0};
     if (winner == NULL) {
         /* the scanners pass the chunk to memchr and memcpy, which take no NULL pointer even at length 0 */
-        th_detect_stream_feed(&detector->stream, (const unsigned char *)"", 0, 1);
+        th_detect_stream_feed(&detector->stream,
+                              detector->pending_len > 0 ? detector->pending : (const unsigned char *)"",
+                              detector->pending_len, 1);
         if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: detection allocation failure */
             return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -2394,41 +2536,98 @@ static PyObject *detect_stream_close(PyObject *self, PyObject *Py_UNUSED(ignored
         certain = scores.structural;
         winner = entry == NULL ? NULL : entry->canonical;
     }
-    return detect_result(winner, certain, &scores, bom);
+    PyObject *settled =
+        detect_settled(winner, certain, bom, detector->options == Py_None ? cache : Py_None, settle, handled);
+    return *handled ? settled : detect_result(winner, certain, &scores, bom);
 }
 
-PyDoc_STRVAR(detect_stream_doc, "_DetectStream(tld, /)\n--\n\n"
-                                "Score a byte stream chunk by chunk.\n\n"
-                                ":param tld: the rightmost DNS label of the host, lower-case ASCII, or None.");
+static PyObject *detect_stream_close(PyObject *self, PyObject *const *args, Py_ssize_t nargs) {
+    if (nargs != 3) {
+        PyErr_Format(PyExc_TypeError, "_close() takes 3 arguments (%zd given)", nargs);
+        return NULL;
+    }
+    if (!PyDict_Check(args[0])) {
+        PyErr_SetString(PyExc_TypeError, "_close() cache must be a dict");
+        return NULL;
+    }
+    DetectStreamObject *detector = (DetectStreamObject *)self;
+    if (detector->result != NULL) {
+        return Py_NewRef(detector->result);
+    }
+    int handled;
+    PyObject *answer = detect_stream_answer(detector, args[0], args[1], &handled);
+    detector->closed = 1;
+    if (answer == NULL || handled) {
+        detector->result = Py_XNewRef(answer);
+        return answer;
+    }
+    PyObject *match = PyObject_CallFunctionObjArgs(args[2], answer, detector->options, NULL);
+    Py_DECREF(answer);
+    detector->result = Py_XNewRef(match);
+    return match;
+}
 
-PyDoc_STRVAR(detect_stream_feed_doc, "feed(data, /)\n--\n\n"
-                                     "Score the next chunk of the stream and report whether a leading byte-order\n"
-                                     "mark has settled it.\n\n"
-                                     ":param data: the next bytes.");
+static PyObject *detect_stream_reset(PyObject *self, PyObject *Py_UNUSED(ignored)) {
+    DetectStreamObject *detector = (DetectStreamObject *)self;
+    th_detect_stream_clear(&detector->stream);
+    detect_stream_restart(detector);
+    Py_CLEAR(detector->result);
+    Py_RETURN_NONE;
+}
 
-PyDoc_STRVAR(detect_stream_close_doc, "close()\n--\n\n"
-                                      "End the stream and return (encoding, certain, ranked, bom), or None when\n"
-                                      "no bytes were ever fed.\n\n"
-                                      ":raises ValueError: if the detector is already closed.");
+static PyObject *detect_stream_get_done(PyObject *self, void *Py_UNUSED(closure)) {
+    DetectStreamObject *detector = (DetectStreamObject *)self;
+    return PyBool_FromLong(detector->closed || detector->settled);
+}
+
+static PyObject *detect_stream_get_result(PyObject *self, void *Py_UNUSED(closure)) {
+    PyObject *result = ((DetectStreamObject *)self)->result;
+    return Py_NewRef(result == NULL ? Py_None : result);
+}
+
+PyDoc_STRVAR(detect_stream_doc, "_DetectStream(options=None, /)\n--\n\n"
+                                "The C half of EncodingDetector: scores a byte stream chunk by chunk.");
+
+PyDoc_STRVAR(detect_stream_feed_doc, "feed(data)\n--\n\n"
+                                     "Detect over one chunk of the stream; ignored once :attr:`done`.\n\n"
+                                     ":param data: the next bytes of the stream.");
+
+PyDoc_STRVAR(detect_stream_close_doc,
+             "_close(cache, settle, match, /)\n--\n\n"
+             "End the stream and return its match, computed once. With the default options a settled answer comes\n"
+             "back as settle(encoding, certain, bom), kept in cache; any other answer is match(raw, options).");
+
+PyDoc_STRVAR(detect_stream_reset_doc, "reset()\n--\n\n"
+                                      "Forget the stream and the result so the instance can start over.");
+
+PyDoc_STRVAR(detect_stream_done_doc,
+             "Whether the result can no longer change: a leading byte-order mark was seen, or :meth:`close` ran.");
+
+PyDoc_STRVAR(detect_stream_result_doc, "The match :meth:`close` computed, or ``None`` while the stream is still open.");
 
 static PyMethodDef detect_stream_methods[] = {
-    {"feed", detect_stream_feed, METH_O, detect_stream_feed_doc},
-    {"close", detect_stream_close, METH_NOARGS, detect_stream_close_doc},
+    {"feed", (PyCFunction)(void (*)(void))detect_stream_feed, METH_FASTCALL | METH_KEYWORDS, detect_stream_feed_doc},
+    {"_close", (PyCFunction)(void (*)(void))detect_stream_close, METH_FASTCALL, detect_stream_close_doc},
+    {"reset", detect_stream_reset, METH_NOARGS, detect_stream_reset_doc},
     {NULL, NULL, 0, NULL},
 };
 
+static PyGetSetDef detect_stream_getset[] = {
+    {"done", detect_stream_get_done, NULL, detect_stream_done_doc, NULL},
+    {"result", detect_stream_get_result, NULL, detect_stream_result_doc, NULL},
+    {NULL, NULL, NULL, NULL, NULL},
+};
+
 static PyType_Slot detect_stream_slots[] = {
-    {Py_tp_doc, (void *)detect_stream_doc},
-    {Py_tp_new, detect_stream_new},
-    {Py_tp_dealloc, detect_stream_dealloc},
-    {Py_tp_methods, detect_stream_methods},
-    {0, NULL},
+    {Py_tp_doc, (void *)detect_stream_doc}, {Py_tp_new, detect_stream_new},
+    {Py_tp_dealloc, detect_stream_dealloc}, {Py_tp_methods, detect_stream_methods},
+    {Py_tp_getset, detect_stream_getset},   {0, NULL},
 };
 
 PyType_Spec detect_stream_spec = {
     .name = "turbohtml._html._DetectStream",
     .basicsize = sizeof(DetectStreamObject),
-    .flags = Py_TPFLAGS_DEFAULT,
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .slots = detect_stream_slots,
 };
 

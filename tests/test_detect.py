@@ -669,6 +669,13 @@ def test_close_scores_the_end_of_stream(chunk: bytes, confidence: float) -> None
             id="disqualified-logical-hebrew",
         ),
         pytest.param(
+            b"\xdf\xab!\xdf",
+            EncodingMatch(
+                encoding="windows-1251", confidence=0.22925234630391225, language="Russian", codec="whatwg-windows-1251"
+            ),
+            id="disqualified-logical-hebrew-past-punctuation-and-unmapped-bytes",
+        ),
+        pytest.param(
             b" ",
             EncodingMatch(
                 encoding="windows-1255", confidence=0.2454175152749491, language="Hebrew", codec="whatwg-windows-1255"
@@ -822,6 +829,30 @@ def test_a_long_stream_still_answers_what_one_shot_does() -> None:
     for _ in range(4096):
         detector.feed(chunk)
     assert detector.close() == detect(chunk * 4096)
+
+
+@pytest.mark.parametrize("size", [pytest.param(size, id=f"chunk-{size}") for size in (16, 5000)])
+def test_gathered_ascii_chunks_answer_what_one_shot_does(size: int) -> None:
+    # ASCII chunks after the first non-ASCII byte wait in a buffer, flushed when it fills or a non-ASCII chunk comes
+    raw: Final[bytes] = _DETECTOR_RUSSIAN + b" plain ascii words" * 300 + _DETECTOR_RUSSIAN
+    detector: Final[EncodingDetector] = EncodingDetector()
+    for start in range(0, len(raw), size):
+        detector.feed(raw[start : start + size])
+    assert detector.close() == detect(raw)
+
+
+def test_reset_before_close_starts_a_fresh_stream() -> None:
+    detector: Final[EncodingDetector] = EncodingDetector()
+    detector.feed(b"\xef\xbb\xbf")
+    detector.reset()
+    detector.feed(_DETECTOR_RUSSIAN)
+    assert detector.close() == detect(_DETECTOR_RUSSIAN)
+
+
+def test_the_detector_takes_its_chunk_by_keyword() -> None:
+    detector: Final[EncodingDetector] = EncodingDetector()
+    detector.feed(data=_DETECTOR_RUSSIAN)
+    assert detector.close() == detect(_DETECTOR_RUSSIAN)
 
 
 @pytest.mark.parametrize(
