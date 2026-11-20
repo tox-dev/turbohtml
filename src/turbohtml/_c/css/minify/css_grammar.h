@@ -1018,6 +1018,8 @@ typedef struct {
     unsigned unsniffed : 1;
     /* set by css_drop_repeated_items for a block its table takes */
     unsigned repeatable : 1;
+    /* a bang comment css_hoist_bangs wrote: rules merge across it, since a comment takes no part in the cascade */
+    unsigned bang : 1;
 } rule_item;
 
 typedef struct {
@@ -1703,9 +1705,17 @@ static Py_ssize_t css_merge_back(css_buf *pool, rule_vec *items, Py_ssize_t inde
                 break;
             }
             Py_ssize_t stop = index + 1;
-            if (end != NULL && back == index - 1) {
+            Py_ssize_t between = index - 1;
+            while (items->items[between].bang) {
+                between--;
+            }
+            if (end != NULL && back == between) {
                 while (stop < items->len) {
                     rule_item *next = &items->items[stop];
+                    if (next->bang) {
+                        stop++;
+                        continue;
+                    }
                     if (!next->is_rule ||
                         !rule_run_eq(pool, target->body_off, target->body_len, next->body_off, next->body_len) ||
                         memchr(pool->data + next->sel_off, ',', (size_t)next->sel_len) != NULL ||
@@ -1725,6 +1735,9 @@ static Py_ssize_t css_merge_back(css_buf *pool, rule_vec *items, Py_ssize_t inde
             cbuf_put_run(&selector, pool->data + target->sel_off, target->sel_len);
             for (Py_ssize_t next = index; next < stop; next++) {
                 rule_item *item = &items->items[next];
+                if (item->bang) {
+                    continue;
+                }
                 cbuf_putc(&selector, ',');
                 cbuf_put_run(&selector, pool->data + item->sel_off, item->sel_len);
                 item->dropped = 1;
@@ -1895,7 +1908,9 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
     for (Py_ssize_t index = 0; index < items->len; index++) {
         rule_item *it = &items->items[index];
         if (!it->is_rule) {
-            last_live = index;
+            if (!it->bang) {
+                last_live = index;
+            }
             continue;
         }
         it->prev_live = last_live;
@@ -2266,6 +2281,7 @@ static void css_hoist_bangs(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_
         rule_item item = {0};
         item.text_off = pool_run(pool, bang->text, bang->text_len);
         item.text_len = bang->text_len;
+        item.bang = 1;
         rule_vec_push(items, item);
     }
 }

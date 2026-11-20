@@ -583,10 +583,16 @@ def test_minify_css_interleaved_duplicate_shorthand_keeps_longhands() -> None:
             '.a{color:red}.b{margin:0}.a{content:"x;y"}',
             id="no-merge-when-moved-body-is-opaque",
         ),
+        pytest.param("a{color:red}/*!x*/a{margin:0}", "a{color:red;margin:0}/*!x*/", id="merge-across-bang-comment"),
         pytest.param(
-            "a{color:red}/*!x*/a{margin:0}",
-            "a{color:red}/*!x*/a{margin:0}",
-            id="no-merge-across-bang-comment",
+            "/*!k*/".join(f".a{index}{{color:red}}" for index in range(3)),
+            ".a0,.a1,.a2{color:red}/*!k*//*!k*/",
+            id="merge-run-across-bang-comments",
+        ),
+        pytest.param(
+            ".a{color:red}/*!x*/.b{color:blue}/*!y*/.c{color:red}",
+            ".a{color:red}/*!x*/.b{color:blue}/*!y*/.c{color:red}",
+            id="bang-comment-keeps-cascade-barrier",
         ),
         pytest.param(
             "@media screen and (min-width:100px){a{color:red}}",
@@ -3195,7 +3201,7 @@ _DROPPED_RULE_BANG_COMMENT: Final[list[pytest.ParameterSet]] = [
     pytest.param('x "a\n/*! k */ {color:red}/*! z */', "/*! k *//*! z */", id="bad-string-prelude"),
     pytest.param("x\\\n/*! k */ {color:red}", "/*! k */", id="bad-escape-prelude"),
     pytest.param('@media s{x "a\n/*! k */ {color:red}}', "@media s{/*! k */}", id="bad-string-prelude-in-media"),
-    pytest.param("a{color:red}x;/*! c */b{color:blue}a{margin:0}", "a{color:red}/*! c */a{margin:0}", id="no-merge"),
+    pytest.param("a{color:red}x;/*! c */b{color:blue}a{margin:0}", "a{color:red;margin:0}/*! c */", id="merge"),
 ]
 
 
@@ -4068,7 +4074,10 @@ def test_minify_output_is_a_fixed_point(stylesheet: str, inline: str) -> None:
         pytest.param("a{x:1}b{x:1}a,b{x:1}", "a,b{x:1}", id="growing-list-equality"),
         pytest.param("a{x:1}b{x:1}a{x:1}", "a,b,a{x:1}", id="repeated-selector"),
         pytest.param("a{x:1}b{y:1}c{x:1}b{x:1}", "a,c{x:1}b{y:1;x:1}", id="earlier-selector-claim"),
-        pytest.param("a{x:1}b{x:1}/*!keep*/c{x:1}", "a,b{x:1}/*!keep*/c{x:1}", id="selector-comment-barrier"),
+        pytest.param("a{x:1}b{x:1}/*!keep*/c{x:1}", "a,b,c{x:1}/*!keep*/", id="selector-across-comment"),
+        pytest.param(
+            "a{x:1}b{x:1}c{x:1}@media print{d{y:1}}", "a,b,c{x:1}@media print{d{y:1}}", id="run-ends-at-at-rule"
+        ),
         pytest.param("a{x:1}b{x:1}c{y:1}", "a,b{x:1}c{y:1}", id="different-declaration-body"),
         pytest.param(
             "@media screen{a{x:1}}q{x:2}@media screen{b{x:3}}",
@@ -4229,7 +4238,7 @@ def test_minify_css_merge_shared_inputs_selectors(case_index: int) -> None:
 
 @pytest.mark.parametrize(
     "case_index",
-    [pytest.param(6, id="different-media"), pytest.param(7, id="comments")],
+    [pytest.param(6, id="different-media")],
 )
 def test_minify_css_merge_shared_inputs_unchanged(case_index: int) -> None:
     source: Final[str] = cast("str", INPUTS["minify-css-merges"]()[case_index][1])
