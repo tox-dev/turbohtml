@@ -1670,13 +1670,16 @@ _QUOTED_TITLE_LINK: Final[str] = '<a title="x&quot; data-y=&quot;1" href="/">hi<
 
 
 @pytest.mark.parametrize(
-    "layout",
-    [pytest.param(Indent(), id="indent"), pytest.param(Minify(), id="minify")],
+    ("layout", "expected"),
+    [
+        pytest.param(Indent(), _QUOTED_TITLE_LINK, id="indent"),
+        # minify picks the quote the value lacks, so the double quotes stay literal
+        pytest.param(Minify(), "<a title='x\" data-y=\"1' href=/>hi</a>", id="minify"),
+    ],
 )
-def test_minimal_formatter_escapes_quote_in_attribute_under_layout(layout: Indent | Minify) -> None:
-    # every layout wraps attribute values in double quotes, so a literal one would end the value early
+def test_minimal_formatter_escapes_quote_in_attribute_under_layout(layout: Indent | Minify, expected: str) -> None:
     link = _one(_QUOTED_TITLE_LINK, "a")
-    assert link.serialize(Html(layout=layout, formatter=Formatter.MINIMAL)) == _QUOTED_TITLE_LINK
+    assert link.serialize(Html(layout=layout, formatter=Formatter.MINIMAL)) == expected
 
 
 def test_minimal_formatter_stream_escapes_quote_in_attribute() -> None:

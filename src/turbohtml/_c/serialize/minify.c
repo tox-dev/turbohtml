@@ -17,6 +17,7 @@
 #include "dom/tree_internal.h"
 #include "css/minify/css.h"
 #include "js/minify.h"
+#include "tokenizer/charref.h"
 
 #include <string.h>
 
@@ -36,14 +37,89 @@ static inline uint64_t mini_ws_mask(uint64_t word) {
            swar_haslane32(word, '\f');
 }
 
-/* Whether a code point must be escaped when it appears in collapsed text: the
-   structural characters (text never escapes the double quote), the no-break space
-   under WHATWG, and -- under the NAMED formatter -- any character with a reference. */
-static int mini_text_special(Py_UCS4 character, int formatter, int escape_nbsp) {
+/* Whether a code point in collapsed text needs a look before it is written: the structural characters (text never
+   escapes the double quote) and, under the NAMED formatter, any character with a reference. U+00A0 reparses as
+   itself, so only the NAMED formatter writes it as a reference. */
+static int mini_text_special(Py_UCS4 character, int formatter) {
     if (formatter == TH_FMT_NAMED) {
         return sbuf_named_special(character);
     }
-    return character == '&' || character == '<' || character == '>' || (escape_nbsp && character == 0xA0);
+    return character == '&' || character == '<' || character == '>';
+}
+
+/* Whether a bare '&' at text[index] reparses as a literal '&'. A '#' after it starts a numeric reference, and a run of
+   name characters starts a named one when the table holds the run, the run with its ';', or a prefix of at least two
+   characters, the tokenizer's longest match. At the end of the text the next node could extend the name, so the '&' is
+   escaped there unless the caller writes a delimiter next, which only ends the run. */
+static int mini_amp_literal(const Py_UCS4 *text, Py_ssize_t index, Py_ssize_t len, int delimited) {
+    Py_ssize_t cursor = index + 1;
+    if (cursor < len && text[cursor] == '#') {
+        return 0;
+    }
+    char ascii[HTML5_MAX_NAME_LEN + 1];
+    int name_len = 0;
+    while (cursor < len && name_len < HTML5_MAX_NAME_LEN &&
+           (is_ascii_alpha(text[cursor]) || is_ascii_digit(text[cursor]))) {
+        ascii[name_len++] = (char)text[cursor++];
+    }
+    if (cursor == len && !delimited) {
+        return 0;
+    }
+    if (name_len == 0) {
+        return 1;
+    }
+    if (cursor < len && text[cursor] == ';') {
+        ascii[name_len] = ';';
+        if (charref_find_entity(ascii, name_len + 1) != NULL) {
+            return 0;
+        }
+    }
+    for (int prefix = name_len; prefix >= 2; prefix--) {
+        if (charref_find_entity(ascii, prefix) != NULL) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Write a text special in the shortest form that reparses to the same character: '>' and U+00A0 never need a
+   reference in text, '&' only when it would start one, and '<' only before a character that opens markup or at the end
+   of the text, where the next node is not known. The NAMED formatter keeps its references. */
+static void mini_put_text_special(sbuf *out, const Py_UCS4 *text, Py_ssize_t index, Py_ssize_t len, int formatter) {
+    Py_UCS4 character = text[index];
+    int escape = character == '\r';
+    if (character == '&') {
+        escape = !mini_amp_literal(text, index, len, 0);
+    } else if (character == '<') {
+        Py_UCS4 next = index + 1 < len ? text[index + 1] : '/';
+        escape = is_ascii_alpha(next) || next == '!' || next == '/' || next == '?';
+    }
+    if (escape || formatter == TH_FMT_NAMED) {
+        sbuf_put_special(out, character, formatter);
+    } else {
+        sbuf_putc(out, character);
+    }
+}
+
+/* Write text under the minifying layout without folding whitespace: copy the clean runs and give each special its
+   shortest form. */
+static void mini_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len, int formatter) {
+    if (formatter == TH_FMT_NAMED) {
+        sbuf_put_text(out, text, len, 0, formatter);
+        return;
+    }
+    Py_ssize_t index = 0;
+    while (index < len) {
+        Py_ssize_t special = sbuf_find_special(text, index, len, 0, 0);
+        if (special > index) {
+            sbuf_put_run(out, &text[index], special - index);
+        }
+        if (special == len) {
+            break;
+        }
+        mini_put_text_special(out, text, special, len, formatter);
+        index = special + 1;
+    }
 }
 
 /* Collapse each run of ASCII whitespace to a single space, escaping the runs
@@ -56,7 +132,6 @@ static int mini_text_special(Py_UCS4 character, int formatter, int escape_nbsp) 
    same place, so the tree is unchanged. */
 static void mini_put_collapsed_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len, int formatter,
                                     int *last_was_space) {
-    int escape_nbsp = formatter == TH_FMT_WHATWG;
     Py_ssize_t index = 0;
     while (index < len) {
         if (is_space(text[index])) {
@@ -77,41 +152,116 @@ static void mini_put_collapsed_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t l
             while (index + UCS4_LANES <= len) {
                 uint64_t word;
                 memcpy(&word, &text[index], sizeof(word));
-                if ((sbuf_special_mask(word, escape_nbsp) | mini_ws_mask(word)) != 0) {
+                if ((sbuf_special_mask(word, 0) | mini_ws_mask(word)) != 0) {
                     break;
                 }
                 index += UCS4_LANES;
             }
         }
-        while (index < len && !is_space(text[index]) && !mini_text_special(text[index], formatter, escape_nbsp)) {
+        while (index < len && !is_space(text[index]) && !mini_text_special(text[index], formatter)) {
             index++;
         }
         if (index > start) {
             sbuf_put_run(out, &text[start], index - start);
         }
         if (index < len && !is_space(text[index])) {
-            sbuf_put_special(out, text[index], formatter);
+            mini_put_text_special(out, text, index, len, formatter);
             index++;
         }
         *last_was_space = 0;
     }
 }
 
-/* An attribute value may drop its quotes when it is non-empty, contains no ASCII
-   whitespace and none of the characters that would end or re-open the value
-   (" ' ` = < >), no ampersand (which could start a character reference), and does
-   not end in a slash (which would merge with a following >). Anything else keeps
-   the quoted form. The caller (mini_open_tag) writes an empty value as a bare name
-   before reaching here, so len is always >= 1 and value[len - 1] is in bounds. */
-static int mini_attr_unquotable(const Py_UCS4 *value, Py_ssize_t len) {
+/* Whether the NAMED formatter writes any character of value as a reference, which then keeps the quoted form. */
+static int mini_has_named_reference(const Py_UCS4 *value, Py_ssize_t len) {
     for (Py_ssize_t index = 0; index < len; index++) {
-        Py_UCS4 character = value[index];
-        if (is_space(character) || character == '"' || character == '\'' || character == '`' || character == '=' ||
-            character == '<' || character == '>' || character == '&') {
-            return 0;
+        if (sbuf_named_special(value[index])) {
+            return 1;
         }
     }
-    return value[len - 1] != '/';
+    return 0;
+}
+
+enum {
+    MINI_ATTR_QUOTE = 1,  /* the value cannot go unquoted */
+    MINI_ATTR_ESCAPE = 2, /* the writer looks at it: it may need a reference */
+    MINI_ATTR_DOUBLE = 4,
+    MINI_ATTR_SINGLE = 8,
+};
+
+/* How each ASCII character bears on writing an attribute value; every other code point has no bearing. */
+static const uint8_t MINI_ATTR_CLASS[128] = {
+    ['\t'] = MINI_ATTR_QUOTE,
+    ['\n'] = MINI_ATTR_QUOTE,
+    ['\f'] = MINI_ATTR_QUOTE,
+    ['\r'] = MINI_ATTR_QUOTE | MINI_ATTR_ESCAPE,
+    [' '] = MINI_ATTR_QUOTE,
+    ['"'] = MINI_ATTR_QUOTE | MINI_ATTR_DOUBLE,
+    ['\''] = MINI_ATTR_QUOTE | MINI_ATTR_SINGLE,
+    ['`'] = MINI_ATTR_QUOTE,
+    ['='] = MINI_ATTR_QUOTE,
+    ['<'] = MINI_ATTR_QUOTE | MINI_ATTR_ESCAPE,
+    ['>'] = MINI_ATTR_QUOTE | MINI_ATTR_ESCAPE,
+    ['&'] = MINI_ATTR_ESCAPE,
+};
+
+static uint8_t mini_attr_class(Py_UCS4 character) {
+    return character < 128 ? MINI_ATTR_CLASS[character] : 0;
+}
+
+/* Write a non-empty attribute value in its shortest form that reparses to the same value. Without ASCII whitespace or
+   any of " ' ` = < > it goes unquoted: the unquoted value state ends only at whitespace or '>', so a trailing '/' stays
+   part of the value. Otherwise it takes whichever quote it holds fewer of, and only that quote needs a reference.
+   '&' is escaped only where it would start a reference; the delimiter written after the value ends any name run at
+   its end. '<' and '>' keep their references: a reparse through foreign content or <noscript> can read the tag as
+   raw text, where they would become markup. */
+static void mini_put_attr_value(sbuf *out, const Py_UCS4 *value, Py_ssize_t len) {
+    unsigned seen = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        seen |= mini_attr_class(value[index]);
+    }
+    Py_UCS4 quote = 0;
+    unsigned escaped = MINI_ATTR_ESCAPE;
+    if (seen & MINI_ATTR_QUOTE) {
+        int single = (seen & MINI_ATTR_DOUBLE) != 0;
+        if (single && (seen & MINI_ATTR_SINGLE)) { /* only a value holding both quotes needs them counted */
+            Py_ssize_t balance = 0;
+            for (Py_ssize_t index = 0; index < len; index++) {
+                balance += (value[index] == '"') - (value[index] == '\'');
+            }
+            single = balance > 0;
+        }
+        quote = single ? '\'' : '"';
+        escaped |= single ? MINI_ATTR_SINGLE : MINI_ATTR_DOUBLE;
+    }
+    sbuf_putc(out, '=');
+    if (quote != 0) {
+        sbuf_putc(out, quote);
+    }
+    if ((seen & escaped) == 0) {
+        sbuf_put_run(out, value, len);
+    } else {
+        Py_ssize_t start = 0;
+        for (Py_ssize_t index = 0; index < len; index++) {
+            Py_UCS4 character = value[index];
+            if ((mini_attr_class(character) & escaped) == 0 ||
+                (character == '&' && mini_amp_literal(value, index, len, 1))) {
+                continue;
+            }
+            sbuf_put_run(out, &value[start], index - start);
+            start = index + 1;
+            sbuf_puts(out, character == '&'    ? "&amp;"
+                           : character == '\r' ? "&#13;"
+                           : character == '<'  ? "&lt;"
+                           : character == '>'  ? "&gt;"
+                           : character == '"'  ? "&quot;"
+                                               : "&#39;");
+        }
+        sbuf_put_run(out, &value[start], len - start);
+    }
+    if (quote != 0) {
+        sbuf_putc(out, quote);
+    }
 }
 
 /* Encode text[0..len) as UTF-8 into a freshly PyMem-allocated buffer (caller frees); *out_len
@@ -247,9 +397,8 @@ static void mini_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_seri
             }
             continue; /* an empty value reparses identically as a bare attribute name */
         }
-        if (unquote && mini_attr_unquotable(value, value_len)) {
-            sbuf_putc(out, '=');
-            sbuf_put_run(out, value, value_len); /* unquotable means no character needs escaping */
+        if (unquote && (opts->formatter != TH_FMT_NAMED || !mini_has_named_reference(value, value_len))) {
+            mini_put_attr_value(out, value, value_len);
         } else {
             sbuf_puts(out, "=\"");
             sbuf_put_text(out, value, value_len, 1, opts->formatter);
@@ -967,7 +1116,7 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
             if (opts->collapse_whitespace && preserve == 0) {
                 mini_put_collapsed_text(out, node->text, node->text_len, st->formatter, &last_was_space);
             } else {
-                sbuf_put_text(out, node->text, node->text_len, 0, st->formatter);
+                mini_put_text(out, node->text, node->text_len, st->formatter);
                 last_was_space = 0;
             }
             break;

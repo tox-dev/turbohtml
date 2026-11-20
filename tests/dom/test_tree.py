@@ -1877,20 +1877,17 @@ def test_scripting_moves_in_head_noscript_content_to_raw_text() -> None:
 
 
 @pytest.mark.parametrize(
-    "layout",
-    [
-        pytest.param(None, id="compact"),
-        pytest.param(Indent(2), id="pretty"),
-        pytest.param(Minify(), id="minify"),
-    ],
-)
-@pytest.mark.parametrize(
-    ("scripting", "fragment"),
+    ("layout", "scripting", "fragment"),
     [
         # off: noscript is a normal element, its "<" text escapes (pretty may reflow it)
-        pytest.param(False, "1 &lt; 2", id="off-escaped"),
+        pytest.param(None, False, "1 &lt; 2", id="off-escaped-compact"),
+        pytest.param(Indent(2), False, "1 &lt; 2", id="off-escaped-pretty"),
+        # minify writes a "<" that opens no markup bare
+        pytest.param(Minify(), False, "<noscript>1 < 2</noscript>", id="off-bare-minify"),
         # on: noscript is raw text, kept verbatim on one line in every layout
-        pytest.param(True, "<noscript>1 < 2</noscript>", id="on-raw"),
+        pytest.param(None, True, "<noscript>1 < 2</noscript>", id="on-raw-compact"),
+        pytest.param(Indent(2), True, "<noscript>1 < 2</noscript>", id="on-raw-pretty"),
+        pytest.param(Minify(), True, "<noscript>1 < 2</noscript>", id="on-raw-minify"),
     ],
 )
 def test_every_layout_honors_scripting_for_noscript(
