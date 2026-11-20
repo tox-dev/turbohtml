@@ -1,3 +1,3 @@
-An XPath expression whose result is ``str:concat`` over text, comments, single-text element chains or attribute
-values builds its ``str`` straight from where the characters sit, in their narrowest width, instead of through a
-UCS-4 buffer it then scans and narrows; ten 32,768-character nested nodes concatenate about 25x faster.
+An XPath expression whose result is ``str:concat`` over text, comments, single-text element chains or attribute values
+builds its ``str`` straight from where the characters sit, in their narrowest width, instead of through a UCS-4 buffer
+it then scans and narrows; ten 32,768-character nested nodes concatenate about 25x faster.
