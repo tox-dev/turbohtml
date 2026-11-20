@@ -244,7 +244,7 @@ descendants and never to the node itself, so pass the ``body`` to clean what a p
 
 .. testoutput::
 
-    <body><p>Hi <b>there</b></p>&lt;script&gt;evil()&lt;/script&gt;</body>
+    <body><p>Hi <b>there</b></p>&lt;script>evil()&lt;/script></body>
 
 Passing a :class:`~turbohtml.Document` makes the policy judge the ``html`` element itself, so a policy meant for whole
 documents lists ``html``, ``head`` and ``body``; a ``bleach``-style fragment allowlist would strip them.
