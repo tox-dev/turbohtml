@@ -1508,6 +1508,45 @@ static int inner_preserves_text(th_tree *tree, th_node *root, const th_serialize
             root->atom == TH_TAG_LISTING);
 }
 
+/* A large head can leave a small body. Count only text this body will write, even after a DOM edit. Beyond the first
+   64 nodes, spend at most one visit per four text characters so a tree of empty elements stops the estimate early. */
+SER_NOINLINE static void presize_body_text(sbuf *out, th_tree *tree, th_node *root) {
+    size_t length = 0;
+    th_node *node = root->first_child;
+    for (size_t visited = 0; node != NULL && visited < 8192 && visited < 64 + length / 4; visited++) {
+        if (node->type == TH_NODE_TEXT) {
+            size_t count = (size_t)node->text_len;
+            if (count >= (size_t)tree->length - length) {
+                length = (size_t)tree->length;
+                break;
+            }
+            length += count;
+        }
+        if (node->first_child != NULL && !(node->ns == TH_NS_HTML && (is_serialize_void_atom(node->atom) ||
+                                                                      is_rawtext_element(node, tree->scripting)))) {
+            node = node->first_child;
+            continue;
+        }
+        while (node != root && node->next_sibling == NULL) {
+            node = node->parent;
+        }
+        node = node == root ? NULL : node->next_sibling;
+    }
+    size_t cap;
+    size_t bytes;
+    if (length < 16384) {
+        return;
+    }
+    if (!th_grow_cap(length, 0, 256, sizeof(Py_UCS4), &cap, &bytes)) { /* GCOVR_EXCL_BR_LINE: size overflow */
+        return;                                                        /* GCOVR_EXCL_LINE: keep ordinary growth */
+    }
+    Py_UCS4 *data = PyMem_Malloc(bytes);
+    if (data != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure falls back to ordinary growth */
+        out->data = data;
+        out->cap = (Py_ssize_t)cap;
+    }
+}
+
 Py_UCS4 *th_node_serialize(th_tree *tree, th_node *node, const th_serialize_opts *opts, const Py_UCS4 *indent,
                            Py_ssize_t indent_len, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0, 0, NULL};
@@ -1522,7 +1561,12 @@ Py_UCS4 *th_node_serialize(th_tree *tree, th_node *node, const th_serialize_opts
     context.xml_ns_spend = opts->inner ? &spend : NULL; /* the one copy a whole subtree carries multiplies nothing */
     context.xml_unwrap = &unwrap;
     opts = &context;
-    sbuf_presize_for_root(&out, tree, node);
+    if (!tree->xml && tree->fragment_root == NULL && indent == NULL && opts->inner && !opts->xml &&
+        node->ns == TH_NS_HTML && node->atom == TH_TAG_BODY && tree->length >= 16384) {
+        presize_body_text(&out, tree, node);
+    } else {
+        sbuf_presize_for_root(&out, tree, node);
+    }
     if (indent == NULL || inner_preserves_text(tree, node, opts)) {
         serialize_compact(&out, tree, node, opts);
     } else {

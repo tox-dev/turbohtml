@@ -43,6 +43,7 @@ from turbohtml.etree import ElementView, fragment_fromstring, tostring
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
+    from traced_bytes import PeakBytes
     from wpt_tree_corpus import WptHtmlTreeCorpus
 
     _CodecSearch = Callable[[str], codecs.CodecInfo | None]
@@ -1560,6 +1561,66 @@ def test_inner_xml_keeps_valid_attribute_names(attributes: dict[str, str], expec
 def test_inner_html(html: str, selector: str, inner: str, outer: str) -> None:
     node = _one(html, selector)
     assert (node.inner_html, node.html) == (inner, outer)
+
+
+@pytest.mark.parametrize(
+    ("head_size", "text", "count", "limit"),
+    [
+        pytest.param(262_144, "abc", 1, 16_384, id="tiny-body-large-head"),
+        pytest.param(82_144, "abc", 18_000, 1_150_000, id="source-just-past-power-of-two"),
+        pytest.param(0, "A&B", 18_000, 1_150_000, id="escaped-output-exceeds-source"),
+        pytest.param(0, "abcdefghij", 5_000, 600_000, id="dense-body"),
+    ],
+)
+def test_inner_html_temporary_buffer(peak_bytes: PeakBytes, head_size: int, text: str, count: int, limit: int) -> None:
+    # The 180 kB body fits in a 1 MiB UCS4 buffer even when escaping expands it to 252 kB.
+    temporary = peak_bytes(
+        "import sys, tracemalloc\nfrom turbohtml import parse\n"
+        "head_size, text, count = sys.argv[1:]\n"
+        "inner = ('<b>' + text + '</b>') * int(count)\n"
+        "style = '<style>' + 'a' * int(head_size) + '</style>'\n"
+        "node = parse('<head>' + style + '</head><body>' + inner + '</body>').find('body')\n"
+        "tracemalloc.start()\nresult = node.serialize(inner=True)\n"
+        "current, peak = tracemalloc.get_traced_memory()\ntracemalloc.stop()\n"
+        "assert result == inner.replace('&', '&amp;')\nprint(peak - current)\n",
+        (str(head_size), text, str(count)),
+    )
+    assert temporary < limit, temporary
+
+
+def test_inner_html_skips_content_moved_into_a_void_element(peak_bytes: PeakBytes) -> None:
+    temporary = peak_bytes(
+        "import tracemalloc\nfrom turbohtml import parse\n"
+        "mixed = '<script>a & b</script><svg><g><text>e&amp;f</text></g></svg><template><i>x</i></template>'\n"
+        "body = parse('<body><p>' + 'x' * 262144 + '</p><br><b>before</b>' + mixed + '</body>').find('body')\n"
+        "body.find('br').append(body.find('p').extract())\n"
+        "body.find('b').text = 'A & B'\n"
+        "tracemalloc.start()\nresult = body.serialize(inner=True)\n"
+        "current, peak = tracemalloc.get_traced_memory()\ntracemalloc.stop()\n"
+        "assert result == '<br><b>A &amp; B</b>' + mixed\nprint(peak - current)\n",
+        (),
+    )
+    assert temporary < 16_384, temporary
+
+
+def test_body_serializes_replacement_larger_than_the_document() -> None:
+    body = parse(f"<head><style>{'x' * 17_000}</style></head><body>before</body>").find_all("body")[0]
+    body.text = "A & B" * 8_000
+    assert body.serialize(inner=True) == "A &amp; B" * 8_000
+
+
+@pytest.mark.parametrize(
+    ("make_root", "repeat"),
+    [
+        pytest.param(lambda content: parse_xml(f"<body>{content}</body>").find_all("body")[0], 4_000, id="xml"),
+        pytest.param(lambda content: parse_fragment(content, "body"), 4_000, id="fragment"),
+        pytest.param(lambda content: parse(f"<body><svg>{content}</svg></body>").find_all("svg")[0], 4_000, id="svg"),
+        pytest.param(lambda content: parse(f"<body>{content}</body>").find_all("body")[0], 1, id="short-html-body"),
+    ],
+)
+def test_compact_inner_markup_preserves_escaped_text(make_root: Callable[[str], Element], repeat: int) -> None:
+    inner = f"<a>{'a&amp;b' * repeat}</a>"
+    assert make_root(inner).serialize(inner=True) == inner
 
 
 def test_whatwg_attribute_escapes_angles() -> None:
