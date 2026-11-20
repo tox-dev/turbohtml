@@ -2,10 +2,11 @@
 from collections.abc import Callable, Iterable, Iterator, Mapping, MutableMapping, Sequence
 from enum import Enum, IntEnum
 from re import Pattern
-from typing import ClassVar, Literal, Self, TypeAlias, TypeVar, final
+from typing import ClassVar, Literal, Self, TypeAlias, TypeVar, final, overload
 
 from turbohtml._internal import SourceLocation
 from turbohtml._internal._render import Canonical, Html, Markdown, PlainText
+from turbohtml.detect import Detection, EncodingMatch
 from turbohtml.extract._article import Article as Article
 from turbohtml.extract._dates import Signal
 from turbohtml.extract._feed import Feed
@@ -534,7 +535,19 @@ def build_document(
 ) -> Document: ...
 def build_element(tag: str, args: tuple[object, ...], mapping_type: type, /) -> Element: ...
 def decode(data: bytes, label: str, /) -> str: ...
+
+_Settled = TypeVar("_Settled")
+
+@overload
 def detect(data: bytes, tld: str | None, /) -> tuple[str | None, bool, list[tuple[str, int]], bool] | None: ...
+@overload
+def detect(
+    data: bytes,
+    tld: str | None,
+    cache: dict[int, _Settled],
+    settle: Callable[[str | None, bool, bool], _Settled],
+    /,
+) -> tuple[str | None, bool, list[tuple[str, int]], bool] | _Settled | None: ...
 def detect_rank(
     result: tuple[str | None, bool, list[tuple[str, int]], bool] | None,
     allowed: Iterable[str] | None,
@@ -553,11 +566,21 @@ def boilerplate(
     /,
 ) -> list[tuple[str, bool, bool]]: ...
 
-@final
 class DetectStream:
-    def __init__(self, tld: str | None, /) -> None: ...
-    def feed(self, data: bytes, /) -> bool: ...
-    def close(self) -> tuple[str | None, bool, list[tuple[str, int]], bool] | None: ...
+    def __new__(cls, options: Detection | None = None, /) -> Self: ...
+    @property
+    def done(self) -> bool: ...
+    @property
+    def result(self) -> EncodingMatch | None: ...
+    def feed(self, data: bytes) -> None: ...
+    def reset(self) -> None: ...
+    def _close(
+        self,
+        cache: dict[int, _Settled],
+        settle: Callable[[str | None, bool, bool], _Settled],
+        match: Callable[[tuple[str | None, bool, list[tuple[str, int]], bool] | None, Detection | None], _Settled],
+        /,
+    ) -> _Settled: ...
 
 def detect_language(
     text: str, allowed: frozenset[str] | None, excluded: frozenset[str], threshold: float, /

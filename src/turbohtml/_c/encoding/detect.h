@@ -122,13 +122,13 @@ static int th_detect_is_utf8(const unsigned char *buf, Py_ssize_t len, int *has_
 /* The byte class for a byte under a candidate encoding: bytes 0..127 index the
    lower table, 128..255 the upper. Class 255 means the byte is unmapped, which
    disqualifies the encoding. */
-static unsigned char th_detect_classify(const th_detect_single_byte *data, unsigned char byte) {
+static TH_HOT unsigned char th_detect_classify(const th_detect_single_byte *data, unsigned char byte) {
     return byte < 0x80 ? data->lower[byte] : data->upper[byte & 0x7F];
 }
 
 /* Whether a class is a non-Latin alphabetic letter (windows-1256 reserves an extra
    low class for ZWNJ). */
-static int th_detect_is_non_latin(const th_detect_single_byte *data, unsigned char caseless, int windows_1256) {
+static TH_HOT int th_detect_is_non_latin(const th_detect_single_byte *data, unsigned char caseless, int windows_1256) {
     int lower_bound = windows_1256 ? TH_DETECT_WINDOWS_1256_ZWNJ : 1;
     return caseless > lower_bound && caseless < data->ascii + data->non_ascii;
 }
@@ -137,7 +137,8 @@ static int th_detect_is_non_latin(const th_detect_single_byte *data, unsigned ch
    stored probability for a pair below the boundary (255 meaning implausible), and
    the plausibility rules for pairs that straddle it. A direct port of
    SingleByteData::score. */
-static int64_t th_detect_pair_score(const th_detect_single_byte *data, int current, int previous, int windows_1256) {
+static TH_HOT int64_t th_detect_pair_score(const th_detect_single_byte *data, int current, int previous,
+                                           int windows_1256) {
     int boundary = data->ascii + data->non_ascii;
     if (current < boundary && previous < boundary) {
         if ((previous == 0 && current == 0) || (previous < data->ascii && current < data->ascii)) {
@@ -193,6 +194,65 @@ static int64_t th_detect_pair_score(const th_detect_single_byte *data, int curre
     return TH_DETECT_IMPLAUSIBILITY_PENALTY;
 }
 
+/* th_detect_pair_score for every class pair of every table, so the walk reads a score instead of deriving it. A row is
+   indexed previous * TH_SB_PAIR_WIDTH + current; classes run from 0 to the boundary plus five, at most 77, and the
+   ASCII-digit class 100 takes the last column. A cell holds the score itself. */
+#define TH_SB_PAIR_WIDTH 80
+#define TH_SB_PAIR_ROWS ((int)(sizeof(th_detect_single_byte_data) / sizeof(th_detect_single_byte_data[0])))
+#define TH_SB_WINDOWS_1256_ROW 14
+static int16_t th_sb_pairs[TH_SB_PAIR_ROWS][TH_SB_PAIR_WIDTH * TH_SB_PAIR_WIDTH];
+
+/* Everything the walk asks of a byte's class, for every byte of every table, packed so one load answers it: the
+   caseless class, the upper-case bit, whether the byte is unmapped, whether the class is a non-Latin letter and
+   whether it is a letter below the boundary, and the class's pair-table column, plain and as a row offset. A
+   candidate keeps the word of its previous byte, and the zero word stands for the space class it starts after. */
+#define TH_SB_INFO_CASELESS 0x7Fu
+#define TH_SB_INFO_UPPER 0x80u
+#define TH_SB_INFO_DEAD 0x100u
+#define TH_SB_INFO_NON_LATIN 0x200u
+#define TH_SB_INFO_ALPHA 0x400u
+#define TH_SB_INFO_COLUMN(info) (((info) >> 11) & 0x7Fu)
+#define TH_SB_INFO_ROW(info) ((info) >> 18)
+static uint32_t th_sb_infos[TH_SB_PAIR_ROWS][256];
+
+static TH_HOT int th_sb_pair_column(int cls) {
+    return cls == TH_DETECT_ASCII_DIGIT ? TH_SB_PAIR_WIDTH - 1 : cls;
+}
+
+void th_detect_tables_build(void) {
+    for (int row = 0; row < TH_SB_PAIR_ROWS; row++) {
+        const th_detect_single_byte *data = &th_detect_single_byte_data[row];
+        int windows_1256 = row == TH_SB_WINDOWS_1256_ROW;
+        for (int byte = 0; byte < 256; byte++) {
+            unsigned char cls = th_detect_classify(data, (unsigned char)byte);
+            unsigned caseless = cls & TH_SB_INFO_CASELESS;
+            unsigned column = (unsigned)th_sb_pair_column((int)caseless);
+            th_sb_infos[row][byte] =
+                cls == 255
+                    ? TH_SB_INFO_DEAD
+                    : caseless | (cls & TH_SB_INFO_UPPER) |
+                          (th_detect_is_non_latin(data, (unsigned char)caseless, windows_1256) ? TH_SB_INFO_NON_LATIN
+                                                                                               : 0) |
+                          (caseless > 0 && (int)caseless < data->ascii + data->non_ascii ? TH_SB_INFO_ALPHA : 0) |
+                          (column << 11) | ((column * TH_SB_PAIR_WIDTH) << 18);
+        }
+        int classes = data->ascii + data->non_ascii + 6;
+        for (int previous = 0; previous <= classes; previous++) {
+            int prev_class = previous == classes ? TH_DETECT_ASCII_DIGIT : previous;
+            for (int current = 0; current <= classes; current++) {
+                int cur_class = current == classes ? TH_DETECT_ASCII_DIGIT : current;
+                int64_t score = th_detect_pair_score(data, cur_class, prev_class, row == TH_SB_WINDOWS_1256_ROW);
+                th_sb_pairs[row][th_sb_pair_column(prev_class) * TH_SB_PAIR_WIDTH + th_sb_pair_column(cur_class)] =
+                    (int16_t)score;
+            }
+        }
+    }
+}
+
+static TH_HOT int64_t th_sb_pair(const int16_t *pairs, uint32_t current, uint32_t previous) {
+    return pairs[TH_SB_INFO_ROW(previous) + TH_SB_INFO_COLUMN(current)];
+}
+
 static int th_detect_is_ascii_punct(unsigned char byte) {
     return byte == '.' || byte == ',' || byte == ':' || byte == ';' || byte == '?' || byte == '!';
 }
@@ -231,13 +291,15 @@ enum {
 
 typedef struct {
     const th_detect_single_byte *data;
+    const int16_t *pairs;
+    const uint32_t *infos;
     th_sb_kind kind;
     int windows_1252;
     int koi8u;
     int ibm866;
     int alive;
     int64_t score;
-    unsigned char prev;
+    uint32_t prev; /* the previous byte's th_sb_infos word */
     int prev_ascii;
     unsigned prev_non_ascii;
     int case_state;
@@ -257,6 +319,8 @@ typedef struct {
 static void th_sb_init(th_sb_candidate *cand, const th_detect_single_byte *data, th_sb_kind kind) {
     memset(cand, 0, sizeof(*cand));
     cand->data = data;
+    cand->pairs = th_sb_pairs[data - th_detect_single_byte_data];
+    cand->infos = th_sb_infos[data - th_detect_single_byte_data];
     cand->kind = kind;
     cand->alive = 1;
     cand->prev_ascii = 1;
@@ -274,7 +338,7 @@ static void th_sb_init(th_sb_candidate *cand, const th_detect_single_byte *data,
 
 /* The windows-1252 ordinal-indicator scoring (Spanish/Italian "n.º", "ª", "©", ...),
    which pairwise scoring cannot capture without breaking Romanian detection. */
-static void th_sb_ordinal(th_sb_candidate *cand, unsigned char byte, unsigned char caseless) {
+static TH_HOT void th_sb_ordinal(th_sb_candidate *cand, unsigned char byte, unsigned char caseless) {
     switch (cand->ordinal_state) {
     case TH_ORD_OTHER:
         cand->ordinal_state = caseless == 0 ? TH_ORD_SPACE : TH_ORD_OTHER;
@@ -422,10 +486,10 @@ static Py_ssize_t th_sb_last_space(const unsigned char *buf, Py_ssize_t first, P
    - Hebrew, logical and visual: the plausible-punctuation counts and pair scores sit under !ascii_pair.
    - windows-1252 ordinal machine: bonuses fire only in the EXPECTING_* and COPYRIGHT states, which only an 0xAA, 0xBA
      or 0xA9 byte enters, and every ASCII-driven state falls to SPACE on a space. */
-static void th_sb_skip_to_space(th_sb_candidate *cand, const th_detect_single_byte *data) {
+static TH_HOT void th_sb_skip_to_space(th_sb_candidate *cand) {
     cand->case_state = TH_LAT_SPACE;
     cand->ordinal_state = TH_ORD_SPACE;
-    cand->prev = th_detect_classify(data, ' ') & 0x7F;
+    cand->prev = cand->infos[' '];
     cand->prev_ascii = 1;
     cand->prev_non_ascii = 0;
     cand->prev_was_a0 = 0;
@@ -457,81 +521,89 @@ static Py_ssize_t th_sb_next_jump(const unsigned char *buf, Py_ssize_t from, Py_
    punctuation after a Hebrew letter that the visual candidate's tiebreak needs, skipping bytes it cannot map. Kept out
    of th_sb_feed_loop so a live candidate does not test for this on every byte. */
 static void th_sb_track_punctuation(th_sb_candidate *cand, const unsigned char *buf, Py_ssize_t start, Py_ssize_t len) {
-    const th_detect_single_byte *data = cand->data;
+    const uint32_t *infos = cand->infos;
     for (Py_ssize_t index = start; index < len; index++) {
         unsigned char byte = buf[index];
-        unsigned char cls = th_detect_classify(data, byte);
-        if (cls == 255) {
+        uint32_t info = infos[byte];
+        if (info & TH_SB_INFO_DEAD) {
             continue;
         }
-        unsigned char caseless = cls & 0x7F;
         int ascii = byte < 0x80;
-        if (!(cand->prev_ascii && ascii) && caseless == 0 && th_detect_is_non_latin(data, cand->prev, 0) &&
+        if (!(cand->prev_ascii && ascii) && (info & TH_SB_INFO_CASELESS) == 0 && (cand->prev & TH_SB_INFO_NON_LATIN) &&
             th_detect_is_ascii_punct(byte)) {
             cand->plausible_punctuation++;
         }
         cand->prev_ascii = ascii;
-        cand->prev = caseless;
+        cand->prev = info;
+    }
+}
+
+/* The Latin kinds' penalty for a byte after `run` non-ASCII bytes in a row. */
+static TH_HOT int64_t th_sb_latin_run_penalty(unsigned run) {
+    return run <= 2 ? 0 : run == 3 ? -5 : run == 4 ? -20 : -200;
+}
+
+/* The Latin kinds' case machine: an upper-case letter after a lower-case one, or a lower-case one after all caps,
+   costs the transition penalty unless both bytes are ASCII. */
+static TH_HOT void th_sb_latin_case(th_sb_candidate *cand, int latin_alpha, int upper, int ascii_pair) {
+    if (!latin_alpha) {
+        cand->case_state = TH_LAT_SPACE;
+    } else if (!upper) {
+        if (cand->case_state == TH_LAT_ALLCAPS && !ascii_pair) {
+            cand->score += TH_DETECT_IMPLAUSIBLE_LATIN_CASE_TRANSITION_PENALTY;
+        }
+        cand->case_state = TH_LAT_LOWER;
+    } else if (cand->case_state == TH_LAT_SPACE) {
+        cand->case_state = TH_LAT_UPPER;
+    } else if (cand->case_state == TH_LAT_LOWER) {
+        if (!ascii_pair) {
+            cand->score += TH_DETECT_IMPLAUSIBLE_LATIN_CASE_TRANSITION_PENALTY;
+        }
+        cand->case_state = TH_LAT_UPPER;
+    } else {
+        cand->case_state = TH_LAT_ALLCAPS;
     }
 }
 
 /* Feed the whole input to one single-byte candidate, accumulating its score or
    disqualifying it on the first unmapped byte. Ports the per-kind feed methods. */
-static TH_HOT void th_sb_feed_loop(th_sb_candidate *cand, const unsigned char *buf, Py_ssize_t len,
-                                   int track_logical_punctuation, int skip_runs, const int kind) {
-    const th_detect_single_byte *data = cand->data;
-    int windows_1256 = kind == TH_SB_ARABIC_FRENCH;
-    if (!cand->alive) {
-        th_sb_track_punctuation(cand, buf, 0, len);
+static TH_HOT void th_sb_feed_loop(th_sb_candidate *out, const unsigned char *buf, Py_ssize_t len,
+                                   int track_logical_punctuation, int skip_runs, const int kind, const int western) {
+    if (!out->alive) {
+        th_sb_track_punctuation(out, buf, 0, len);
         return;
     }
+    /* The walk runs on a copy the compiler keeps in registers: through the pointer, every one-byte state store could
+       alias the table fields, so each byte would reload them and spill the state back. */
+    th_sb_candidate local = *out;
+    th_sb_candidate *cand = &local;
+    const int16_t *pairs = cand->pairs;
+    const uint32_t *infos = cand->infos;
     Py_ssize_t jump_from = skip_runs ? th_sb_next_jump(buf, 0, len) : len;
     Py_ssize_t index = 0;
     /* The walk runs up to where a skip may start and takes it there, so the per-byte loop only tests its own bound. */
     for (;;) {
         for (; index < jump_from; index++) {
             unsigned char byte = buf[index];
-            unsigned char cls = th_detect_classify(data, byte);
-            if (cls == 255) {
-                cand->alive = 0;
-                if (track_logical_punctuation) {
-                    th_sb_track_punctuation(cand, buf, index + 1, len);
-                }
-                return;
+            uint32_t info = infos[byte];
+            if (info & TH_SB_INFO_DEAD) {
+                goto dead;
             }
-            unsigned char caseless = cls & 0x7F;
+            unsigned char caseless = (unsigned char)(info & TH_SB_INFO_CASELESS);
+            unsigned char prev = (unsigned char)(cand->prev & TH_SB_INFO_CASELESS);
+            int upper = (info & TH_SB_INFO_UPPER) != 0;
             int ascii = byte < 0x80;
-            int non_latin = th_detect_is_non_latin(data, caseless, windows_1256);
+            int non_latin = (info & TH_SB_INFO_NON_LATIN) != 0;
 
             if (kind == TH_SB_LATIN || kind == TH_SB_ARABIC_FRENCH) {
                 int ascii_pair =
                     kind == TH_SB_LATIN ? (cand->prev_non_ascii == 0 && ascii) : (cand->prev_ascii && ascii);
                 if (kind == TH_SB_LATIN) {
-                    int64_t penalty = cand->prev_non_ascii <= 2   ? 0
-                                      : cand->prev_non_ascii == 3 ? -5
-                                      : cand->prev_non_ascii == 4 ? -20
-                                                                  : -200;
-                    cand->score += penalty;
+                    cand->score += th_sb_latin_run_penalty(cand->prev_non_ascii);
                 }
-                int latin_alpha = kind == TH_SB_LATIN ? (caseless > 0 && caseless < data->ascii + data->non_ascii)
-                                                      : (caseless == TH_DETECT_LATIN_LETTER);
-                if (!latin_alpha) {
-                    cand->case_state = TH_LAT_SPACE;
-                } else if ((cls >> 7) == 0) {
-                    if (cand->case_state == TH_LAT_ALLCAPS && !ascii_pair) {
-                        cand->score += TH_DETECT_IMPLAUSIBLE_LATIN_CASE_TRANSITION_PENALTY;
-                    }
-                    cand->case_state = TH_LAT_LOWER;
-                } else if (cand->case_state == TH_LAT_SPACE) {
-                    cand->case_state = TH_LAT_UPPER;
-                } else if (cand->case_state == TH_LAT_LOWER) {
-                    if (!ascii_pair) {
-                        cand->score += TH_DETECT_IMPLAUSIBLE_LATIN_CASE_TRANSITION_PENALTY;
-                    }
-                    cand->case_state = TH_LAT_UPPER;
-                } else {
-                    cand->case_state = TH_LAT_ALLCAPS;
-                }
+                th_sb_latin_case(
+                    cand, kind == TH_SB_LATIN ? (info & TH_SB_INFO_ALPHA) != 0 : (caseless == TH_DETECT_LATIN_LETTER),
+                    upper, ascii_pair);
                 if (kind == TH_SB_ARABIC_FRENCH) {
                     if (non_latin) {
                         cand->current_word_len++;
@@ -542,20 +614,19 @@ static TH_HOT void th_sb_feed_loop(th_sb_candidate *cand, const unsigned char *b
                         cand->current_word_len = 0;
                     }
                     if (!ascii_pair) {
-                        cand->score += th_detect_pair_score(data, caseless, cand->prev, 1);
-                        if (cand->prev == TH_DETECT_LATIN_LETTER && non_latin) {
+                        cand->score += th_sb_pair(pairs, info, cand->prev);
+                        if (prev == TH_DETECT_LATIN_LETTER && non_latin) {
                             cand->score += TH_DETECT_LATIN_ADJACENCY_PENALTY;
-                        } else if (caseless == TH_DETECT_LATIN_LETTER && th_detect_is_non_latin(data, cand->prev, 1)) {
+                        } else if (caseless == TH_DETECT_LATIN_LETTER && (cand->prev & TH_SB_INFO_NON_LATIN)) {
                             cand->score += TH_DETECT_LATIN_ADJACENCY_PENALTY;
                         }
                     }
                 } else {
-                    int ascii_ish =
-                        ascii_pair || (ascii && cand->prev == 0) || (caseless == 0 && cand->prev_non_ascii == 0);
+                    int ascii_ish = ascii_pair || (ascii && prev == 0) || (caseless == 0 && cand->prev_non_ascii == 0);
                     if (!ascii_ish) {
-                        cand->score += th_detect_pair_score(data, caseless, cand->prev, 0);
+                        cand->score += th_sb_pair(pairs, info, cand->prev);
                     }
-                    if (cand->windows_1252) {
+                    if (western) {
                         th_sb_ordinal(cand, byte, caseless);
                     }
                 }
@@ -564,7 +635,27 @@ static TH_HOT void th_sb_feed_loop(th_sb_candidate *cand, const unsigned char *b
                 } else {
                     cand->prev_ascii = ascii;
                 }
-                cand->prev = caseless;
+                cand->prev = info;
+                if (kind == TH_SB_LATIN && !ascii) {
+                    /* Until the next ASCII byte no pair reads as ASCII, so the walk through the rest of a non-ASCII run
+                       always scores the pair and drops those tests. */
+                    while (index + 1 < jump_from && buf[index + 1] >= 0x80) {
+                        index++;
+                        byte = buf[index];
+                        info = infos[byte];
+                        if (info & TH_SB_INFO_DEAD) {
+                            goto dead;
+                        }
+                        cand->score +=
+                            th_sb_latin_run_penalty(cand->prev_non_ascii) + th_sb_pair(pairs, info, cand->prev);
+                        th_sb_latin_case(cand, (info & TH_SB_INFO_ALPHA) != 0, (info & TH_SB_INFO_UPPER) != 0, 0);
+                        if (western) {
+                            th_sb_ordinal(cand, byte, (unsigned char)(info & TH_SB_INFO_CASELESS));
+                        }
+                        cand->prev_non_ascii++;
+                        cand->prev = info;
+                    }
+                }
                 continue;
             }
 
@@ -583,7 +674,7 @@ static TH_HOT void th_sb_feed_loop(th_sb_candidate *cand, const unsigned char *b
                         cand->score += TH_DETECT_NON_LATIN_MIXED_CASE_PENALTY * (int64_t)cand->current_word_len;
                     }
                     cand->case_state = TH_NL_SPACE;
-                } else if ((cls >> 7) == 0) {
+                } else if (!upper) {
                     if (cand->case_state == TH_NL_SPACE) {
                         cand->case_state = TH_NL_LOWER;
                     } else if (cand->case_state == TH_NL_UPPER) {
@@ -611,38 +702,50 @@ static TH_HOT void th_sb_feed_loop(th_sb_candidate *cand, const unsigned char *b
 
             int is_a0 = byte == 0xA0;
             if (!ascii_pair) {
-                int skip_ibm866 = cand->ibm866 && ((is_a0 && (cand->prev_was_a0 || cand->prev == 0)) ||
-                                                   (caseless == 0 && cand->prev_was_a0));
+                int skip_ibm866 = cand->ibm866 &&
+                                  ((is_a0 && (cand->prev_was_a0 || prev == 0)) || (caseless == 0 && cand->prev_was_a0));
                 if (!skip_ibm866) {
-                    cand->score += th_detect_pair_score(data, caseless, cand->prev, 0);
+                    cand->score += th_sb_pair(pairs, info, cand->prev);
                 }
-                int prev_non_latin = th_detect_is_non_latin(data, cand->prev, 0);
+                int prev_non_latin = (cand->prev & TH_SB_INFO_NON_LATIN) != 0;
                 if (kind == TH_SB_LOGICAL && caseless == 0 && prev_non_latin && th_detect_is_ascii_punct(byte)) {
                     cand->plausible_punctuation++;
                 } else if (kind == TH_SB_VISUAL && non_latin && cand->prev_punctuation) {
                     cand->plausible_punctuation++;
                 }
-                if (cand->prev == TH_DETECT_LATIN_LETTER && non_latin) {
+                if (prev == TH_DETECT_LATIN_LETTER && non_latin) {
                     cand->score += TH_DETECT_LATIN_ADJACENCY_PENALTY;
                 } else if (caseless == TH_DETECT_LATIN_LETTER && prev_non_latin) {
                     cand->score += TH_DETECT_LATIN_ADJACENCY_PENALTY;
                 }
             }
             cand->prev_ascii = ascii;
-            cand->prev = caseless;
-            cand->prev_was_a0 = is_a0;
-            cand->prev_punctuation = caseless == 0 && th_detect_is_ascii_punct(byte);
+            cand->prev = info;
+            /* only ibm866 reads the no-break-space flag and only the visual candidate the punctuation one */
+            if (kind == TH_SB_NON_LATIN_CASED) {
+                cand->prev_was_a0 = is_a0;
+            }
+            if (kind == TH_SB_VISUAL) {
+                cand->prev_punctuation = caseless == 0 && th_detect_is_ascii_punct(byte);
+            }
         }
         if (jump_from == len) {
+            *out = local;
             return;
         }
         Py_ssize_t run_end = index + th_decode_ascii_run(buf + index, len - index);
         Py_ssize_t space = run_end - index >= 16 ? th_sb_last_space(buf, index, run_end) : -1;
         if (space >= 0) {
-            th_sb_skip_to_space(cand, data);
+            th_sb_skip_to_space(cand);
             index = space + 1;
         }
         jump_from = th_sb_next_jump(buf, run_end, len);
+    }
+dead:
+    cand->alive = 0;
+    *out = local;
+    if (track_logical_punctuation) {
+        th_sb_track_punctuation(out, buf, index + 1, len);
     }
 }
 
@@ -677,22 +780,26 @@ static void th_sb_feed(th_sb_candidate *cand, const unsigned char *buf, Py_ssize
     }
     switch (cand->kind) {
     case TH_SB_LATIN:
-        th_sb_feed_loop(cand, buf, len, track_logical_punctuation, skippable, TH_SB_LATIN);
+        if (cand->windows_1252) {
+            th_sb_feed_loop(cand, buf, len, track_logical_punctuation, skippable, TH_SB_LATIN, 1);
+        } else {
+            th_sb_feed_loop(cand, buf, len, track_logical_punctuation, skippable, TH_SB_LATIN, 0);
+        }
         break;
     case TH_SB_NON_LATIN_CASED:
-        th_sb_feed_loop(cand, buf, len, track_logical_punctuation, skippable, TH_SB_NON_LATIN_CASED);
+        th_sb_feed_loop(cand, buf, len, track_logical_punctuation, skippable, TH_SB_NON_LATIN_CASED, 0);
         break;
     case TH_SB_ARABIC_FRENCH:
-        th_sb_feed_loop(cand, buf, len, track_logical_punctuation, skippable, TH_SB_ARABIC_FRENCH);
+        th_sb_feed_loop(cand, buf, len, track_logical_punctuation, skippable, TH_SB_ARABIC_FRENCH, 0);
         break;
     case TH_SB_CASELESS:
-        th_sb_feed_loop(cand, buf, len, track_logical_punctuation, skippable, TH_SB_CASELESS);
+        th_sb_feed_loop(cand, buf, len, track_logical_punctuation, skippable, TH_SB_CASELESS, 0);
         break;
     case TH_SB_LOGICAL:
-        th_sb_feed_loop(cand, buf, len, track_logical_punctuation, skippable, TH_SB_LOGICAL);
+        th_sb_feed_loop(cand, buf, len, track_logical_punctuation, skippable, TH_SB_LOGICAL, 0);
         break;
     default:
-        th_sb_feed_loop(cand, buf, len, track_logical_punctuation, skippable, TH_SB_VISUAL);
+        th_sb_feed_loop(cand, buf, len, track_logical_punctuation, skippable, TH_SB_VISUAL, 0);
         break;
     }
 }
@@ -1643,7 +1750,6 @@ typedef struct {
 } th_jp_scan;
 
 static void th_jp_scan_init(th_jp_scan *scan) {
-    th_decode_init(&scan->dec, th_encoding_lookup("iso-2022-jp", 11), NULL, 0);
     scan->esc_seen = 0;
     scan->alive = 1;
     scan->carry_len = 0;
@@ -1673,6 +1779,9 @@ static void th_jp_scan_feed(th_jp_scan *scan, const unsigned char *buf, Py_ssize
         }
         start = prefix;
         scan->esc_seen = 1;
+        /* the decoder starts at the escape: nothing before it changes its state, and a stream that never has one
+           never needs the decoder */
+        th_decode_init(&scan->dec, th_encoding_lookup("iso-2022-jp", 11), NULL, 0);
     }
     buf += start;
     len -= start;
@@ -1733,16 +1842,21 @@ static int th_iso2022jp_alive(const unsigned char *buf, Py_ssize_t len) {
     return th_jp_scan_done(&scan);
 }
 
-/* Every candidate chardetng scores, fed byte by byte and read once at the end. The stream is
-   the only implementation: th_encoding_detect drives it with a single feed, so the
-   differential test against chardetng covers the same scoring the chunked path uses. */
+/* Every candidate chardetng scores, fed byte by byte and read once at the end. th_encoding_detect drives them with a
+   single feed and the stream with one per chunk, so the differential test against chardetng covers the same scoring
+   the chunked path uses. */
 typedef struct {
-    th_utf8_scan utf8;
-    th_jp_scan jp;
     th_cjk_candidate cjk[5];
     th_sb_candidate sb[TH_SB_COUNT];
     th_sb_candidate visual;
-    /* the Python stream object gets these zeroed by its allocator, and the one-shot path never reads them */
+} th_detect_candidates;
+
+/* A stream's candidates are allocated at its first non-ASCII byte: a stream that never has one, ASCII or settled by a
+   byte-order mark, is answered without them, so it neither allocates nor initializes them. */
+typedef struct {
+    th_utf8_scan utf8;
+    th_jp_scan jp;
+    th_detect_candidates *candidates;
     int started;
     unsigned char tail[2];
     int tail_len;
@@ -1758,22 +1872,36 @@ static const struct {
     {TH_CJK_BIG5, "big5"},
 };
 
+static void th_detect_candidates_init(th_detect_candidates *candidates) {
+    th_detect_tables_ensure();
+    for (int slot = 0; slot < 5; slot++) {
+        th_cjk_init(&candidates->cjk[slot], th_cjk_slots[slot].kind, th_cjk_slots[slot].label);
+    }
+    for (int slot = 0; slot < TH_SB_COUNT; slot++) {
+        th_sb_init(&candidates->sb[slot], &th_detect_single_byte_data[th_sb_candidate_table[slot].data_index],
+                   th_sb_candidate_table[slot].kind);
+    }
+    th_sb_init(&candidates->visual, &th_detect_single_byte_data[TH_DETECT_ISO_8859_8_ROW], TH_SB_VISUAL);
+}
+
 static void th_detect_stream_init(th_detect_stream *stream) {
     th_utf8_scan_init(&stream->utf8);
     th_jp_scan_init(&stream->jp);
-    for (int slot = 0; slot < 5; slot++) {
-        th_cjk_init(&stream->cjk[slot], th_cjk_slots[slot].kind, th_cjk_slots[slot].label);
-    }
-    for (int slot = 0; slot < TH_SB_COUNT; slot++) {
-        th_sb_init(&stream->sb[slot], &th_detect_single_byte_data[th_sb_candidate_table[slot].data_index],
-                   th_sb_candidate_table[slot].kind);
-    }
-    th_sb_init(&stream->visual, &th_detect_single_byte_data[TH_DETECT_ISO_8859_8_ROW], TH_SB_VISUAL);
+    stream->candidates = NULL;
+    stream->started = 0;
+    stream->tail[0] = 0;
+    stream->tail[1] = 0;
+    stream->tail_len = 0;
+}
+
+static void th_detect_stream_clear(th_detect_stream *stream) {
+    PyMem_Free(stream->candidates);
+    stream->candidates = NULL;
 }
 
 /* The two candidate arrays laid end to end under chardetng's indices, so one number addresses any
    candidate the TLD tables name. Index 3..8 is a CJK slot; 8..27 a single-byte one. */
-static int th_detect_alive(const th_detect_stream *stream, int index) {
+static int th_detect_alive(const th_detect_candidates *stream, int index) {
     if (index < TH_DETECT_WESTERN_INDEX) {
         return stream->cjk[index - TH_DETECT_GBK_INDEX].alive;
     }
@@ -1791,7 +1919,7 @@ static const char *th_detect_label(int index) {
    does, chardetng reads the TLD as mistaken rather than as evidence and stops penalizing the candidates
    that did score. A Chinese or Central European TLD tries its sibling script first, since the two share
    a domain; *tld takes that sibling. */
-static int th_detect_expectation(const th_detect_stream *stream, th_tld *tld) {
+static int th_detect_expectation(const th_detect_candidates *stream, th_tld *tld) {
     if (*tld != TH_TLD_GENERIC) {
         for (int index = TH_DETECT_GBK_INDEX; index <= TH_DETECT_CYRILLIC_ISO_INDEX; index++) {
             if (th_tld_is_native(*tld, index) && th_detect_alive(stream, index)) {
@@ -1820,7 +1948,7 @@ static int th_detect_expectation(const th_detect_stream *stream, th_tld *tld) {
 
 /* Feed the scored candidates only. th_encoding_detect calls this directly, having already
    ruled out the pure-ASCII and valid-UTF-8 answers that need no scoring at all. */
-static TH_HOT void th_detect_candidates_feed(th_detect_stream *stream, const unsigned char *buf, Py_ssize_t len,
+static TH_HOT void th_detect_candidates_feed(th_detect_candidates *stream, const unsigned char *buf, Py_ssize_t len,
                                              int final) {
     for (int slot = 0; slot < 5; slot++) {
         th_cjk_feed(&stream->cjk[slot], buf, len, final);
@@ -1867,20 +1995,26 @@ static void th_detect_stream_start(th_detect_stream *stream, const unsigned char
         th_detect_stream_keep_tail(stream, buf, len);
         return;
     }
+    stream->candidates = PyMem_Malloc(sizeof(*stream->candidates));
+    if (stream->candidates == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyErr_NoMemory();             /* GCOVR_EXCL_LINE: allocation-failure path */
+        return;                       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    th_detect_candidates_init(stream->candidates);
     stream->started = 1;
     if (first < 2 && stream->tail_len > 0) {
         Py_ssize_t context = 2 - first < stream->tail_len ? 2 - first : stream->tail_len;
-        th_detect_candidates_feed(stream, stream->tail + 2 - context, context, 0);
+        th_detect_candidates_feed(stream->candidates, stream->tail + 2 - context, context, 0);
     }
     Py_ssize_t skip = first < 2 ? 0 : first - 2;
-    th_detect_candidates_feed(stream, buf + skip, len - skip, final);
+    th_detect_candidates_feed(stream->candidates, buf + skip, len - skip, final);
 }
 
 static void th_detect_stream_feed(th_detect_stream *stream, const unsigned char *buf, Py_ssize_t len, int final) {
     th_utf8_scan_feed(&stream->utf8, buf, len);
     th_jp_scan_feed(&stream->jp, buf, len, final);
     if (stream->started) {
-        th_detect_candidates_feed(stream, buf, len, final);
+        th_detect_candidates_feed(stream->candidates, buf, len, final);
         return;
     }
     th_detect_stream_start(stream, buf, len, final);
@@ -1889,7 +2023,7 @@ static void th_detect_stream_feed(th_detect_stream *stream, const unsigned char 
 /* The scored answer: the surviving CJK and single-byte candidates compete in chardetng's
    strict-max, defaulting to the TLD's own encoding, with the Hebrew visual/logical tiebreak
    last. Every survivor lands in *scores so detect() can rank alternatives. */
-static const th_encoding_entry *th_detect_pick_winner(const th_detect_stream *stream, th_tld tld,
+static const th_encoding_entry *th_detect_pick_winner(const th_detect_candidates *stream, th_tld tld,
                                                       th_detect_scores *scores) {
     /* even a TLD the bytes contradict names the fallback: chardetng reads the default before
        th_detect_expectation moves tld to its sibling script */
@@ -1958,7 +2092,7 @@ static const th_encoding_entry *th_detect_stream_finish(const th_detect_stream *
         scores->structural = 1;
         return th_encoding_lookup("utf-8", 5);
     }
-    return th_detect_pick_winner(stream, tld, scores);
+    return th_detect_pick_winner(stream->candidates, tld, scores);
 }
 
 /* Guess the encoding of a declaration-less byte stream in one shot. The two structural
@@ -1980,10 +2114,10 @@ static const th_encoding_entry *th_encoding_detect(const unsigned char *buf, Py_
         scores->structural = 1;
         return th_encoding_lookup("utf-8", 5);
     }
-    th_detect_stream stream;
-    th_detect_stream_init(&stream);
+    th_detect_candidates candidates;
+    th_detect_candidates_init(&candidates);
     Py_ssize_t first = th_detect_first_event(buf, len);
     Py_ssize_t start = first < 2 ? 0 : first - 2;
-    th_detect_candidates_feed(&stream, buf + start, len - start, 1);
-    return th_detect_pick_winner(&stream, tld, scores);
+    th_detect_candidates_feed(&candidates, buf + start, len - start, 1);
+    return th_detect_pick_winner(&candidates, tld, scores);
 }

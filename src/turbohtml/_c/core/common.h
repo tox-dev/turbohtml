@@ -49,13 +49,19 @@ PyObject *turbohtml_register_xpath_string(PyObject *module, PyObject *type);
    reuses. _detect runs the encoding sniff (BOM, <meta> prescan, content detection)
    over a byte buffer without parsing, narrowed by the host's rightmost DNS label when one
    is given; the turbohtml.detect facade shapes its (winner, certain, ranked scores, bom)
-   tuple into EncodingMatch results. METH_VARARGS. */
+   tuple into EncodingMatch results, or, given a cache dict and a settle callable, takes a
+   settled answer from the cache. METH_FASTCALL. */
 PyObject *turbohtml_extract_boilerplate(PyObject *module, PyObject *args);
-PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *args);
+PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *const *args, Py_ssize_t nargs);
 PyObject *turbohtml_detect_rank(PyObject *module, PyObject *args);
 
 /* The streaming encoding detector type, registered on the module as _DetectStream. */
 extern PyType_Spec detect_stream_spec;
+/* The single-byte detector's derived tables: th_detect_tables_build (dom/document.c) fills them, and
+   th_detect_tables_ensure (core/module.c) runs it once across every interpreter and thread before the first
+   scored detection. */
+void th_detect_tables_build(void);
+void th_detect_tables_ensure(void);
 PyObject *turbohtml_decode(PyObject *module, PyObject *args);
 PyObject *turbohtml_detect_language(PyObject *module, PyObject *args);
 /* _codec_label(name) resolves a whatwg-* codec name to (delegate, label) for the codecs registry, or None when
