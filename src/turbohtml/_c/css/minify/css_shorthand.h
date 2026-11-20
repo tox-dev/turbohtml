@@ -373,6 +373,49 @@ static int css_func_name_is(css_buf *pool, const css_comp *comp, const char *nam
     return css_run_ieq(pool->data + comp->off, css_func_name_len(pool, comp), name);
 }
 
+static int css_is_substitution(css_buf *pool, const css_comp *comp) {
+    return css_func_name_is(pool, comp, "var") || css_func_name_is(pool, comp, "env") ||
+           css_func_name_is(pool, comp, "attr");
+}
+
+/* Drop the initial outside and disc from a list-style (Lists 3 §3.1). Browsers fill its slots in longhand order,
+   position, image, type, and a type may be any counter style name, outside included. So an outside goes only when no
+   other component names a position, where it could not have claimed the slot from one, and a disc only when the rest
+   are positions or images, which leaves no component that could take the type it frees. A CSS-wide keyword or a
+   substitution function keeps the value as written, since dropping either keyword could make an invalid one valid. */
+static void css_handle_list_style(css_buf *pool, comp_vec *comps) {
+    Py_ssize_t outside = -1;
+    Py_ssize_t disc = -1;
+    int positions = 0;
+    int typed = 0;
+    for (Py_ssize_t index = 0; index < comps->len; index++) {
+        const css_comp *comp = &comps->items[index];
+        if (comp->kind == CK_SEP || css_is_substitution(pool, comp) ||
+            (comp->kind == CK_IDENT && css_box_is_wide_keyword(pool, comp))) {
+            return;
+        }
+        if (comp->kind == CK_IDENT && (comp_ieq(pool, comp, "outside") || comp_ieq(pool, comp, "inside"))) {
+            positions++;
+            outside = comp_ieq(pool, comp, "outside") ? index : outside;
+        } else if (comp->kind == CK_IDENT && comp_ieq(pool, comp, "disc")) {
+            disc = index;
+            typed++;
+        } else if (comp->kind != CK_URL) {
+            typed++;
+        }
+    }
+    Py_ssize_t kept = comps->len;
+    int drop_outside = kept > 1 && positions == 1 && outside >= 0;
+    kept -= drop_outside;
+    int drop_disc = kept > 1 && disc >= 0 && typed == 1;
+    if (drop_disc) {
+        comp_vec_splice(comps, disc, 1, NULL, 0);
+    }
+    if (drop_outside) {
+        comp_vec_splice(comps, outside - (drop_disc && disc < outside), 1, NULL, 0);
+    }
+}
+
 static int css_is_easing(css_buf *pool, const css_comp *comp) {
     if (comp->kind == CK_FUNC) {
         Py_ssize_t name_len = css_func_name_len(pool, comp);
@@ -394,9 +437,7 @@ static int css_is_easing(css_buf *pool, const css_comp *comp) {
 static void css_handle_transition(css_buf *pool, comp_vec *comps) {
     for (Py_ssize_t index = 0; index < comps->len; index++) {
         const css_comp *comp = &comps->items[index];
-        if ((comp->kind == CK_FUNC && (css_func_name_is(pool, comp, "var") || css_func_name_is(pool, comp, "env") ||
-                                       css_func_name_is(pool, comp, "attr"))) ||
-            (comp->kind == CK_IDENT && css_box_is_wide_keyword(pool, comp))) {
+        if (css_is_substitution(pool, comp) || (comp->kind == CK_IDENT && css_box_is_wide_keyword(pool, comp))) {
             return;
         }
     }
@@ -1185,6 +1226,8 @@ static void css_apply_handler(css_buf *pool, const css_char *prop, Py_ssize_t pr
                (prop_len == 13 && css_run_ieq_first(prop, prop_len, first, "-o-transition"))) {
         /* the length checks skip the compares for the -webkit- and transform names that share a first letter */
         css_handle_transition(pool, comps);
+    } else if (prop_len == 10 && css_run_ieq_first(prop, prop_len, first, "list-style")) {
+        css_handle_list_style(pool, comps);
     } else if (css_run_ieq_first(prop, prop_len, first, "background-repeat")) {
         css_handle_runs(pool, comps, css_collapse_repeat_run);
     } else if (css_run_ieq_first(prop, prop_len, first, "background-size")) {

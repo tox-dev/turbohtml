@@ -476,6 +476,11 @@ Shorthands
   §2.5 <https://www.w3.org/TR/css-transitions-1/#transition-shorthand-property>`__): ``a{transition:opacity .6s ease}``
   → ``a{transition:opacity .6s}``. A layer that leads with ``ease`` keeps it, since a browser reads a leading identifier
   as the transitioned property, and ``animation`` keeps its ``ease``, which could become the animation name.
+- Drop the initial ``outside`` and ``disc`` from ``list-style`` (`Lists 3 §3.1
+  <https://www.w3.org/TR/css-lists-3/#list-style-property>`__): ``a{list-style:disc outside}`` → ``a{list-style:disc}``,
+  ``a{list-style:url(a) outside disc}`` → ``a{list-style:url(a)}``. A list type may be any counter style name, so
+  ``outside`` stays beside ``inside`` or another ``outside``, and ``disc`` stays beside any component that could name
+  the type in its place, ``none`` included.
 - Merge ``flex-direction`` + ``flex-wrap`` into ``flex-flow``, and each Box Alignment axis pair into its ``place-``
   shorthand -- ``align-content`` + ``justify-content`` into ``place-content``, ``align-items`` + ``justify-items`` into
   ``place-items``, and ``align-self`` + ``justify-self`` into ``place-self`` (`Box Alignment 3
