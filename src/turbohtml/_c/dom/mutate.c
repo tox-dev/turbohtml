@@ -1434,21 +1434,55 @@ static int attr_name_equal(th_tree *left_tree, const th_node_attr *left, th_tree
     return left_len == right_len && memcmp(left_name, right_name, (size_t)left_len) == 0;
 }
 
+/* Whether two dynamic atoms of different trees spell one name, read straight from the records. */
+static int dynamic_name_equal(const th_tree *left_tree, uint32_t left_atom, const th_tree *right_tree,
+                              uint32_t right_atom) {
+    const th_attr_record *left = &left_tree->attr_recs[left_atom - TH_ATTR__DYNAMIC_BASE];
+    const th_attr_record *right = &right_tree->attr_recs[right_atom - TH_ATTR__DYNAMIC_BASE];
+    return left->name_len == right->name_len && memcmp(left->name, right->name, left->name_len) == 0;
+}
+
 /* Whether two attributes carry the same value. A valueless attribute (NULL value,
    zero length) is the empty string per the DOM, so `disabled` equals `disabled=""`. */
 static int attr_value_equal(const th_node_attr *left, const th_node_attr *right) {
-    return left->value_len == right->value_len &&
-           (left->value_len == 0 || memcmp(left->value, right->value, (size_t)left->value_len * sizeof(Py_UCS4)) == 0);
+    if (left->value_len != right->value_len) {
+        return 0;
+    }
+    /* most values are a few code points, which a loop compares faster than a call */
+    if (left->value_len <= 8) {
+        for (Py_ssize_t index = 0; index < left->value_len; index++) {
+            if (left->value[index] != right->value[index]) {
+                return 0;
+            }
+        }
+        return 1;
+    }
+    return memcmp(left->value, right->value, (size_t)left->value_len * sizeof(Py_UCS4)) == 0;
 }
 
-static int attrs_equal_indexed(th_tree *left_tree, th_node *left, th_tree *right_tree, th_node *right,
-                               Py_ssize_t start);
+static TH_NOINLINE int attrs_equal_indexed(th_tree *left_tree, th_node *left, th_tree *right_tree, th_node *right,
+                                           Py_ssize_t start);
 
 /* The position in right of the attribute named like want, probing on from cursor and wrapping around; -1 when right has
    none. The caller has already seen cursor fail to match, so the lap stops before probing it again. */
 static TH_NOINLINE Py_ssize_t attr_scan(th_tree *left_tree, const th_node_attr *want, th_tree *right_tree,
                                         th_node *right, Py_ssize_t cursor) {
     Py_ssize_t other = cursor;
+    /* trees that hash names alike give equal names equal hashes, so a hash rejects a dynamic name before its bytes;
+       a name in the static table always interns to its static atom, so no static atom can match */
+    if (left_tree != right_tree && want->name_atom >= TH_ATTR__DYNAMIC_BASE &&
+        (left_tree->attr_fast == NULL) == (right_tree->attr_fast == NULL)) {
+        const uint32_t hash = left_tree->attr_recs[want->name_atom - TH_ATTR__DYNAMIC_BASE].hash;
+        do {
+            other = other + 1 < right->attr_count ? other + 1 : 0;
+            if (other == cursor) {
+                return -1;
+            }
+        } while (right->attrs[other].name_atom < TH_ATTR__DYNAMIC_BASE ||
+                 right_tree->attr_recs[right->attrs[other].name_atom - TH_ATTR__DYNAMIC_BASE].hash != hash ||
+                 !dynamic_name_equal(left_tree, want->name_atom, right_tree, right->attrs[other].name_atom));
+        return other;
+    }
     do {
         other = other + 1 < right->attr_count ? other + 1 : 0;
         if (other == cursor) {
@@ -1462,11 +1496,15 @@ static int attrs_equal(th_tree *left_tree, th_node *left, th_tree *right_tree, t
     if (left->attr_count != right->attr_count) {
         return 0;
     }
-    int can_index = left->attr_count >= 8 &&
-                    /* GCOVR_EXCL_BR_START: allocation size overflow */
-                    (size_t)left->attr_count <= SIZE_MAX / (4 * sizeof(Py_ssize_t));
+    int can_index =
+        left->attr_count >= 8 &&
+        /* GCOVR_EXCL_BR_START: allocation size overflow */
+        (uint64_t)left->attr_count <
+            (SIZE_MAX / (4 * sizeof(uint64_t)) < UINT32_MAX ? SIZE_MAX / (4 * sizeof(uint64_t)) : UINT32_MAX);
     /* GCOVR_EXCL_BR_STOP */
-    Py_ssize_t misses_to_index = can_index ? left->attr_count * 2 : 0;
+    /* A rotation costs one partial lap and then matches in place, while a reversed or shuffled list keeps scanning; a
+       lap's worth of misses tells the two apart, so that much scanning switches to the hashed comparison. */
+    Py_ssize_t misses_to_index = can_index ? left->attr_count - 1 : 0;
     /* Elements built alike list their attributes in one order, so each attribute usually matches where the previous
        one did; a rotated list then wraps around once rather than restarting at zero for every attribute. */
     Py_ssize_t cursor = 0;
@@ -1495,48 +1533,63 @@ static int attrs_equal(th_tree *left_tree, th_node *left, th_tree *right_tree, t
     return 1;
 }
 
-/* The atom right_tree gives the name of want, an attribute of left_tree. The record's stored hash is the home slot in
-   right_tree only when both trees hash names alike (FNV-1a until a tree moves to th_name_hash for good), so otherwise
-   the name is looked up. */
+/* The atom right_tree gives the name of want, an attribute of left_tree, for trees whose stored hashes differ, so the
+   name is looked up. */
 static uint32_t right_name_atom(th_tree *left_tree, const th_node_attr *want, th_tree *right_tree) {
-    int same_hash = right_tree->attr_slots != NULL && (left_tree->attr_fast == NULL) == (right_tree->attr_fast == NULL);
-    if (want->name_atom < TH_ATTR__DYNAMIC_BASE || !same_hash) {
-        Py_ssize_t name_len;
-        const char *name = th_attr_name(left_tree, want->name_atom, &name_len);
-        return th_attr_lookup(right_tree, name, name_len);
-    }
-    const th_attr_record *rec = &left_tree->attr_recs[want->name_atom - TH_ATTR__DYNAMIC_BASE];
-    uint32_t found = dynamic_slot(right_tree, rec->name, (Py_ssize_t)rec->name_len, rec->hash);
-    return found != 0 ? TH_ATTR__DYNAMIC_BASE + (found - 1) : UINT32_MAX;
+    Py_ssize_t name_len;
+    const char *name = th_attr_name(left_tree, want->name_atom, &name_len);
+    return th_attr_lookup(right_tree, name, name_len);
 }
 
-static int attrs_equal_indexed(th_tree *left_tree, th_node *left, th_tree *right_tree, th_node *right,
-                               Py_ssize_t start) {
+/* A name's key in the comparison index: the atom for a static name, the stored hash for a dynamic one, so equal names
+   of two trees that hash names alike key alike. The top bit marks a hash, keeping it apart from every static atom. */
+static uint32_t attr_key(const th_tree *tree, uint32_t atom) {
+    return atom < TH_ATTR__DYNAMIC_BASE ? atom
+                                        : tree->attr_recs[atom - TH_ATTR__DYNAMIC_BASE].hash | UINT32_C(0x80000000);
+}
+
+static TH_NOINLINE int attrs_equal_indexed(th_tree *left_tree, th_node *left, th_tree *right_tree, th_node *right,
+                                           Py_ssize_t start) {
+    /* keying both sides by stored hash skips a lookup in right_tree per name; a key match is then confirmed by name */
+    const int by_hash = left_tree != right_tree && (left_tree->attr_fast == NULL) == (right_tree->attr_fast == NULL);
     size_t capacity = 64;
     while (capacity < (size_t)right->attr_count * 2) {
         capacity *= 2;
     }
-    Py_ssize_t *slots = PyMem_Calloc(capacity, sizeof(Py_ssize_t));
+    /* each entry packs the key above the 1-based attribute index, so a probe reads both from one word */
+    uint64_t *slots = PyMem_Calloc(capacity, sizeof(uint64_t));
     if (slots == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;       /* GCOVR_EXCL_LINE: fall back to the allocation-free comparison */
     }
     for (Py_ssize_t index = 0; index < right->attr_count; index++) {
+        const uint32_t atom = right->attrs[index].name_atom;
+        const uint32_t key = by_hash ? attr_key(right_tree, atom) : atom;
         /* an element never carries one name twice, so every name takes a fresh slot */
-        size_t slot = ((size_t)right->attrs[index].name_atom * 2654435761U) & (capacity - 1);
+        size_t slot = ((size_t)key * 2654435761U) & (capacity - 1);
         while (slots[slot] != 0) {
             slot = (slot + 1) & (capacity - 1);
         }
-        slots[slot] = index + 1;
+        slots[slot] = (uint64_t)key << 32 | (uint32_t)(index + 1);
     }
     int equal = 1;
     for (Py_ssize_t index = start; index < left->attr_count; index++) {
         const th_node_attr *want = &left->attrs[index];
-        uint32_t atom = left_tree == right_tree ? want->name_atom : right_name_atom(left_tree, want, right_tree);
-        size_t slot = ((size_t)atom * 2654435761U) & (capacity - 1);
-        while (slots[slot] != 0 && right->attrs[slots[slot] - 1].name_atom != atom) {
-            slot = (slot + 1) & (capacity - 1);
+        const uint32_t key = by_hash                   ? attr_key(left_tree, want->name_atom)
+                             : left_tree == right_tree ? want->name_atom
+                                                       : right_name_atom(left_tree, want, right_tree);
+        const th_node_attr *found = NULL;
+        for (size_t slot = ((size_t)key * 2654435761U) & (capacity - 1); slots[slot] != 0;
+             slot = (slot + 1) & (capacity - 1)) {
+            const th_node_attr *candidate = &right->attrs[(uint32_t)slots[slot] - 1];
+            /* a static key is the atom itself, so only a dynamic key can match without the name matching */
+            if ((uint32_t)(slots[slot] >> 32) == key &&
+                (!by_hash || want->name_atom < TH_ATTR__DYNAMIC_BASE ||
+                 dynamic_name_equal(left_tree, want->name_atom, right_tree, candidate->name_atom))) {
+                found = candidate;
+                break;
+            }
         }
-        if (slots[slot] == 0 || !attr_value_equal(want, &right->attrs[slots[slot] - 1])) {
+        if (found == NULL || !attr_value_equal(want, found)) {
             equal = 0;
             break;
         }
