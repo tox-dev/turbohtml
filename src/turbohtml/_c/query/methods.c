@@ -1283,7 +1283,7 @@ static PyObject *xpath_item_to_py(module_state *state, PyObject *handle, th_tree
     return node_wrap(state, handle, item.node);
 }
 
-/* Translate an xp_eval status into a Python error: -4 a TypeError (a value where a
+/* Translate an XPath evaluation status into a Python error: -4 a TypeError (a value where a
    node-set is required), -5 an XPathDepthError (an expression nested past the evaluator cap),
    -3 a ValueError (an unbound variable or an unbound prefix), -1 an allocation failure or an
    already-set exception (an unknown function, a wrong-arity call, a malformed regex, or an

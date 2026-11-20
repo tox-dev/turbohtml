@@ -6377,13 +6377,6 @@ int xp_pattern_match(xp_pattern_walk *walk, xp_item item, xp_extension_fn extens
     return walk_member(walk->prog, walk, &ctx, walk->count, item);
 }
 
-int xp_eval(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,
-            const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx, xp_result *out,
-            const char **feature) {
-    return xp_eval_at(prog, tree, &(xp_item){context, -1}, NULL, 1, 1, vars, namespaces, extension, extension_ctx, NULL,
-                      NULL, out, feature);
-}
-
 int xp_eval_object(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,
                    const xp_namespaces *namespaces, xp_result *out, const char **feature) {
     return eval_at(prog, tree, &(xp_item){context, -1}, NULL, 1, 1, vars, namespaces, NULL, NULL, NULL, NULL, out,
