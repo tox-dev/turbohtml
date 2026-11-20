@@ -183,7 +183,7 @@ static int xsd_occurs_max(th_tree *tree, th_node *particle) {
 
 /* The (uri, local) an element particle expects, plus the declaration carrying its type
    (the referenced global element for a ref, else the particle itself). */
-static void xsd_element_name(th_schema *schema, th_node *particle, edecl *out) {
+static void xsd_element_resolve(th_schema *schema, th_node *particle, edecl *out) {
     th_tree *tree = schema->tree;
     Py_ssize_t ref_len = 0;
     const Py_UCS4 *ref = xsd_attr(tree, particle, "ref", &ref_len);
@@ -255,6 +255,7 @@ static const char *const XSD_CHILD_NAMES[XSD_CHILD_KINDS] = {
 typedef struct {
     th_node *node;
     int kind;
+    const struct xnode *own; /* the child's xnodes record */
 } xchild;
 
 typedef struct xchild_entry {
@@ -272,13 +273,30 @@ typedef struct xnode {
     int kind;         /* its XSD_CHILD_NAMES kind, or XSD_CHILD_KINDS */
     size_t children;  /* its child entry, or XSD_NO_ENTRY */
     struct xnode *up; /* its parent's record, NULL for the root */
+    /* An xs:element or xs:attribute as validation reads it on every instance node, resolved once xsd_compile has
+       checked the schema (see xsd_resolve_decls): the expected name and the declaration a ref names (else the node
+       itself), and for an attribute its own use. want.decl stays NULL until then. */
+    edecl want;
+    uint64_t hash; /* named_hash of want.local, for an attribute */
+    int use;
 } xnode;
+
+enum { XSD_USE_OPTIONAL, XSD_USE_REQUIRED, XSD_USE_PROHIBITED };
 
 /* The xnodes record of a schema element, whose qname schema_node_qname returned as `name`: that qname sits in the
    element's sqnames entry, and xnodes shares the sqnames index. */
 static xnode *xsd_xnode(const th_schema *schema, const qname *name) {
     const sqname_entry *at = (const sqname_entry *)((const char *)name - offsetof(sqname_entry, name));
     return &schema->xnodes[at - schema->sqnames];
+}
+
+/* xsd_element_resolve's answer, read from the particle's record once xsd_resolve_decls has filled it. */
+static void xsd_element_name(th_schema *schema, th_node *particle, edecl *out) {
+    if (schema->decls_resolved) {
+        *out = xsd_xnode(schema, schema_node_qname(schema, particle))->want;
+        return;
+    }
+    xsd_element_resolve(schema, particle, out);
 }
 
 /* The entry of a schema element; a node with none of these children has no entry and reads as the empty one. Only
@@ -340,9 +358,13 @@ static edecl_vec edecl_list(const th_schema *schema) {
     return (edecl_vec){schema->edecl_items, 0, schema->edecl_cap};
 }
 
-static int edecl_push(th_schema *schema, edecl_vec *vec, const edecl *item) {
-    if (vec->count == vec->cap) {
+/* Make room in vec for `need` items, at least doubling, so a caller that knows how many it adds grows it once. */
+static int edecl_reserve(th_schema *schema, edecl_vec *vec, Py_ssize_t need) {
+    if (need > vec->cap) {
         Py_ssize_t next = vec->cap ? vec->cap * 2 : TH_INITIAL_CAPACITY(8);
+        if (next < need) {
+            next = need;
+        }
         edecl *grown = arena_alloc(&schema->mem, (size_t)next * sizeof(edecl));
         if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
             return -1;       /* GCOVR_EXCL_LINE */
@@ -354,6 +376,13 @@ static int edecl_push(th_schema *schema, edecl_vec *vec, const edecl *item) {
         vec->cap = next;
         schema->edecl_items = grown;
         schema->edecl_cap = next;
+    }
+    return 0;
+}
+
+static int edecl_push(th_schema *schema, edecl_vec *vec, const edecl *item) {
+    if (edecl_reserve(schema, vec, vec->count + 1) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return -1;                                        /* GCOVR_EXCL_LINE */
     }
     vec->items[vec->count++] = *item;
     return 0;
@@ -671,8 +700,7 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
             if (pos + 1 >= in->size) {
                 continue;
             }
-            qname name = element_qname_scoped(schema, inst, children[pos]);
-            if (qname_eq(&name, &want)) {
+            if (qname_eq(&schema->child_names[pos], &want)) {
                 posset_add(out, pos + 1);
             }
         }
@@ -692,8 +720,8 @@ static void xsd_match_once(th_schema *schema, th_tree *inst, th_node *particle, 
             if (pos + 1 >= in->size) {
                 continue;
             }
-            qname name = element_qname_scoped(schema, inst, children[pos]);
-            if (xsd_wild_admits(schema, particle, name.uri, name.uri_len)) {
+            const qname *name = &schema->child_names[pos];
+            if (xsd_wild_admits(schema, particle, name->uri, name->uri_len)) {
                 schema->wild_claims[pos] = particle;
                 posset_add(out, pos + 1);
             }
@@ -916,7 +944,6 @@ typedef struct {
    comes. */
 static void xsd_all_match(valctx *ctx, xsd_frame *frame, th_node *all, th_node **children, Py_ssize_t nchildren) {
     th_schema *schema = ctx->schema;
-    th_tree *inst = ctx->tree;
     const xall_entry *group = xsd_cached_all(schema, all);
     const xall_member **matched = arena_alloc(&schema->mem, (size_t)(nchildren + 1) * sizeof(xall_member *));
     xall_hit *hits = arena_alloc(&schema->mem, (size_t)(nchildren + 1) * sizeof(xall_hit));
@@ -926,8 +953,7 @@ static void xsd_all_match(valctx *ctx, xsd_frame *frame, th_node *all, th_node *
     size_t hit_count = 0;
     for (Py_ssize_t index = 0; index < nchildren; index++) {
         TH_WORK_STEP();
-        qname name = element_qname_scoped(schema, inst, children[index]);
-        matched[index] = xsd_all_find(group, &name);
+        matched[index] = xsd_all_find(group, &schema->child_names[index]);
         if (matched[index] != NULL) {
             hits[hit_count++] = (xall_hit){matched[index], index};
         }
@@ -1154,7 +1180,7 @@ static int xsd_check_names(th_schema *schema, th_node *node, const qname *name, 
 static int xsd_check_all_slot(th_schema *schema, th_node *node);
 static int xsd_record_facets(th_schema *schema, th_node *node, int content);
 static int xsd_child_kind(const qname *name);
-static int xsd_record_child(th_schema *schema, size_t *slot, th_node *child, int kind);
+static int xsd_record_child(th_schema *schema, size_t *slot, th_node *child, const xnode *own);
 
 /* XSD 1.0 All Group Limited: an xs:all particle, written or reached through a group ref, occurs once, because its
    members are matched once. */
@@ -1258,8 +1284,8 @@ static xnode *xsd_cache_facets_at(th_schema *schema, th_node *node, xnode *paren
         parent->kind == XSD_ANY) {
         return own;
     }
-    if (xsd_record_child(schema, &parent->children, node, kind) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
-        return NULL;                                                   /* GCOVR_EXCL_LINE */
+    if (xsd_record_child(schema, &parent->children, node, own) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+        return NULL;                                                  /* GCOVR_EXCL_LINE */
     }
     return own;
 }
@@ -1575,21 +1601,21 @@ static int xsd_child_kind(const qname *name) {
     return u_eq_ascii(name->local, name->local_len, XSD_CHILD_NAMES[kind]) ? kind : XSD_CHILD_KINDS;
 }
 
-static int xsd_push_child(th_schema *schema, xchild **items, size_t *count, size_t *cap, th_node *child, int kind) {
+static int xsd_push_child(th_schema *schema, xchild **items, size_t *count, size_t *cap, th_node *child,
+                          const xnode *own) {
     xchild *grown = xsd_grow(schema, *items, *count, cap, sizeof(xchild));
     if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
         return -1;       /* GCOVR_EXCL_LINE */
     }
     *items = grown;
-    grown[*count].node = child;
-    grown[*count].kind = kind;
-    (*count)++;
+    grown[(*count)++] = (xchild){child, own->kind, own};
     return 0;
 }
 
 /* Enter `child`, an XSD element of this name, into its parent's entry when validation looks for that name. *slot is the
    index of that entry, XSD_NO_ENTRY until the parent's first such child opens it. */
-static int xsd_record_child(th_schema *schema, size_t *slot, th_node *child, int kind) {
+static int xsd_record_child(th_schema *schema, size_t *slot, th_node *child, const xnode *own) {
+    const int kind = own->kind;
     if (*slot == XSD_NO_ENTRY) {
         xchild_entry *entries =
             xsd_grow(schema, schema->child_entries, schema->child_count, &schema->child_cap, sizeof(xchild_entry));
@@ -1609,11 +1635,11 @@ static int xsd_record_child(th_schema *schema, size_t *slot, th_node *child, int
     }
     if (kind == XSD_ATTRIBUTE || kind == XSD_ATTRIBUTE_GROUP || kind == XSD_ANY_ATTRIBUTE ||
         kind == XSD_COMPLEX_CONTENT || kind == XSD_SIMPLE_CONTENT) {
-        return xsd_push_child(schema, &entry->attrs, &entry->attr_count, &entry->attr_cap, child, kind);
+        return xsd_push_child(schema, &entry->attrs, &entry->attr_count, &entry->attr_cap, child, own);
     }
     if (kind == XSD_ELEMENT || kind == XSD_ANY || kind == XSD_SEQUENCE || kind == XSD_CHOICE || kind == XSD_ALL ||
         kind == XSD_GROUP) {
-        return xsd_push_child(schema, &entry->particles, &entry->particle_count, &entry->particle_cap, child, kind);
+        return xsd_push_child(schema, &entry->particles, &entry->particle_count, &entry->particle_cap, child, own);
     }
     return 0;
 }
@@ -1966,7 +1992,25 @@ static void xsd_validate_simple(valctx *ctx, th_node *node, int builtin_id, th_n
 typedef struct {
     Py_ssize_t *slots;
     size_t capacity;
+    /* Without slots, a bit per instance attribute local name (xsd_attr_bit), set once `checked` declarations have
+       asked, so a long list of declarations passes over the ones whose name no attribute can have. */
+    uint64_t names;
+    int checked;
 } xattr_index;
+
+/* The bit of a 64-bit filter a name with this hash sets. */
+static inline uint64_t xsd_attr_bit(uint64_t hash) {
+    return UINT64_C(1) << (hash >> 58);
+}
+
+static uint64_t xsd_attr_hash_bytes(const char *bytes, Py_ssize_t len) {
+    uint64_t hash = UINT64_C(1469598103934665603);
+    for (Py_ssize_t byte = 0; byte < len; byte++) {
+        hash ^= (unsigned char)bytes[byte];
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash;
+}
 
 /* An instance attribute name split at its prefix. A prefix with no declaration in scope leaves the whole name as the
    local name in no namespace, which is how an HTML-parsed tree keeps it. */
@@ -2062,12 +2106,7 @@ static int xsd_index_attrs(valctx *ctx, th_node *instance, xattr_index *index) {
         Py_ssize_t length;
         const char *name = th_attr_name(ctx->tree, instance->attrs[position].name_atom, &length);
         const xattr_name qualified = xsd_attr_name(ctx->schema, name, length);
-        uint64_t hash = UINT64_C(1469598103934665603);
-        for (Py_ssize_t byte = 0; byte < qualified.local_len; byte++) {
-            hash ^= (unsigned char)qualified.local[byte];
-            hash *= UINT64_C(1099511628211);
-        }
-        size_t slot = (size_t)hash & (index->capacity - 1);
+        size_t slot = (size_t)xsd_attr_hash_bytes(qualified.local, qualified.local_len) & (index->capacity - 1);
         while (index->slots[slot] != 0) {
             slot = (slot + 1) & (index->capacity - 1);
         }
@@ -2112,40 +2151,34 @@ static void xsd_validate_attr_value(valctx *ctx, th_node *instance, th_node *eff
 }
 
 /* Validate one declared attribute against the instance, honoring use/fixed/default. */
-static XSD_FORCEINLINE void xsd_validate_attr_decl(valctx *ctx, th_node *instance, th_node *decl,
-                                                   const xattr_index *attrs) {
+static XSD_FORCEINLINE void xsd_validate_attr_decl(valctx *ctx, th_node *instance, const xnode *use,
+                                                   xattr_index *attrs) {
     th_schema *schema = ctx->schema;
-    th_tree *tree = schema->tree;
     th_tree *inst = ctx->tree;
-    th_node *effective = decl;
-    Py_ssize_t ref_len = 0;
-    const Py_UCS4 *ref = xsd_attr(tree, decl, "ref", &ref_len);
-    if (ref != NULL) {
-        const Py_UCS4 *local, *prefix;
-        Py_ssize_t local_len = 0, prefix_len = 0;
-        split_prefix(ref, ref_len, &local, &local_len, &prefix, &prefix_len);
-        /* xsd_compile has already rejected an attribute ref that resolves to nothing */
-        effective = named_find(&schema->attributes, local, local_len);
-    }
-    Py_ssize_t name_len = 0;
-    const Py_UCS4 *name = xsd_attr(tree, effective, "name", &name_len);
+    const Py_UCS4 *name = use->want.local;
+    Py_ssize_t name_len = use->want.local_len;
     if (name == NULL) {
         return;
     }
-    Py_ssize_t use_len = 0;
-    const Py_UCS4 *use = xsd_attr(tree, decl, "use", &use_len);
-    int required = use != NULL && u_eq_ascii(use, use_len, "required");
-    int prohibited = use != NULL && u_eq_ascii(use, use_len, "prohibited");
-    char namebuf[256];
-    const char *name_bytes = name_utf8(name, name_len, namebuf, sizeof(namebuf));
-    Py_ssize_t decl_uri_len = 0;
-    const Py_UCS4 *decl_uri = xsd_attr_decl_uri(schema, effective, &decl_uri_len);
+    if (attrs->slots == NULL && ++attrs->checked >= 8) {
+        if (attrs->checked == 8) {
+            for (Py_ssize_t index = 0; index < instance->attr_count; index++) {
+                Py_ssize_t length = 0;
+                const char *bytes = th_attr_name(inst, instance->attrs[index].name_atom, &length);
+                const xattr_name qualified = xsd_attr_name(schema, bytes, length);
+                attrs->names |= xsd_attr_bit(xsd_attr_hash_bytes(qualified.local, qualified.local_len));
+            }
+        }
+        if (!(attrs->names & xsd_attr_bit(use->hash)) && use->use != XSD_USE_REQUIRED) {
+            return;
+        }
+    }
     const th_node_attr *present = NULL;
     if (attrs->slots != NULL) {
-        size_t slot = (size_t)named_hash(name, name_len) & (attrs->capacity - 1);
+        size_t slot = (size_t)use->hash & (attrs->capacity - 1);
         while (attrs->slots[slot] != 0) {
             const th_node_attr *candidate = &instance->attrs[attrs->slots[slot] - 1];
-            if (xsd_attr_is_decl(schema, inst, candidate, name, name_len, decl_uri, decl_uri_len)) {
+            if (xsd_attr_is_decl(schema, inst, candidate, name, name_len, use->want.uri, use->want.uri_len)) {
                 present = candidate;
                 break;
             }
@@ -2153,22 +2186,65 @@ static XSD_FORCEINLINE void xsd_validate_attr_decl(valctx *ctx, th_node *instanc
         }
     }
     for (Py_ssize_t index = 0; attrs->slots == NULL && index < instance->attr_count; index++) {
-        if (xsd_attr_is_decl(schema, inst, &instance->attrs[index], name, name_len, decl_uri, decl_uri_len)) {
+        if (xsd_attr_is_decl(schema, inst, &instance->attrs[index], name, name_len, use->want.uri, use->want.uri_len)) {
             present = &instance->attrs[index];
             break;
         }
     }
-    if (present == NULL) {
-        if (required) {
-            report(ctx, instance, "structure", "required attribute '%s' is missing", name_bytes);
-        }
+    if (present == NULL && use->use != XSD_USE_REQUIRED) {
         return;
     }
-    if (prohibited) {
+    char namebuf[256];
+    const char *name_bytes = name_utf8(name, name_len, namebuf, sizeof(namebuf));
+    if (present == NULL) {
+        report(ctx, instance, "structure", "required attribute '%s' is missing", name_bytes);
+        return;
+    }
+    if (use->use == XSD_USE_PROHIBITED) {
         report(ctx, instance, "structure", "attribute '%s' is prohibited", name_bytes);
         return;
     }
-    xsd_validate_attr_value(ctx, instance, effective, present, name_bytes);
+    xsd_validate_attr_value(ctx, instance, use->want.decl, present, name_bytes);
+}
+
+/* Resolve every xs:element and xs:attribute once xsd_compile has checked their refs, for validation to read on each
+   instance node instead of looking the ref, name, use and form attributes up again. */
+static void xsd_resolve_decls(th_schema *schema) {
+    th_tree *tree = schema->tree;
+    for (Py_ssize_t index = 0; index < schema->sqname_count; index++) {
+        xnode *own = &schema->xnodes[index];
+        th_node *decl = schema->sqnames[index].node;
+        if (own->kind == XSD_ELEMENT) {
+            xsd_element_resolve(schema, decl, &own->want);
+            continue;
+        }
+        if (own->kind != XSD_ATTRIBUTE) {
+            continue;
+        }
+        th_node *effective = decl;
+        Py_ssize_t ref_len = 0;
+        const Py_UCS4 *ref = xsd_attr(tree, decl, "ref", &ref_len);
+        if (ref != NULL) {
+            const Py_UCS4 *local, *prefix;
+            Py_ssize_t local_len = 0, prefix_len = 0;
+            split_prefix(ref, ref_len, &local, &local_len, &prefix, &prefix_len);
+            /* xsd_compile has already rejected an attribute ref that resolves to nothing */
+            effective = named_find(&schema->attributes, local, local_len);
+        }
+        own->want = (edecl){.decl = effective};
+        own->want.local = xsd_attr(tree, effective, "name", &own->want.local_len);
+        if (own->want.local != NULL) {
+            own->want.uri = xsd_attr_decl_uri(schema, effective, &own->want.uri_len);
+            own->hash = named_hash(own->want.local, own->want.local_len);
+        }
+        Py_ssize_t use_len = 0;
+        const Py_UCS4 *written = xsd_attr(tree, decl, "use", &use_len);
+        own->use = written == NULL                              ? XSD_USE_OPTIONAL
+                   : u_eq_ascii(written, use_len, "required")   ? XSD_USE_REQUIRED
+                   : u_eq_ascii(written, use_len, "prohibited") ? XSD_USE_PROHIBITED
+                                                                : XSD_USE_OPTIONAL;
+    }
+    schema->decls_resolved = 1;
 }
 
 /* Collect and validate the declared attributes of a complexType (own, attributeGroup
@@ -2182,8 +2258,8 @@ static th_node *xsd_type_content(const th_schema *schema, th_node *ctype) {
     return content != NULL ? content : first_schema_child(schema, ctype, XSD_NS, "simpleContent");
 }
 
-static void xsd_collect_attrs(valctx *ctx, th_node *instance, th_node *scope, edecl_vec *declared,
-                              const xattr_index *attrs, edecl_vec *wilds) {
+static void xsd_collect_attrs(valctx *ctx, th_node *instance, th_node *scope, edecl_vec *declared, xattr_index *attrs,
+                              edecl_vec *wilds) {
     th_schema *schema = ctx->schema;
     th_tree *tree = schema->tree;
     /* Only a complexType has a base. An attribute group or a derivation holds attributes and attribute group refs, so
@@ -2194,28 +2270,19 @@ static void xsd_collect_attrs(valctx *ctx, th_node *instance, th_node *scope, ed
         content = children->first[XSD_COMPLEX_CONTENT] != NULL ? children->first[XSD_COMPLEX_CONTENT]
                                                                : children->first[XSD_SIMPLE_CONTENT];
     }
+    /* GCOVR_EXCL_BR_START: arena OOM is unforceable */
+    if (edecl_reserve(schema, declared, declared->count + (Py_ssize_t)children->attr_count) < 0) {
+        return; /* GCOVR_EXCL_LINE */
+    }
+    /* GCOVR_EXCL_BR_STOP */
     for (size_t index = 0; index < children->attr_count; index++) {
         th_node *child = children->attrs[index].node;
         const int kind = children->attrs[index].kind;
         if (kind == XSD_ATTRIBUTE) {
-            xsd_validate_attr_decl(ctx, instance, child, attrs);
-            th_node *eff = child;
-            Py_ssize_t ref_len = 0;
-            const Py_UCS4 *ref = xsd_attr(tree, child, "ref", &ref_len);
-            if (ref != NULL) {
-                const Py_UCS4 *local, *prefix;
-                Py_ssize_t local_len = 0, prefix_len = 0;
-                split_prefix(ref, ref_len, &local, &local_len, &prefix, &prefix_len);
-                /* xsd_compile has already rejected an attribute ref that resolves to nothing */
-                eff = named_find(&schema->attributes, local, local_len);
-            }
-            Py_ssize_t name_len = 0;
-            const Py_UCS4 *name = xsd_attr(tree, eff, "name", &name_len);
-            if (name != NULL) {
-                Py_ssize_t uri_len = 0;
-                const Py_UCS4 *uri = xsd_attr_decl_uri(schema, eff, &uri_len);
-                edecl item = {uri, uri_len, name, name_len, eff};
-                edecl_push(schema, declared, &item);
+            const xnode *use = children->attrs[index].own;
+            xsd_validate_attr_decl(ctx, instance, use, attrs);
+            if (use->want.local != NULL) {
+                declared->items[declared->count++] = use->want;
             }
         } else if (kind == XSD_ATTRIBUTE_GROUP) {
             Py_ssize_t ref_len = 0;
@@ -2553,12 +2620,19 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype,
     if (children == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
         return;             /* GCOVR_EXCL_LINE */
     }
+    /* the content model matcher compares each child's name at every position it tries, so each is resolved once */
+    qname *names = arena_alloc(&schema->mem, (size_t)(nchildren + 1) * sizeof(qname));
+    if (names == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return;          /* GCOVR_EXCL_LINE */
+    }
     Py_ssize_t at = 0;
     for (th_node *child = instance->first_child; child != NULL; child = child->next_sibling) {
         if (child->type == TH_NODE_ELEMENT) {
+            names[at] = element_qname_scoped(schema, inst, child);
             children[at++] = child;
         }
     }
+    schema->child_names = names;
 
     th_node *content = model == NULL && schema->all_inherited ? xsd_nearest_model(schema, ctype) : model;
     th_node *all = NULL;
@@ -2625,10 +2699,9 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype,
         xsd_collect_edecls(schema, models[index], &decls);
     }
     for (Py_ssize_t index = 0; index < nchildren; index++) {
-        qname name = element_qname_scoped(schema, inst, children[index]);
         child_decls[index] = NULL;
         for (Py_ssize_t decl = 0; decl < decls.count; decl++) {
-            if (qname_eq(&name, &decls.items[decl])) {
+            if (qname_eq(&names[index], &decls.items[decl])) {
                 child_decls[index] = decls.items[decl].decl;
                 break;
             }
@@ -2712,15 +2785,18 @@ static void xsd_validate_element(valctx *ctx, th_node *instance, th_node *decl, 
     th_schema *schema = ctx->schema;
     th_tree *tree = schema->tree;
     frame->ns_mark = ns_scope_enter(schema, ctx->tree, instance);
-    qname name = node_qname_scoped(schema, instance->text, instance->text_len, 0);
+    /* the error path spells local names, so the element's namespace is not resolved here */
+    const Py_UCS4 *local, *prefix;
+    Py_ssize_t local_len = 0, prefix_len = 0;
+    split_prefix(instance->text, instance->text_len, &local, &local_len, &prefix, &prefix_len);
     frame->mark = ctx->path.len;
     frame->next = 0;
     frame->nchildren = 0;
     frame->all = NULL;
-    if (path_push(&ctx->path, name.local, name.local_len) < 0) { /* GCOVR_EXCL_BR_LINE: path OOM is unforceable */
-        ctx->failed = 1;                                         /* GCOVR_EXCL_LINE */
-        PyErr_NoMemory();                                        /* GCOVR_EXCL_LINE */
-        return;                                                  /* GCOVR_EXCL_LINE */
+    if (path_push(&ctx->path, local, local_len) < 0) { /* GCOVR_EXCL_BR_LINE: path OOM is unforceable */
+        ctx->failed = 1;                               /* GCOVR_EXCL_LINE */
+        PyErr_NoMemory();                              /* GCOVR_EXCL_LINE */
+        return;                                        /* GCOVR_EXCL_LINE */
     }
 
     Py_ssize_t type_len = 0;
@@ -2907,6 +2983,7 @@ static int xsd_compile(th_schema *schema) {
     if (xsd_check_varieties(schema) < 0) {
         return 0;
     }
+    xsd_resolve_decls(schema);
     if (schema->all_count > 1) {
         qsort(schema->all_entries, schema->all_count, sizeof(xall_entry), xsd_all_order);
     }
