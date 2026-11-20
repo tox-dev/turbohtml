@@ -113,6 +113,7 @@ int32_t jm_scope_new(jm_program *prog, int32_t parent, uint8_t kind) {
     scope->sunk = 0;
     scope->grown = 0;
     scope->args_reads = 0;
+    scope->node = -1;
     if (parent >= 0) {
         scope->next_sibling = prog->scopes[parent].first_child;
         prog->scopes[parent].first_child = index;
@@ -423,6 +424,7 @@ void jm_program_free(jm_program *prog) {
     jm_free(prog->nodes);
     jm_free(prog->syms);
     jm_free(prog->scopes);
+    jm_free(prog->fold_marks);
     jm_free(prog);
 }
 

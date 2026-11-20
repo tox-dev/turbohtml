@@ -1135,33 +1135,10 @@ static int print_substmt(St *st, int32_t index) {
     return print_stmt(st, index);
 }
 
-/* A block scopes its `let`/`const`/class/function declarations, so those keep their braces; a `var` or
-   an ordinary statement does not, so a single one can shed the braces. */
-static int keeps_block_scope(const jm_program *prog, int32_t stmt) {
-    int kind = prog->nodes[stmt].kind;
-    return kind == JN_CLASS || kind == JN_FUNC || (kind == JN_VAR && prog->nodes[stmt].decl != 0);
-}
+enum { NO_STATEMENT = JM_NO_STATEMENT };
 
-enum { NO_STATEMENT = -2 };
-
-/* The statement a block prints braceless -- its single scope-free statement --, -1 when the braces stay
-   (several statements, or one that needs the block scope), or NO_STATEMENT when it holds none. */
 static int32_t block_single_stmt(const St *st, int32_t index) {
-    int32_t only = -1;
-    int count = 0;
-    for (int32_t stmt = st->prog->nodes[index].a; stmt >= 0; stmt = st->prog->nodes[stmt].next) {
-        if (st->prog->nodes[stmt].kind == JN_EMPTY) {
-            continue;
-        }
-        only = stmt;
-        if (++count > 1) {
-            break;
-        }
-    }
-    if (count == 0) {
-        return NO_STATEMENT;
-    }
-    return count == 1 && !keeps_block_scope(st->prog, only) ? only : -1;
+    return jm_block_single_stmt(st->prog, index);
 }
 
 /* Whether the statement, printed braceless, ends in an `if` with no `else` -- the shape a following

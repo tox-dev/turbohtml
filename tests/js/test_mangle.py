@@ -80,13 +80,13 @@ def test_renames(source: str, expected: str) -> None:
         pytest.param(
             "!function(){var x=i;const y=5;x,y}",
             JSMinify(mangle=True, fold=False),
-            "!function(){var a=i;5}",
+            "!function(){i;5}",
             id="sequence-drops-earlier-read",
         ),
         pytest.param(
             "function f(){var x=i;const y=5;return x,y}",
             JSMinify(mangle=True, fold=False),
-            "function f(){var a=i;return 5}",
+            "function f(){i;return 5}",
             id="return-sequence",
         ),
         pytest.param(

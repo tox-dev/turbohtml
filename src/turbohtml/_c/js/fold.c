@@ -1707,6 +1707,72 @@ static inline void walk_stmt(F *folder, int32_t idx, int32_t depth, int member) 
     }
 }
 
+/* The mark slot of the function body body, or of the free slot its probe ends on. */
+static jm_fold_mark *mark_slot(jm_fold_marks *marks, int32_t body) {
+    uint32_t mask = (uint32_t)marks->cap - 1;
+    uint32_t hash = (uint32_t)body * 0x9E3779B1u;
+    for (uint32_t slot = (hash ^ (hash >> 16)) & mask;; slot = (slot + 1) & mask) {
+        jm_fold_mark *mark = &marks->slots[slot];
+        if (mark->body == body || mark->body < 0) {
+            return mark;
+        }
+    }
+}
+
+/* Whether the function at idx is one an earlier pass of this fold call walked at the same depth without a change: a
+   pass over it now would change nothing either, so it only counts how deep it reaches. Every fold inside a function
+   reads the tree below it and how deep that sits, never the statements around it, and a fold of the code around it
+   leaves its body alone. */
+static int skip_unchanged(F *folder, int32_t idx, int32_t depth) {
+    const jm_program *prog = folder->prog;
+    if (prog->fold_marks == NULL) {
+        return 0;
+    }
+    const jm_fold_mark *mark = mark_slot(prog->fold_marks, prog->nodes[idx].b);
+    if (mark->body < 0 || mark->stamp != prog->fold_stamp || mark->depth != depth) {
+        return 0;
+    }
+    note_depth(folder, mark->reach);
+    return 1;
+}
+
+/* Record how the walk of the function at idx went: a mark when it changed nothing, and none left behind when it did,
+   since an earlier mark at another depth describes the body before this walk changed it. */
+static void mark_walked(F *folder, int32_t idx, int32_t depth) {
+    jm_program *prog = folder->prog;
+    jm_fold_marks *marks = prog->fold_marks;
+    int32_t body = prog->nodes[idx].b;
+    if (folder->changed || folder->with_depth > 0) {
+        if (marks != NULL) {
+            mark_slot(marks, body)->stamp = 0;
+        }
+        return;
+    }
+    if (marks == NULL || marks->count * 2 >= marks->cap) {
+        int32_t cap = marks == NULL ? 8 : marks->cap * 2;
+        jm_fold_marks *grown = jm_malloc(sizeof(jm_fold_marks) + (size_t)cap * sizeof(jm_fold_mark));
+        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+            return;          /* GCOVR_EXCL_LINE: the function is walked again, as without the mark */
+        }
+        grown->cap = cap;
+        grown->count = 0;
+        for (int32_t slot = 0; slot < cap; slot++) {
+            grown->slots[slot].body = -1;
+        }
+        for (int32_t slot = 0; marks != NULL && slot < marks->cap; slot++) {
+            if (marks->slots[slot].body >= 0) {
+                *mark_slot(grown, marks->slots[slot].body) = marks->slots[slot];
+                grown->count++;
+            }
+        }
+        jm_free(marks);
+        prog->fold_marks = marks = grown;
+    }
+    jm_fold_mark *mark = mark_slot(marks, body);
+    marks->count += mark->body < 0;
+    *mark = (jm_fold_mark){body, prog->fold_stamp, depth, folder->deepest};
+}
+
 /* Fold the subtree at idx, which sits depth walk calls under the program root. folder->deepest is the deepest point
    the walk has reached under the innermost if, logical or statement list around it: the guard fold and the chain
    rotation read it to know how tall the tree they are about to grow already is. */
@@ -1816,7 +1882,14 @@ static void walk(F *folder, int32_t idx, int32_t depth) {
         walk_block(folder, idx, depth, 0);
         return;
     case JN_FUNC:
-    case JN_ARROW:
+    case JN_ARROW: {
+        if (skip_unchanged(folder, idx, depth)) {
+            return;
+        }
+        int outer_changed = folder->changed;
+        int32_t outer = folder->deepest;
+        folder->changed = 0;
+        folder->deepest = depth;
         walk_chain(folder, child_a, depth + 1); /* params (default values may fold) */
         walk(folder, child_b, depth + 1);       /* body */
         if (!(kind == JN_ARROW && (flags & JN_F_EXPRBODY))) {
@@ -1825,7 +1898,13 @@ static void walk(F *folder, int32_t idx, int32_t depth) {
             fold_tail_return(folder, child_b);
             fold_guard_jump(folder, folder->prog->nodes[child_b].a, JN_RETURN);
         }
+        mark_walked(folder, idx, depth);
+        folder->changed |= outer_changed;
+        if (outer > folder->deepest) {
+            folder->deepest = outer;
+        }
         return;
+    }
     case JN_FOR:
     case JN_FORIN:
     case JN_FOROF:
@@ -2034,7 +2113,7 @@ static void walk(F *folder, int32_t idx, int32_t depth) {
     }
 }
 
-int jm_fold(jm_program *prog) {
+static int fold_passes(jm_program *prog) {
     F folder = {.prog = prog, .changed = 0};
     /* with a binding named `undefined` anywhere, only a read resolution proves global folds. The passes move and
        drop bindings but never create one, so once none is named `undefined` a later fold need not look again. */
@@ -2059,4 +2138,24 @@ int jm_fold(jm_program *prog) {
     }
     jm_free(folder.hoists);
     return any;
+}
+
+int jm_fold(jm_program *prog) {
+    prog->fold_stamp++; /* the marks an earlier call left describe a tree the passes since may have changed */
+    return fold_passes(prog);
+}
+
+int jm_fold_touched(jm_program *prog) {
+    return fold_passes(prog);
+}
+
+void jm_fold_touch(jm_program *prog, int32_t scope) {
+    if (prog->fold_marks == NULL) {
+        return;
+    }
+    for (; scope >= 0; scope = prog->scopes[scope].parent) {
+        if (prog->scopes[scope].node >= 0) {
+            mark_slot(prog->fold_marks, prog->nodes[prog->scopes[scope].node].b)->stamp = 0;
+        }
+    }
 }

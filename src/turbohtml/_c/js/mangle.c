@@ -662,6 +662,7 @@ static void walk_function(M *mangler, int32_t idx, int32_t parent) {
         mangler->failed = 1; /* GCOVR_EXCL_LINE */
         return;              /* GCOVR_EXCL_LINE */
     }
+    mangler->prog->scopes[scope].node = idx;
     int32_t mark = mangler->undo_count;
     int32_t outer_args = mangler->args_scope;
     int32_t outer_fn = mangler->fn_now;
@@ -790,8 +791,27 @@ static void walk_node(M *mangler, int32_t idx, int32_t scope, int bind) {
         }
         break;
     case JN_BLOCK:
-        walk_block(mangler, node->a, scope);
+        if (jm_block_single_stmt(mangler->prog, idx) == -1) {
+            walk_block(mangler, node->a, scope);
+        } else {
+            /* the printer drops the braces around one statement that declares nothing in them, so the statement
+               resolves in the enclosing scope, the way the printed output parses */
+            walk_chain(mangler, node->a, scope, 0);
+        }
         return;
+    case JN_WHILE:
+    case JN_DOWHILE: {
+        /* a body runs once per iteration, braced or not: its own scope keeps a closure or a value the analysis
+           would move into it from being built or evaluated once per iteration */
+        int32_t inner = jm_scope_new(mangler->prog, scope, 0);
+        if (inner < 0) {         /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+            mangler->failed = 1; /* GCOVR_EXCL_LINE */
+            return;              /* GCOVR_EXCL_LINE */
+        }
+        walk(mangler, node->a, inner, 0);
+        walk(mangler, node->b, inner, 0);
+        return;
+    }
     case JN_IF:
         walk(mangler, node->a, scope, 0);
         walk_if_clause(mangler, node->b, scope);
@@ -808,9 +828,11 @@ static void walk_node(M *mangler, int32_t idx, int32_t scope, int bind) {
         }
         int32_t mark = mangler->undo_count;
         if (node->kind == JN_FOR) {
-            if (node->a >= 0 && mangler->prog->nodes[node->a].kind == JN_VAR &&
-                mangler->prog->nodes[node->a].decl != 0) {
-                hoist_block(mangler, node->a, inner);
+            if (node->a >= 0 && mangler->prog->nodes[node->a].kind == JN_VAR) {
+                mangler->prog->nodes[node->a].flags |= JN_F_LOOP_HEAD;
+                if (mangler->prog->nodes[node->a].decl != 0) {
+                    hoist_block(mangler, node->a, inner);
+                }
             }
             walk(mangler, node->a, inner, 0);
             walk(mangler, node->b, inner, 0);
@@ -1100,7 +1122,7 @@ static int is_forbidden(M *mangler, const Py_UCS4 *name, Py_ssize_t len) {
 static void assign_slots(M *mangler, int32_t scope, int32_t base) {
     int32_t counter = base;
     for (int32_t sym = mangler->prog->scopes[scope].first_sym; sym >= 0; sym = mangler->prog->syms[sym].scope_next) {
-        if (mangler->prog->syms[sym].pinned) {
+        if (mangler->prog->syms[sym].pinned || mangler->prog->syms[sym].decl_node == -2) {
             continue;
         }
         mangler->prog->syms[sym].slot = counter++;
@@ -1258,6 +1280,7 @@ static Py_ssize_t literal_print_len(jm_program *prog, int32_t idx) {
 }
 
 static void collapse_walk(jm_program *prog, int32_t idx, int *changed);
+static void collapse_stmt(jm_program *prog, int32_t node, int *changed);
 static int is_droppable_init(jm_program *prog, int32_t init);
 
 /* A value whose evaluation cannot be observed when its result is discarded: a side-effect-free
@@ -1363,23 +1386,351 @@ static void collapse_sequence(jm_program *prog, int32_t seq, int *changed) {
     }
 }
 
-/* Descend a chain of statements or expressions, dropping a statement-level dead store, collapsing
-   sequences, and recursing. `x=EXPR;` where x is never read keeps only EXPR -- discarded when EXPR is
-   pure, else left as an expression statement for its side effect. */
-static void collapse_chain(jm_program *prog, int32_t first, int *changed) {
-    for (int32_t node = first; node >= 0; node = prog->nodes[node].next) {
-        if (prog->nodes[node].kind == JN_EXPR_STMT) {
-            int32_t init = dead_store_value(prog, prog->nodes[node].a);
-            if (init >= 0) {
-                if (is_pure_value(prog, init)) {
-                    jm_node_empty(prog, node);
-                } else {
-                    prog->nodes[node].a = init;
-                }
-                *changed = 1;
+/* A declarator binding a function-local name that nothing reads or writes (another declaration of the name counts as a
+   write): the declaration then only evaluates the initializer. */
+static int unread_local(jm_program *prog, int32_t declr) {
+    int32_t target = prog->nodes[declr].a;
+    if (prog->nodes[target].kind != JN_IDENT) {
+        return 0; /* a destructuring pattern runs the iterator or getters it names */
+    }
+    const jm_sym *sym = &prog->syms[prog->nodes[target].sym];
+    return sym->refs == 0 && sym->writes == 0 && !sym->pinned && prog->scopes[sym->scope].parent >= 0;
+}
+
+static int reads_movable(jm_program *prog, int32_t idx);
+
+/* Turn the trailing run of unread declarators of a declaration statement into an expression statement of their
+   initializers, in order: `const a=g(0),b=g(1)` with neither read is `g(0),g(1)`. The run sits after every kept
+   declarator, so the initializers still run after theirs, and a declaration whose every declarator goes becomes the
+   expression statement itself. A pure initializer ends the run like a read declarator: drop_unused takes a literal or
+   a function, and dropping a read of a binding would leave that binding fewer reads than the analysis counted. So
+   does a sequence, whose elements the printer would splice into the run's, where collapse_sequence would drop them.
+   Sets open when the rewrite may leave a pass more to do than the analysis shows. */
+static int fuse_unread_tail(jm_program *prog, int32_t stmt, int *open) {
+    int32_t kept = -1; /* the last declarator that stays */
+    int32_t effects = 0;
+    for (int32_t declr = prog->nodes[stmt].a; declr >= 0; declr = prog->nodes[declr].next) {
+        int32_t init = prog->nodes[declr].b;
+        if (!unread_local(prog, declr) || init < 0 || is_pure_value(prog, init) || prog->nodes[init].kind == JN_SEQ) {
+            kept = declr;
+            effects = 0;
+        } else {
+            effects++;
+        }
+    }
+    if (effects == 0) {
+        return 0;
+    }
+    int32_t expr = -1;
+    if (effects > 1) {
+        expr = jm_node_new(prog, JN_SEQ);
+        if (expr < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path keeps the declarators */
+            return 0;   /* GCOVR_EXCL_LINE */
+        }
+    }
+    int32_t into = stmt;
+    if (kept >= 0) {
+        into = jm_node_new(prog, JN_EXPR_STMT);
+        if (into < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path keeps the declarators */
+            return 0;   /* GCOVR_EXCL_LINE */
+        }
+    }
+    int32_t tail = -1;
+    for (int32_t declr = kept >= 0 ? prog->nodes[kept].next : prog->nodes[stmt].a; declr >= 0;
+         declr = prog->nodes[declr].next) {
+        prog->syms[prog->nodes[prog->nodes[declr].a].sym].decl_node = -2;
+        int32_t init = prog->nodes[declr].b;
+        prog->nodes[init].next = -1;
+        *open |= reads_movable(prog, init);
+        if (expr < 0) {
+            expr = init;
+        } else if (tail < 0) {
+            prog->nodes[expr].a = init;
+        } else {
+            prog->nodes[tail].next = init;
+        }
+        tail = init;
+    }
+    if (kept >= 0) {
+        prog->nodes[kept].next = -1;
+        prog->nodes[into].next = prog->nodes[stmt].next;
+        prog->nodes[stmt].next = into;
+    } else {
+        /* a let or const leaving a block may leave it one statement the printer drops the braces of, and the
+           analysis then resolves what that block reads in the scope around it */
+        int32_t binding = prog->nodes[prog->nodes[prog->nodes[stmt].a].a].sym;
+        *open |= prog->nodes[stmt].decl != 0 && prog->scopes[prog->syms[binding].scope].kind == 0;
+        prog->nodes[stmt].decl = 0;
+    }
+    prog->nodes[into].kind = JN_EXPR_STMT;
+    prog->nodes[into].a = expr;
+    collapse_stmt(prog, into, open);
+    return 1;
+}
+
+/* How deep the inlining scan reads into the statement after a declaration, and how tall an initializer it moves there:
+   together they bound how much taller one move makes the tree, and a moved initializer sits in a return, throw or
+   expression statement, never in a declaration a later move could carry it out of. */
+#define INLINE_SCAN_DEPTH 4
+#define INLINE_INIT_HEIGHT 16
+
+/* Whether no path below idx runs deeper than budget levels. */
+static int height_within(jm_program *prog, int32_t idx, int32_t budget) {
+    if (budget == 0) {
+        return 0;
+    }
+    const jm_node *node = &prog->nodes[idx];
+    int32_t children[4] = {node->a, node->b, node->c, node->d};
+    for (int child = 0; child < 4; child++) {
+        for (int32_t item = children[child]; item >= 0; item = prog->nodes[item].next) {
+            TH_WORK_STEP();
+            if (!height_within(prog, item, budget - 1)) {
+                return 0;
             }
         }
-        collapse_walk(prog, node, changed);
+    }
+    return 1;
+}
+
+/* A declarator whose one read can take its initializer: a function-local name read once and never written, with a
+   value to move that is short enough and no sequence, whose elements would join a sequence it lands in. */
+static int inline_candidate(jm_program *prog, int32_t declr) {
+    if (prog->nodes[declr].b < 0) {
+        return 0;
+    }
+    const jm_sym *sym = &prog->syms[prog->nodes[prog->nodes[declr].a].sym];
+    return sym->refs == 1 && !sym->pinned && sym->writes == 0 && prog->scopes[sym->scope].parent >= 0 &&
+           prog->nodes[prog->nodes[declr].b].kind != JN_SEQ &&
+           height_within(prog, prog->nodes[declr].b, INLINE_INIT_HEIGHT);
+}
+
+/* Whether inline_single_use, given a fresh analysis, could move the binding of a read the declarator rewrites moved:
+   one read, never written, and a value whose move that pass decides from where the read sits -- a function
+   declaration by how deep, a regex by which statement holds the read, and a literal, a sequence or a value too tall
+   for inline_into_next by whether the statement after the declaration jumps with it. Any other value moves only
+   where inline_into_next would move it first. */
+static int movable_binding(jm_program *prog, int32_t index) {
+    const jm_sym *sym = &prog->syms[index];
+    if (sym->refs != 1 || sym->writes != 0 || sym->decl_node < 0 || sym->pinned ||
+        prog->scopes[sym->scope].parent < 0) {
+        return 0;
+    }
+    if (sym->decl == 4) {
+        return 1;
+    }
+    int32_t init = prog->nodes[sym->declr_node].b;
+    return init >= 0 && (prog->nodes[init].kind == JN_REGEX || prog->nodes[init].kind == JN_SEQ ||
+                         is_const_literal(prog, init) || !height_within(prog, init, INLINE_INIT_HEIGHT));
+}
+
+/* Whether the subtree at idx reads a binding movable_binding accepts. */
+static int reads_movable(jm_program *prog, int32_t idx) {
+    TH_WORK_STEP();
+    const jm_node *node = &prog->nodes[idx];
+    if (node->kind == JN_IDENT) {
+        return node->sym >= 0 && movable_binding(prog, node->sym);
+    }
+    int32_t children[4] = {node->a, node->b, node->c, node->d};
+    for (int child = 0; child < 4; child++) {
+        for (int32_t item = children[child]; item >= 0; item = prog->nodes[item].next) {
+            if (reads_movable(prog, item)) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+typedef struct {
+    int32_t stmt;
+    int32_t first;    /* the first declarator to inline, once the scan met its read, else -1 */
+    int32_t expected; /* the declarator whose read must come next, -1 once every one from first on was met */
+} jm_inline_scan;
+
+/* Walk an expression in evaluation order up to its first evaluation with an observable effect, matching the reads of
+   the declaration's trailing declarators. Returns 1 when the walk may continue past idx. Only side-effect-free
+   evaluations may precede a matched read: literals, closures and reads of never-written parameters. Everything else
+   ends the walk, before it for a member access, a free name or a read of another binding, after its operands for a
+   call or an operator, which may run user code (a getter, a valueOf) once they are evaluated. */
+static int scan_inline_reads(jm_program *prog, int32_t idx, jm_inline_scan *scan, int depth) {
+    TH_WORK_STEP();
+    if (scan->first >= 0 && scan->expected < 0) {
+        return 0; /* every initializer found its read: what follows runs after all of them either way */
+    }
+    if (depth > INLINE_SCAN_DEPTH) {
+        return 0;
+    }
+    const jm_node *node = &prog->nodes[idx];
+    switch (node->kind) {
+    case JN_NUM:
+    case JN_STRING:
+    case JN_BIGINT:
+    case JN_HOLE:
+    case JN_FUNC:
+    case JN_ARROW:
+        return 1;
+    case JN_IDENT: {
+        if (node->sym < 0) {
+            return 0;
+        }
+        const jm_sym *sym = &prog->syms[node->sym];
+        if (sym->decl == 3 && sym->writes == 0) {
+            return 1; /* a parameter is bound before the body runs */
+        }
+        if (sym->decl_node != scan->stmt || sym->ref_node != idx) {
+            return 0;
+        }
+        if (scan->first < 0) {
+            scan->first = sym->declr_node;
+            scan->expected = sym->declr_node;
+        }
+        if (sym->declr_node != scan->expected) {
+            scan->first = -1;
+            return 0; /* read out of declaration order */
+        }
+        scan->expected = prog->nodes[scan->expected].next;
+        return 1;
+    }
+    case JN_ARRAY:
+    case JN_SEQ:
+        for (int32_t item = node->a; item >= 0; item = prog->nodes[item].next) {
+            if (prog->nodes[item].kind == JN_SPREAD || !scan_inline_reads(prog, item, scan, depth + 1)) {
+                return 0; /* a spread runs the iterator protocol */
+            }
+        }
+        return 1;
+    case JN_CALL:
+    case JN_NEW: {
+        int32_t callee = node->a;
+        if (prog->nodes[callee].kind != JN_IDENT || prog->nodes[callee].sym < 0 ||
+            prog->syms[prog->nodes[callee].sym].decl != 3 || prog->syms[prog->nodes[callee].sym].writes != 0 ||
+            (node->flags & JN_F_OPTIONAL)) {
+            return 0; /* only a parameter callee reads nothing observable; `?.` may skip the arguments */
+        }
+        for (int32_t arg = node->b; arg >= 0; arg = prog->nodes[arg].next) {
+            if (prog->nodes[arg].kind == JN_SPREAD || !scan_inline_reads(prog, arg, scan, depth + 1)) {
+                return 0;
+            }
+        }
+        return 0;
+    }
+    case JN_BINARY:
+        if (scan_inline_reads(prog, node->a, scan, depth + 1)) {
+            scan_inline_reads(prog, node->b, scan, depth + 1);
+        }
+        return 0;
+    default:
+        return 0;
+    }
+}
+
+/* Move the initializers of a declaration's trailing declarators into their one reads in the statement right after it,
+   when those reads are that statement's first evaluations with an effect, in declaration order: `const a=g(0),
+   b=g(1);return[a,b]` is `return[g(0),g(1)]`. Each initializer still runs in the same order, after the declarators
+   that stay, and before anything observable in the statement, so only the names go. */
+static int inline_into_next(jm_program *prog, int32_t stmt, int *open) {
+    int32_t next = prog->nodes[stmt].next;
+    if (next < 0 || prog->nodes[next].a < 0 ||
+        (prog->nodes[next].kind != JN_RETURN && prog->nodes[next].kind != JN_THROW &&
+         prog->nodes[next].kind != JN_EXPR_STMT)) {
+        return 0;
+    }
+    jm_inline_scan scan = {stmt, -1, -1};
+    scan_inline_reads(prog, prog->nodes[next].a, &scan, 0);
+    if (scan.first < 0 || scan.expected >= 0) {
+        return 0;
+    }
+    for (int32_t declr = scan.first; declr >= 0; declr = prog->nodes[declr].next) {
+        if (!inline_candidate(prog, declr)) {
+            return 0; /* a declarator after this one stays and would then run before it */
+        }
+    }
+    int32_t list_scope = prog->syms[prog->nodes[prog->nodes[scan.first].a].sym].ref_scope;
+    for (int32_t declr = scan.first; declr >= 0; declr = prog->nodes[declr].next) {
+        jm_sym *sym = &prog->syms[prog->nodes[prog->nodes[declr].a].sym];
+        int32_t init = prog->nodes[declr].b;
+        int32_t moved = prog->nodes[init].kind == JN_IDENT ? prog->nodes[init].sym : -1;
+        move_node(prog, sym->ref_node, init);
+        if (moved >= 0 && prog->syms[moved].ref_node == init) {
+            prog->syms[moved].ref_node = sym->ref_node; /* the read moved with it, where the next look must find it */
+        }
+        sym->decl_node = -2;
+        sym->refs = 0;
+        *open |= reads_movable(prog, sym->ref_node);
+    }
+    /* walked rather than read from declr_prev, which a declarator the propagation pass unlinked this round can leave
+       pointing at itself */
+    int32_t previous = -1;
+    for (int32_t declr = prog->nodes[stmt].a; declr != scan.first; declr = prog->nodes[declr].next) {
+        previous = declr;
+    }
+    if (previous < 0) {
+        /* the statement takes the next one's place, leaving no empty behind; the reads it holds now sit in another
+           statement */
+        *open |= reads_movable(prog, next) || prog->scopes[list_scope].kind == 0; /* a block may lose its braces */
+        prog->nodes[stmt] = prog->nodes[next];
+    } else {
+        prog->nodes[previous].next = -1;
+    }
+    collapse_stmt(prog, previous < 0 ? stmt : next, open);
+    return 1;
+}
+
+/* Run fuse_unread_tail and inline_into_next over every declaration statement. Each declaration is found through the
+   binding of its last declarator, and a rewrite that leaves a new last declarator goes around again, so the rewrites
+   reach their own fixpoint here. They only move reads and drop the bindings they empty, so the analysis stays exact
+   for the other passes unless a rewrite sets open; every function a rewrite touched is noted for jm_fold_touched. The
+   analysis may be stale where the other passes changed the tree this round, but only toward more reads and writes
+   than the tree holds, which make every check here more cautious. */
+static int settle_declarations(jm_program *prog, int *open) {
+    int any = 0;
+    int changed = 1;
+    while (changed) {
+        changed = 0;
+        for (int32_t index = 0; index < prog->sym_count; index++) {
+            const jm_sym *sym = &prog->syms[index];
+            int32_t stmt = sym->decl_node;
+            if (stmt < 0 || prog->nodes[stmt].kind != JN_VAR || (prog->nodes[stmt].flags & JN_F_LOOP_HEAD) ||
+                prog->nodes[sym->declr_node].next >= 0) {
+                continue; /* a for head is no statement, and only the last declarator stands for its declaration */
+            }
+            int32_t scope = sym->scope;
+            int rewrote = fuse_unread_tail(prog, stmt, open);
+            if (prog->nodes[stmt].kind == JN_VAR) {
+                rewrote |= inline_into_next(prog, stmt, open);
+            }
+            if (rewrote) {
+                jm_fold_touch(prog, scope);
+                changed = 1;
+            }
+        }
+        any |= changed;
+    }
+    return any;
+}
+
+/* Collapse one statement or expression, dropping a statement-level dead store, collapsing sequences, and
+   recursing. `x=EXPR;` where x is never read keeps only EXPR -- discarded when EXPR is pure, else left as an
+   expression statement for its side effect. */
+static void collapse_stmt(jm_program *prog, int32_t node, int *changed) {
+    if (prog->nodes[node].kind == JN_EXPR_STMT) {
+        int32_t init = dead_store_value(prog, prog->nodes[node].a);
+        if (init >= 0) {
+            if (is_pure_value(prog, init)) {
+                jm_node_empty(prog, node);
+            } else {
+                prog->nodes[node].a = init;
+            }
+            *changed = 1;
+        }
+    }
+    collapse_walk(prog, node, changed);
+}
+
+/* Collapse every statement or expression of the chain at first. */
+static void collapse_chain(jm_program *prog, int32_t first, int *changed) {
+    for (int32_t node = first; node >= 0; node = prog->nodes[node].next) {
+        collapse_stmt(prog, node, changed);
     }
 }
 
@@ -1915,10 +2266,14 @@ int jm_compress(jm_program *prog, jm_analysis **settled) {
             changed |= drop_unused(prog, global);
             changed |= inline_single_use(prog, global);
             changed |= propagate_value_literals(prog, global);
+            int open = 0;
+            if (settle_declarations(prog, &open) && !changed) {
+                changed = open ? 1 : 2;
+            }
             result = changed;
         }
     }
-    if (result == 0) {
+    if (result == 0 || result == 2) {
         *settled = jm_malloc(sizeof **settled);
     }
     if (*settled != NULL) {
@@ -1927,6 +2282,13 @@ int jm_compress(jm_program *prog, jm_analysis **settled) {
         mangler_free(&mangler);
     }
     return result;
+}
+
+void jm_analysis_free(jm_analysis *analysis) {
+    if (analysis != NULL) {
+        mangler_free(&analysis->mangler);
+        jm_free(analysis);
+    }
 }
 
 /* Assign the shortest legal names to the surviving local bindings. Run once after compression settles;
