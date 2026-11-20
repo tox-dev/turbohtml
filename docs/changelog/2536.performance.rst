@@ -1,0 +1,1 @@
+Comparing elements whose attributes come in a different order is faster.

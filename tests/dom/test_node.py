@@ -749,6 +749,29 @@ def test_namespaced_attribute_equality(*, same_tree: bool, order: str, prefix: s
     assert left_element.equals(right_element) is (prefix == "x")
 
 
+@pytest.mark.parametrize("count", [pytest.param(4, id="scanned"), pytest.param(40, id="indexed")])
+@pytest.mark.parametrize(
+    ("first_value", "equal"), [pytest.param("1", True, id="equal"), pytest.param("other", False, id="changed-value")]
+)
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        pytest.param("data-alvedgvr", "data-ihfufqrz", id="same-length"),
+        pytest.param("data-paotbcue", "data-mkamwxwmf", id="other-length"),
+    ],
+)
+def test_attribute_names_sharing_a_hash_are_distinct(
+    first: str, second: str, count: int, first_value: str, *, equal: bool
+) -> None:
+    # each pair shares its FNV-1a hash, so only the name bytes tell the two apart
+    left: Final[dict[str, str]] = {first: "1", "id": "2", second: "3"} | {
+        f"data-{index}": "same" for index in range(count - 3)
+    }
+    right: Final[dict[str, str]] = _ordered("reversed", left | {first: first_value})
+    left_element, right_element = _attribute_pair(left, right, same_tree=False)
+    assert left_element.equals(right_element) is equal
+
+
 _STATIC_NAMES: Final[list[str]] = [
     "accept-charset",
     "accesskey",
