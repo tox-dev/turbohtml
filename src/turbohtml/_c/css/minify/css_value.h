@@ -446,6 +446,51 @@ static int css_unit_reads_as_exponent(const css_char *unit, Py_ssize_t len) {
     return digit < len && css_is_digit(unit[digit]);
 }
 
+/* Rewrite the shortened millisecond count at pool[off, off + len) as seconds when that is shorter: 1s is 1000ms
+   exactly (CSS Values 4 §7.3), so 200ms is .2s. Only a whole count converts: an engine turns milliseconds into seconds
+   by dividing by 1000, which for a whole count lands on the same double as reading the decimal seconds, while a
+   fractional count is already rounded before the division. The count moves its exponent down by three, and
+   css_format_number picks the shortest spelling of the result. Returns 1 with the seconds written over the count. */
+CSS_NOINLINE static int css_ms_as_seconds(css_buf *pool, Py_ssize_t off, Py_ssize_t len, Py_ssize_t *out_off,
+                                          Py_ssize_t *out_len) {
+    css_char scaled[40];
+    Py_ssize_t mantissa = 0;
+    while (mantissa < len && pool->data[off + mantissa] != 'e') {
+        if (pool->data[off + mantissa] == '.') {
+            return 0;
+        }
+        mantissa++;
+    }
+    long exponent = 0;
+    if (mantissa + 1 < len && pool->data[off + mantissa + 1] == '-') {
+        return 0;
+    }
+    for (Py_ssize_t index = mantissa + 1; index < len && exponent < 16; index++) {
+        exponent = exponent * 10 + (pool->data[off + index] - '0');
+    }
+    /* past 15 digits a count need not be a double, so the division would start from a rounded value */
+    if (mantissa - (pool->data[off] == '-') + exponent > 15) {
+        return 0;
+    }
+    char suffix[8];
+    int suffix_len = snprintf(suffix, sizeof(suffix), "e%ld", exponent - 3);
+    memcpy(scaled, pool->data + off, (size_t)mantissa * sizeof(css_char));
+    memcpy(scaled + mantissa, suffix, (size_t)suffix_len);
+    Py_ssize_t seconds_off;
+    Py_ssize_t seconds_len;
+    css_format_number(pool, scaled, mantissa + suffix_len, 1, &seconds_off, &seconds_len);
+    if (seconds_len + 1 >= len + 2) {
+        pool->len = seconds_off;
+        return 0;
+    }
+    memmove(pool->data + off, pool->data + seconds_off, (size_t)seconds_len * sizeof(css_char));
+    pool->len = off + seconds_len;
+    cbuf_putc(pool, 's');
+    *out_off = off;
+    *out_len = seconds_len + 1;
+    return 1;
+}
+
 /* Render a dimension (number + unit) into the pool: shorten the number, lower-case a known unit, and drop the unit
    when the value is 0 and the unit is a length (CSS Values 4 §6). */
 static void css_format_dimension(css_buf *pool, const css_token *token, int drop_zero_unit, const css_char *property,
@@ -471,6 +516,10 @@ static void css_format_dimension(css_buf *pool, const css_token *token, int drop
             cbuf_put_run(pool, token->text, token->text_len);
             len = pool->len - off;
         }
+    }
+    if (token->unit_len == 2 && css_lower(unit[0]) == 'm' && css_lower(unit[1]) == 's' &&
+        css_ms_as_seconds(pool, off, len, out_off, out_len)) {
+        return;
     }
     int is_zero = len == 1 && pool->data[off] == '0';
     if (is_zero && drop_zero_unit && css_unit_zero_droppable(unit, token->unit_len) &&
@@ -1177,10 +1226,26 @@ static Py_ssize_t css_read_until(cursor *cur, const char *stops) {
     return cur->index;
 }
 
-/* Find the index of the ')' matching an opening '(' that sits at open_paren, or end when the arguments run to it. Kept
-   out of line: inlined into css_emit_function's nested-call path it runs slower than the call it saves. */
-CSS_NOINLINE static Py_ssize_t css_match_paren(token_vec *vec, Py_ssize_t open_paren, Py_ssize_t end) {
+/* css_match_paren once a scan has met CSS_PAREN_MEMO_DEPTH nested calls. A walk asks about a function and then about
+   each function in its arguments, so nested calls would each rescan the tokens of the calls inside them. This scan
+   therefore records the closer of every nested `(` it passes in vec->closers, keeping the openers still waiting for one
+   on a stack threaded through the same table as -(around + 2). A recorded closer is the answer with the whole vector
+   to scan; one at or past end means the bounded scan meets no closer either, as it reads the same tokens. A `[` or `{`
+   hands the rest to css_scan_stacked, so the waiting openers go back to unknown. */
+CSS_NOINLINE static Py_ssize_t css_match_paren_memo(token_vec *vec, Py_ssize_t open_paren, Py_ssize_t end) {
+    Py_ssize_t *closers = vec->closers;
+    if (closers == NULL) {
+        closers = vec->closers = css_calloc((size_t)vec->len, sizeof(Py_ssize_t));
+        if (closers == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            *vec->oom = 1;     /* GCOVR_EXCL_LINE: allocation-failure path */
+            return end;        /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    if (closers[open_paren] > 0) {
+        return closers[open_paren] < end ? closers[open_paren] : end;
+    }
     Py_ssize_t parens_open = 0;
+    Py_ssize_t waiting = -1;
     for (Py_ssize_t index = open_paren + 1; index < end; index++) {
         TH_WORK_STEP();
         if (vec->items[index].kind != CSS_DELIM) {
@@ -1189,6 +1254,50 @@ CSS_NOINLINE static Py_ssize_t css_match_paren(token_vec *vec, Py_ssize_t open_p
         css_char delim = vec->items[index].delim;
         if (delim == '(') {
             parens_open++;
+            closers[index] = -(waiting + 2);
+            waiting = index;
+        } else if (delim == ')' && parens_open-- == 0) {
+            closers[open_paren] = index;
+            return index;
+        } else if (delim == ')') {
+            Py_ssize_t around = -closers[waiting] - 2;
+            closers[waiting] = index;
+            waiting = around;
+        } else if (delim == '[' || delim == '{') {
+            while (waiting >= 0) {
+                Py_ssize_t around = -closers[waiting] - 2;
+                closers[waiting] = 0;
+                waiting = around;
+            }
+            return css_scan_stacked(vec, index, end, parens_open, ")");
+        }
+    }
+    while (waiting >= 0) {
+        Py_ssize_t around = -closers[waiting] - 2;
+        closers[waiting] = 0;
+        waiting = around;
+    }
+    return end;
+}
+
+/* Find the index of the ')' matching an opening '(' that sits at open_paren, or end when the arguments run to it. Kept
+   out of line: inlined into css_emit_function's nested-call path it runs slower than the call it saves. A value nesting
+   CSS_PAREN_MEMO_DEPTH calls, which ordinary values never reach, moves to css_match_paren_memo for good: the table it
+   keeps costs a cleared slot per token of the vector. */
+#define CSS_PAREN_MEMO_DEPTH 4
+CSS_NOINLINE static Py_ssize_t css_match_paren(token_vec *vec, Py_ssize_t open_paren, Py_ssize_t end) {
+    if (vec->closers != NULL) {
+        return css_match_paren_memo(vec, open_paren, end);
+    }
+    Py_ssize_t parens_open = 0;
+    for (Py_ssize_t index = open_paren + 1; index < end; index++) {
+        TH_WORK_STEP();
+        if (vec->items[index].kind != CSS_DELIM) {
+            continue;
+        }
+        css_char delim = vec->items[index].delim;
+        if (delim == '(' && ++parens_open == CSS_PAREN_MEMO_DEPTH) {
+            return css_match_paren_memo(vec, open_paren, end);
         } else if (delim == ')' && parens_open-- == 0) {
             return index;
         } else if (delim == '[' || delim == '{') {

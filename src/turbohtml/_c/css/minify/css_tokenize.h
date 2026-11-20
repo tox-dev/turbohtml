@@ -106,10 +106,12 @@ typedef unsigned char css_char;
    compile-time macro, so there is no runtime indirection. */
 #ifdef CSS_MINIFY_STANDALONE
 #define css_malloc(size) malloc(size)
+#define css_calloc(count, size) calloc(count, size)
 #define css_realloc(ptr, size) realloc((ptr), (size))
 #define css_free(ptr) free(ptr)
 #else
 #define css_malloc(size) PyMem_Malloc(size)
+#define css_calloc(count, size) PyMem_Calloc(count, size)
 #define css_realloc(ptr, size) PyMem_Realloc((ptr), (size))
 #define css_free(ptr) PyMem_Free(ptr)
 #endif
@@ -244,6 +246,9 @@ typedef struct {
     css_bang *bangs;
     Py_ssize_t bang_len;
     Py_ssize_t bang_cap;
+    /* closers[index], once set above zero, is css_match_paren's answer for the `(` at index with the whole vector to
+       scan; NULL until a call first meets a nested `(`, as a value without nested functions never asks twice. */
+    Py_ssize_t *closers;
 } token_vec;
 
 /* The text every bang comment token points at. An empty comment spells nothing, so the placeholder keeps the token
@@ -295,6 +300,7 @@ static void css_put_bang(css_buf *out, token_vec *vec, Py_ssize_t index) {
 static void css_token_vec_free(token_vec *vec) {
     css_free(vec->items);
     css_free(vec->bangs);
+    css_free(vec->closers);
 }
 
 /* Untrusted nesting drives the parsers into C recursion. 100 sits between rust-cssparser's 75 and WebKit's 128; the

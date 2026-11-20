@@ -334,8 +334,8 @@ CSS_NOINLINE static int css_value_substitutes(const token_vec *vec, Py_ssize_t s
    bad url drops the declaration. A `\` before a newline is a delimiter: a custom property's value and a value that
    calls a substitution function keep it, written as it stands with its newline, and any other declaration is dropped
    as a browser drops it. */
-static int css_make_declaration(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, comp_vec *scratch,
-                                css_decl *decl, int preserve_name) {
+static CSS_FORCEINLINE int css_make_declaration(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end,
+                                                comp_vec *scratch, css_decl *decl, int preserve_name) {
     int backslash = 0;
     if (vec->bad && css_holds_bad(vec, start, end)) {
         if (css_holds_cut(vec, start, end)) {

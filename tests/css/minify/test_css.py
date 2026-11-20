@@ -429,6 +429,75 @@ def test_minify_css_interleaved_duplicate_shorthand_keeps_longhands() -> None:
             id="transform-drop-zero-arg-after-string",
         ),
         pytest.param("a{transform:scale(3,4,5)}", "a{transform:scale(3,4,5)}", id="transform-three-args-kept"),
+        pytest.param(
+            "a{transform:translate3d(0,0,1px)scale3d(1,1,.5)rotate3d(1,0,0,1deg)rotate3d(0,1,0,2deg)rotate3d(0,0,1,3deg)}",
+            "a{transform:translateZ(1px)scaleZ(.5)rotateX(1deg)rotateY(2deg)rotateZ(3deg)}",
+            id="transform-3d-single-axis",
+        ),
+        pytest.param(
+            "a{transform:translate3d(1px,0,0)scale3d(2,1,1)rotate3d(1,1,0,1deg)rotate3d(0,0,0,1deg)}",
+            "a{transform:translate3d(1px,0,0)scale3d(2,1,1)rotate3d(1,1,0,1deg)rotate3d(0,0,0,1deg)}",
+            id="transform-3d-other-axis-kept",
+        ),
+        pytest.param(
+            "a{transform:rotate3d(0,0,2,5deg)rotate3d(1,0,0,1deg,2)translate3d(0,0)scale3d(1,1)rotate3d(1,0,0)}",
+            "a{transform:rotate3d(0,0,2,5deg)rotate3d(1,0,0,1deg,2)translate3d(0,0)scale3d(1,1)rotate3d(1,0,0)}",
+            id="transform-3d-wrong-shape-kept",
+        ),
+        pytest.param(
+            "a{transform:rotate3d(10,0,0,1deg)rotate3d(1,10,0,1deg)rotate3d(1,0,10,1deg)matrix3d(1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1)}",
+            "a{transform:rotate3d(10,0,0,1deg)rotate3d(1,10,0,1deg)rotate3d(1,0,10,1deg)matrix3d(1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1)}",
+            id="transform-3d-long-argument-kept",
+        ),
+        pytest.param(
+            "a{transform:translate3d(0,1px,0)scale3d(1,2,1)rotate3d(2,1,1,1deg)rotate3d(1,2,1,1deg)rotate3d(1,1,2,1deg)}",
+            "a{transform:translate3d(0,1px,0)scale3d(1,2,1)rotate3d(2,1,1,1deg)rotate3d(1,2,1,1deg)rotate3d(1,1,2,1deg)}",
+            id="transform-3d-not-unit-axis-kept",
+        ),
+        pytest.param("a{transform:f(1,2,3,4)}", "a{transform:f(1,2,3,4)}", id="transform-four-args-other-name"),
+        pytest.param(
+            "a{transform:abcdefghi3d(0,0,1)abcde3d(1,1,2)abcdefg3d(1,0,0,1deg)abcdefg3d(1,0,0,1deg)}",
+            "a{transform:abcdefghi3d(0,0,1)abcde3d(1,1,2)abcdefg3d(1,0,0,1deg)abcdefg3d(1,0,0,1deg)}",
+            id="transform-3d-lookalike-name",
+        ),
+        pytest.param(
+            "a{transform:abcdef3d(1,0,0,1deg)}", "a{transform:abcdef3d(1,0,0,1deg)}", id="transform-3d-not-rotate"
+        ),
+        pytest.param(
+            "a{-webkit-transform:translate3d(0,0,f(a,b));TRANSFORM:SCALE3D(1,1,2)}",
+            "a{-webkit-transform:translateZ(f(a,b));transform:scaleZ(2)}",
+            id="transform-3d-prefixed-and-upper",
+        ),
+        pytest.param(
+            "a{transform-origin:translate3d(0,0,0);--t:translate3d(0,0,0);-x:translate3d(0,0,0)}",
+            "a{transform-origin:translate3d(0,0,0);--t:translate3d(0,0,0);-x:translate3d(0,0,0)}",
+            id="transform-3d-other-property-kept",
+        ),
+        pytest.param(
+            "a{xtransform:scale3d(1,1,2);-transform:scale3d(1,1,2);-a-btransform:scale3d(1,1,2);-abtransform:scale3d(1,1,2);"
+            "-x-transform:scale3d(1,1,2)}",
+            "a{xtransform:scale3d(1,1,2);-transform:scale3d(1,1,2);-a-btransform:scale3d(1,1,2);-abtransform:scale3d(1,1,2);"
+            "-x-transform:scaleZ(2)}",
+            id="transform-3d-prefix-shape",
+        ),
+        pytest.param("a{transform:translate3d(0,0,0", "a{transform:translateZ(0)}", id="transform-3d-unclosed"),
+        pytest.param(
+            "a{transition:opacity 150ms,transform 2000ms 1.5ms;animation:x 1e4ms,y 3e5MS}",
+            "a{transition:opacity .15s,transform 2s 1.5ms;animation:x 10s,y 300s}",
+            id="milliseconds-as-seconds",
+        ),
+        pytest.param(
+            "a{b:0ms;c:-50ms;d:-1000ms;e:1e-5ms;f:.0005ms;g:1e400ms;h:123456789012345ms;i:1234567890123456ms}",
+            "a{b:0s;c:-50ms;d:-1s;e:1e-5ms;f:5e-4ms;g:1e400ms;h:123456789012345ms;i:1234567890123456ms}",
+            id="milliseconds-kept-when-inexact-or-longer",
+        ),
+        pytest.param("a{width:f(g(h([x])))}", "a{width:f(g(h([x])))}", id="nested-function-with-block"),
+        pytest.param("a{width:f(g(h(x", "a{width:f(g(h(x)))}", id="nested-function-unclosed"),
+        pytest.param("a{width:f(g(h(i(j([x])))))}", "a{width:f(g(h(i(j([x])))))}", id="deep-function-with-block"),
+        pytest.param("a{width:f(g(h(i(j({x})))))}", "a{width:f(g(h(i(j({x})))))}", id="deep-function-with-brace"),
+        pytest.param("a{width:f(g(h(i(j(x", "a{width:f(g(h(i(j(x)))))}", id="deep-function-unclosed"),
+        pytest.param("a{b:abcdef3x(1)}", "a{b:abcdef3x(1)}", id="function-name-like-3d"),
+        pytest.param("a{width:f(g(x),h(y),[z])}", "a{width:f(g(x),h(y),[z])}", id="nested-functions-then-block"),
         pytest.param("a{transform:scale({k},{k})}", "a{transform:scale({k})}", id="transform-equal-brace-args"),
         pytest.param("a{transform:scale([k])}", "a{transform:scale([k])}", id="transform-block-one-arg"),
         pytest.param("a{transform:scale([k],2,2)}", "a{transform:scale([k],2,2)}", id="transform-block-three-args"),
@@ -759,6 +828,80 @@ def test_minify_css_many_rules_merge_same_body() -> None:
 )
 def test_minify_css_same_selector_identical_bodies(source: str, expected: str) -> None:
     assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            "@media print{.a{x:y}}.b{c:d}@media print{.a{x:y}}", ".b{c:d}@media print{.a{x:y}}", id="media-block"
+        ),
+        pytest.param(
+            "@supports (display:grid){.a{x:y}}.b{c:d}@supports (display:grid){.a{x:y}}",
+            ".b{c:d}@supports(display:grid){.a{x:y}}",
+            id="supports-block",
+        ),
+        pytest.param(
+            "@media a{@media b{.a{x:y}}.b{c:d}@media b{.a{x:y}}}",
+            "@media a{.b{c:d}@media b{.a{x:y}}}",
+            id="inside-media",
+        ),
+        pytest.param(".a{color:red}.b{color:blue}.a{color:red}", ".a{color:red}.b{color:blue}.a{color:red}", id="rule"),
+        pytest.param(
+            "@media print{.a{x:y}}.b{c:d}@media print{.a{x:z}}",
+            "@media print{.a{x:y}}.b{c:d}@media print{.a{x:z}}",
+            id="different-block",
+        ),
+        pytest.param(
+            "@media print{.a{x:y/*!k*/}}.b{c:d}@media print{.a{x:y/*!k*/}}",
+            "@media print{.a{x:y}/*!k*/}.b{c:d}@media print{.a{x:y}/*!k*/}",
+            id="bang-comment-kept",
+        ),
+        pytest.param(
+            "@media print{@layer l{.a{x:y}}}.b{c:d}@media print{@layer l{.a{x:y}}}",
+            "@media print{@layer l{.a{x:y}}}.b{c:d}@media print{@layer l{.a{x:y}}}",
+            id="layer-kept",
+        ),
+        pytest.param(
+            "@media print{@font-face{font-family:f}}.b{c:d}@media print{@font-face{font-family:f}}",
+            "@media print{@font-face{font-family:f}}.b{c:d}@media print{@font-face{font-family:f}}",
+            id="font-face-in-media-kept",
+        ),
+        pytest.param(
+            "@mediafoo x{.a{x:y}}.b{c:d}@mediafoo x{.a{x:y}}",
+            "@mediafoo x{.a{x:y}}.b{c:d}@mediafoo x{.a{x:y}}",
+            id="unknown-at-rule-kept",
+        ),
+        pytest.param(
+            "@media print;@media a{x{y:z}}b{c:d}@media a{x{y:z}}",
+            "@media print;b{c:d}@media a{x{y:z}}",
+            id="statement-kept",
+        ),
+        pytest.param("@page{}a{b:c}@page{}", "@page{}a{b:c}@page{}", id="short-block-kept"),
+        pytest.param(
+            '@media p{a{b:"/x/*y@layerz@font-facez"}}d{e:f}@media p{a{b:"/x/*y@layerz@font-facez"}}',
+            'd{e:f}@media p{a{b:"/x/*y@layerz@font-facez"}}',
+            id="lookalike-text-dropped",
+        ),
+        pytest.param(
+            "@keyframes k{0%{a:b}50%{c:d}0%{a:b}}", "@keyframes k{0%{a:b}50%{c:d}0%{a:b}}", id="keyframe-kept"
+        ),
+        pytest.param(
+            "@media p{a{b:c}}x{y:z}@media p{a{b:c}}foo",
+            "@media p{a{b:c}}x{y:z}@media p{a{b:c}}foo",
+            id="stray-list-kept",
+        ),
+    ],
+)
+def test_minify_css_drops_block_repeated_later(source: str, expected: str) -> None:
+    # the later identical block re-applies every declaration under the same condition after the earlier one, so the
+    # earlier copy never wins
+    assert minify_css(source) == expected
+
+
+def test_minify_css_drops_block_repeated_among_many() -> None:
+    blocks = "".join(f"@media m{index}{{a{{b:c}}}}d{index}{{e:f}}" for index in range(100))
+    assert minify_css(f"@media m7{{a{{b:c}}}}{blocks}") == minify_css(blocks)
 
 
 def test_minify_css_many_rules_keep_blocked_merge() -> None:
@@ -1687,11 +1830,12 @@ def test_minify_css_same_body_merge_is_bounded_and_stable() -> None:
 def test_minify_css_nested_media_merge_is_bounded_and_stable(between: str) -> None:
     # joining two same-query blocks minifies their text again, and that pass joins the twins nested in them one level
     # down, so twins at each of 48 levels cost 1128 passes over the innermost rules, and every pass left a copy of them
-    # per enclosing list in the arena (68 MiB here); past eight levels the twins stay apart, on the next pass too
+    # per enclosing list in the arena (68 MiB here); past eight levels the twins stay apart, on the next pass too, and
+    # only a copy that a later identical block repeats is dropped
     source: Final[str] = nested_media(between)
     result: Final[str] = minify_css(source)
     blocks: Final[list[int]] = [result.count(f"@media m{level}{{") for level in (7, 8)]
-    assert (blocks, minify_css(result)) == ([1, 10], result)
+    assert (blocks, minify_css(result)) == ([1, 2], result)
 
 
 def nested_media(between: str) -> str:
