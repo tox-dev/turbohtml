@@ -2206,6 +2206,9 @@ def test_concat_chain_joins_in_linear_steps(operand: str, work_steps: WorkSteps)
         # included, and the truthiness read steps over it
         pytest.param(f'"{_BS}{_LF}{_LS}"?1:2', "1", id="kept-continuation-then-content-truthy"),
         pytest.param(f'"{_BS}{_CR}{_LF}{_LS}"?1:2', "1", id="kept-crlf-continuation-then-content-truthy"),
+        pytest.param(f'"{_BS}{_CR}{_LS}"?1:2', "1", id="kept-cr-continuation-then-content-truthy"),
+        pytest.param(f'"{_BS}{_LS}{_LS}{_LS}"?1:2', "1", id="kept-ls-continuation-then-content-truthy"),
+        pytest.param(f'"{_BS}{_PS}{_LS}{_LS}"?1:2', "1", id="kept-ps-continuation-then-content-truthy"),
     ],
 )
 def test_string_truthiness_reads_value(source: str, expected: str) -> None:

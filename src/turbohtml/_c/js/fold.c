@@ -100,7 +100,8 @@ static int string_value_empty(const jm_node *node) {
             return 0;           /* GCOVR_EXCL_LINE */
         }
         Py_UCS4 next = inner[index + 1];
-        if (next == '\r' && index + 2 < len && inner[index + 2] == '\n') { /* a CRLF continuation */
+        /* a CRLF continuation; at the content's end the read lands on the closing quote, which is no LF */
+        if (next == '\r' && inner[index + 2] == '\n') {
             index += 3;
         } else if (next == '\n' || next == '\r' || next == 0x2028 || next == 0x2029) {
             index += 2;
