@@ -1196,13 +1196,31 @@ static void fold_if_return_chain(F *folder, int32_t first) {
     }
 }
 
+/* Whether a statement declares a binding scoped to the body that holds it: a let, const, class or function
+   declaration, which a block around it would scope to the block instead (a function also stops hoisting to the
+   body). A var hoists out of any block. */
+static int binds_in_body(const jm_program *prog, int32_t stmt) {
+    const jm_node *node = &prog->nodes[stmt];
+    switch (node->kind) {
+    case JN_VAR:
+        return node->decl != 0;
+    case JN_FUNC:
+    case JN_CLASS:
+        return !(node->flags & JN_F_EXPR);
+    case JN_LABEL:
+        return binds_in_body(prog, node->a);
+    default:
+        return 0;
+    }
+}
+
 /* A guard clause `if(c)JUMP; REST` at the top of a body whose JUMP skips the rest of that body -- a void
    `return` at a function body's top level, or a bare `continue` at a loop body's top level -- runs REST
-   exactly when c is falsy, so it is `c || (REST)`. Rewrite it to `if(!c){REST}` when every following
-   statement is a mergeable expression; a later fold merges that block into one comma sequence and
-   convert_if turns `if(!c){seq}` into `c||seq`. Applied only at that top level: in a nested block, code
-   after the block would still run, and a labeled jump could target an outer loop, so neither is folded.
-   jump_kind is JN_RETURN (function body) or JN_CONTINUE (loop body). */
+   exactly when c is falsy, so it is `c || (REST)`. Rewrite it to `if(!c){REST}`, which drops the jump for a
+   pair of braces, unless REST declares a binding the block would rescope; a later fold merges an all-expression
+   block into one comma sequence and convert_if turns `if(!c){seq}` into `c||seq`. Applied only at that top level: in a
+   nested block, code after the block would still run, and a labeled jump could target an outer loop, so neither is
+   folded. jump_kind is JN_RETURN (function body) or JN_CONTINUE (loop body). */
 static void fold_guard_jump(F *folder, int32_t first, int jump_kind) {
     jm_program *prog = folder->prog;
     for (int32_t idx = first; idx >= 0; idx = prog->nodes[idx].next) {
@@ -1217,26 +1235,24 @@ static void fold_guard_jump(F *folder, int32_t first, int jump_kind) {
         if (jump_kind == JN_RETURN ? prog->nodes[then].a >= 0 : prog->nodes[then].str != NULL) {
             continue; /* a valued return or a labeled continue is not a plain skip-the-rest */
         }
-        int mergeable = 1;
+        int movable = 1;
         for (int32_t stmt = rest; stmt >= 0; stmt = prog->nodes[stmt].next) {
-            if (!mergeable_expr(prog, stmt)) {
-                mergeable = 0; /* a declaration or control-flow statement cannot move into the block */
+            if (binds_in_body(prog, stmt)) {
+                movable = 0;
                 break;
             }
         }
-        if (!mergeable) {
+        if (!movable) {
             continue;
-        }
-        int32_t neg = jm_node_new(prog, JN_UNARY);
-        if (neg < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-            return;    /* GCOVR_EXCL_LINE */
         }
         int32_t block = jm_node_new(prog, JN_BLOCK);
         if (block < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
             return;      /* GCOVR_EXCL_LINE */
         }
-        prog->nodes[neg].op = JT_NOT;
-        prog->nodes[neg].a = prog->nodes[idx].a;
+        int32_t neg = negate_for_test(folder, prog->nodes[idx].a);
+        if (neg < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+            return;    /* GCOVR_EXCL_LINE */
+        }
         prog->nodes[block].a = rest;
         prog->nodes[idx].a = neg;
         prog->nodes[idx].b = block;

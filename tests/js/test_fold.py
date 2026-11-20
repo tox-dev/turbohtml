@@ -669,10 +669,46 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
             "function f(a){if(a)return 1;g(),h()}",
             id="guard-return-valued-kept",
         ),
+        # the rest of the body moves into the guard's block unless it declares a binding the block would rescope
         pytest.param(
             "function f(a){if(a)return;g();var x=h();x()}",
-            "function f(a){if(a)return;g();var b=h();b()}",
-            id="guard-return-decl-kept",
+            "function f(a){if(!a){g();var b=h();b()}}",
+            id="guard-return-var-wrapped",
+        ),
+        pytest.param(
+            "function f(a,b){if(a)return;if(b)return 1;return 2}",
+            "function f(a,b){if(!a)return b?1:2}",
+            id="guard-return-before-return",
+        ),
+        pytest.param(
+            "function f(a){if(a==null)return;for(;;)g()}",
+            "function f(a){if(a!=null)for(;;)g()}",
+            id="guard-return-equality-flips",
+        ),
+        pytest.param(
+            "function f(a){if(a)return;l:for(;;){g();break l}}",
+            "function f(a){if(!a)a:for(;;){g();break a}}",
+            id="guard-return-labeled-loop-wrapped",
+        ),
+        pytest.param(
+            "function f(a){if(a)return;g();let x=h();x();x()}",
+            "function f(b){if(b)return;g();let a=h();a(),a()}",
+            id="guard-return-let-kept",
+        ),
+        pytest.param(
+            "function f(a){if(a)return;g();class C{}h(C,C)}",
+            "function f(a){if(a)return;g();class b{}h(b,b)}",
+            id="guard-return-class-kept",
+        ),
+        pytest.param(
+            "function f(a){if(a)return;g();function h(){}h(h)}",
+            "function f(a){if(a)return;g();function b(){}b(b)}",
+            id="guard-return-function-kept",
+        ),
+        pytest.param(
+            "function f(a){if(a)return;g();l:function h(){}h(h)}",
+            "function f(a){if(a)return;g();a:function h(){}h(h)}",
+            id="guard-return-labeled-function-kept",
         ),
         pytest.param(
             "function g(a){while(1){if(a)return;h()}}",
@@ -2844,7 +2880,7 @@ def test_arguments_alias_preserves_behavior(snippet: str) -> None:
         ),
         pytest.param(
             "function f(){if(a)return;else{let x=g();h(x)}d()}",
-            "function f(){if(a)return;{let x=g();h(x)}d()}",
+            "function f(){if(!a){{let x=g();h(x)}d()}}",
             id="lexical-block-alternate",
         ),
     ],
