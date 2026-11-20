@@ -1414,15 +1414,8 @@ static void fold_tail_return(F *folder, int32_t block) {
     }
     if (!is_pure_const(folder, prog->nodes[value].a)) {
         replace_with(folder, value, prog->nodes[value].a); /* keep X's evaluation, lose the void */
-    } else if (value_prev < 0) {
-        if (prev < 0) { /* `return void 0` alone: the whole statement goes */
-            prog->nodes[block].a = -1;
-        } else {
-            prog->nodes[prev].next = -1;
-        }
-        folder->changed = 1;
-        return;
-    } else { /* `return a,b,void 0`: drop the pure tail element, unwrapping a lone survivor */
+    } else { /* `return a,b,void 0`: drop the pure tail element, unwrapping a lone survivor; a lone `return void 0`
+                never gets here, as walking the return already made it the bare `return` handled above */
         prog->nodes[value_prev].next = -1;
         if (value_prev == prog->nodes[arg].a) {
             prog->nodes[last].a = value_prev;
