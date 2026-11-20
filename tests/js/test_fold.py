@@ -282,6 +282,10 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
         pytest.param("x='a'+'b'", "x='ab'", id="string-concat-single-quote"),
         pytest.param('x=1+"a"', 'x=1+"a"', id="mixed-add-kept"),
         pytest.param("x=1e3+2", "x=1e3+2", id="exponent-operand-kept"),
+        # a legacy octal is not its decimal digits: 010 is 8
+        pytest.param("x=010*2", "x=010*2", id="legacy-octal-operand-kept"),
+        pytest.param("x=08+1", "x=08+1", id="leading-zero-decimal-operand-kept"),
+        pytest.param("x=0+1", "x=1", id="zero-operand"),
         pytest.param("x=9999999999999999+1", "x=9999999999999999+1", id="oversize-int-kept"),
         pytest.param("x=0*7", "x=0", id="int-mul-zero"),
         pytest.param("x=99999999*99999999", "x=99999999*99999999", id="int-mul-overflow-kept"),
