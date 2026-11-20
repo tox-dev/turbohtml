@@ -229,7 +229,7 @@ def test_instance_attribute_wins_over_a_tag() -> None:
 
 def test_non_str_attribute_name_is_a_type_error(maker: ElementMaker) -> None:
     lookup = type(maker).__getattribute__  # getattr() checks the name itself; the slot reaches the C lookup unchecked
-    with pytest.raises(TypeError, match="attribute name must be string"):
+    with pytest.raises(TypeError, match=r"attribute name must be string|expected str"):
         lookup(maker, 5)  # ty: ignore[invalid-argument-type]  # the name check is the point
 
 
@@ -324,9 +324,15 @@ def test_dict_attribute_name_must_be_a_str() -> None:
         Element("p", {5: "x"})  # ty: ignore[invalid-argument-type]  # the name check is the point
 
 
-def test_constructor_rejects_children_of_a_void_element() -> None:
-    with pytest.raises(ValueError, match="void element 'br' cannot have children"):
-        Element("br", None, [Text("a")])
+@pytest.mark.parametrize("tag", [pytest.param("br", id="void"), pytest.param("frame", id="frame")])
+def test_constructor_rejects_children_of_a_void_element(tag: str) -> None:
+    with pytest.raises(ValueError, match=f"void element '{tag}' cannot have children"):
+        Element(tag, None, [Text("a")])
+
+
+def test_constructor_rejects_a_lone_child_that_is_not_a_node() -> None:
+    with pytest.raises(TypeError, match="child must be a node"):
+        Element("p", None, [42])  # ty: ignore[invalid-argument-type]  # neither a node nor a string
 
 
 @pytest.mark.parametrize(
@@ -336,6 +342,7 @@ def test_constructor_rejects_children_of_a_void_element() -> None:
         pytest.param(lambda: Element("p", children=[Text("a")]), "<p>a</p>", id="keyword-children"),
         pytest.param(lambda: Element("p", {"id": "x"}, [Text("a")]), '<p id="x">a</p>', id="three-positional"),
         pytest.param(lambda: Element("p", None, [Text("a"), Text("b")]), "<p>ab</p>", id="several-children"),
+        pytest.param(lambda: Element("br", None, []), "<br>", id="void-without-children"),
     ],
 )
 def test_constructor_argument_shapes(call: Callable[[], Element], expected: str) -> None:
