@@ -1435,12 +1435,18 @@ static int is_value_literal(jm_program *prog, int32_t idx) {
 }
 
 /* The characters the literal prints as, for the propagation cost model: `!N` / `void N` for the
-   folded boolean/undefined forms, the lexeme otherwise. */
+   folded boolean/undefined forms, a number's printed spelling (3600000 prints as 36e5, so a second
+   minification would weigh the shorter form), and the lexeme otherwise. */
 static Py_ssize_t literal_print_len(jm_program *prog, int32_t idx) {
     const jm_node *node = &prog->nodes[idx];
     if (node->kind == JN_UNARY) {
         Py_ssize_t operand = prog->nodes[node->a].str_len;
         return node->op == JT_NOT ? 1 + operand : 5 + operand;
+    }
+    if (node->kind == JN_NUM) {
+        Py_UCS4 buf[JM_NUMBER_SPELL_MAX];
+        Py_ssize_t len = jm_number_spell(node, buf);
+        return len < 0 ? node->str_len : len;
     }
     return node->str_len;
 }
