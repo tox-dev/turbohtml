@@ -2434,7 +2434,7 @@ static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyO
         return PyErr_Format(PyExc_ValueError, "meta_charset cannot declare %s: no WHATWG encoding label names it",
                             encoding);
     }
-    PyObject *result = ucs4_to_str(data, out_len);
+    PyObject *result = th_markup_string(data, out_len);
     PyMem_Free(data);
     if (declared) {
         *declared_label = charset;

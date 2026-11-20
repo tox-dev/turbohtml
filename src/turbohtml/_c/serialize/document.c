@@ -1324,6 +1324,49 @@ Py_UCS4 *th_node_child_text(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
     return sbuf_finish(&out, out_len);
 }
 
+static PyObject *string_from_bits(const Py_UCS4 *data, Py_ssize_t length, Py_UCS4 bits) {
+    Py_UCS4 maxchar = bits <= 0x7F ? 0x7F : bits <= 0xFF ? 0xFF : bits <= 0xFFFF ? 0xFFFF : 0x10FFFF;
+    PyObject *result = PyUnicode_New(length, th_str_maxchar(maxchar));
+    if (result == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    int kind = PyUnicode_KIND(result);
+    if (kind == PyUnicode_1BYTE_KIND) {
+        Py_UCS1 *destination = PyUnicode_1BYTE_DATA(result);
+        for (Py_ssize_t index = 0; index < length; index++) {
+            destination[index] = (Py_UCS1)data[index];
+        }
+#ifndef PYPY_VERSION
+    } else if (kind == PyUnicode_2BYTE_KIND) {
+        Py_UCS2 *destination = PyUnicode_2BYTE_DATA(result);
+        for (Py_ssize_t index = 0; index < length; index++) {
+            destination[index] = (Py_UCS2)data[index];
+        }
+#endif
+    } else {
+        memcpy(PyUnicode_4BYTE_DATA(result), data, (size_t)length * sizeof(Py_UCS4));
+    }
+    return result;
+}
+
+PyObject *th_markup_string(const Py_UCS4 *data, Py_ssize_t length) {
+    /* CPython reuses its cached Latin-1 characters through this constructor. */
+    if (length <= 1) {
+        return PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, data, length);
+    }
+    Py_UCS4 bits = 0;
+    Py_ssize_t end = 0;
+    /* Check the width in blocks so the inner loop vectorizes and wide output stops the scan early. */
+    while (end < length && bits <= 0xFFFF) {
+        Py_ssize_t index = end;
+        end += Py_MIN(length - end, 256);
+        for (; index < end; index++) {
+            bits |= data[index];
+        }
+    }
+    return string_from_bits(data, length, bits);
+}
+
 PyObject *th_node_text_string(th_tree *tree, th_node *root) {
     sbuf snapshot = {NULL, 0, 0, 0, 0, NULL};
     Py_UCS4 bits = 0;
@@ -1351,28 +1394,7 @@ PyObject *th_node_text_string(th_tree *tree, th_node *root) {
         }
         snapshot.len += node->text_len;
     }
-    Py_UCS4 maxchar = bits <= 0x7F ? 0x7F : bits <= 0xFF ? 0xFF : bits <= 0xFFFF ? 0xFFFF : 0x10FFFF;
-    PyObject *result = PyUnicode_New(snapshot.len, th_str_maxchar(maxchar));
-    if (result == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
-        PyMem_Free(snapshot.data); /* GCOVR_EXCL_LINE: allocation failure */
-        return NULL;               /* GCOVR_EXCL_LINE: allocation failure */
-    }
-    int kind = PyUnicode_KIND(result);
-    if (kind == PyUnicode_1BYTE_KIND) {
-        Py_UCS1 *destination = PyUnicode_1BYTE_DATA(result);
-        for (Py_ssize_t index = 0; index < snapshot.len; index++) {
-            destination[index] = (Py_UCS1)snapshot.data[index];
-        }
-#ifndef PYPY_VERSION
-    } else if (kind == PyUnicode_2BYTE_KIND) {
-        Py_UCS2 *destination = PyUnicode_2BYTE_DATA(result);
-        for (Py_ssize_t index = 0; index < snapshot.len; index++) {
-            destination[index] = (Py_UCS2)snapshot.data[index];
-        }
-#endif
-    } else {
-        memcpy(PyUnicode_4BYTE_DATA(result), snapshot.data, (size_t)snapshot.len * sizeof(Py_UCS4));
-    }
+    PyObject *result = string_from_bits(snapshot.data, snapshot.len, bits);
     PyMem_Free(snapshot.data);
     return result;
 }
@@ -1508,45 +1530,6 @@ static int inner_preserves_text(th_tree *tree, th_node *root, const th_serialize
             root->atom == TH_TAG_LISTING);
 }
 
-/* A large head can leave a small body. Count only text this body will write, even after a DOM edit. Beyond the first
-   64 nodes, spend at most one visit per four text characters so a tree of empty elements stops the estimate early. */
-SER_NOINLINE static void presize_body_text(sbuf *out, th_tree *tree, th_node *root) {
-    size_t length = 0;
-    th_node *node = root->first_child;
-    for (size_t visited = 0; node != NULL && visited < 8192 && visited < 64 + length / 4; visited++) {
-        if (node->type == TH_NODE_TEXT) {
-            size_t count = (size_t)node->text_len;
-            if (count >= (size_t)tree->length - length) {
-                length = (size_t)tree->length;
-                break;
-            }
-            length += count;
-        }
-        if (node->first_child != NULL && !(node->ns == TH_NS_HTML && (is_serialize_void_atom(node->atom) ||
-                                                                      is_rawtext_element(node, tree->scripting)))) {
-            node = node->first_child;
-            continue;
-        }
-        while (node != root && node->next_sibling == NULL) {
-            node = node->parent;
-        }
-        node = node == root ? NULL : node->next_sibling;
-    }
-    size_t cap;
-    size_t bytes;
-    if (length < 16384) {
-        return;
-    }
-    if (!th_grow_cap(length, 0, 256, sizeof(Py_UCS4), &cap, &bytes)) { /* GCOVR_EXCL_BR_LINE: size overflow */
-        return;                                                        /* GCOVR_EXCL_LINE: keep ordinary growth */
-    }
-    Py_UCS4 *data = PyMem_Malloc(bytes);
-    if (data != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure falls back to ordinary growth */
-        out->data = data;
-        out->cap = (Py_ssize_t)cap;
-    }
-}
-
 Py_UCS4 *th_node_serialize(th_tree *tree, th_node *node, const th_serialize_opts *opts, const Py_UCS4 *indent,
                            Py_ssize_t indent_len, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0, 0, NULL};
@@ -1561,12 +1544,7 @@ Py_UCS4 *th_node_serialize(th_tree *tree, th_node *node, const th_serialize_opts
     context.xml_ns_spend = opts->inner ? &spend : NULL; /* the one copy a whole subtree carries multiplies nothing */
     context.xml_unwrap = &unwrap;
     opts = &context;
-    if (!tree->xml && tree->fragment_root == NULL && indent == NULL && opts->inner && !opts->xml &&
-        node->ns == TH_NS_HTML && node->atom == TH_TAG_BODY && tree->length >= 16384) {
-        presize_body_text(&out, tree, node);
-    } else {
-        sbuf_presize_for_root(&out, tree, node);
-    }
+    sbuf_presize_for_root(&out, tree, node);
     if (indent == NULL || inner_preserves_text(tree, node, opts)) {
         serialize_compact(&out, tree, node, opts);
     } else {

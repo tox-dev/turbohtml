@@ -1356,6 +1356,7 @@ def test_text_concatenates_descendant_character_data(
         pytest.param("café", id="latin1"),
         pytest.param("雪", id="bmp"),
         pytest.param("😀", id="supplementary"),
+        pytest.param(f"{'a' * 256}😀{'z' * 256}", id="supplementary-middle"),
         pytest.param("\U00100000\U000f0000", id="or-exceeds-unicode-range"),
         pytest.param("\ufeff\ufffe", id="bom-and-noncharacter"),
         pytest.param("\ud800", id="lone-surrogate"),
@@ -1365,7 +1366,8 @@ def test_text_concatenates_descendant_character_data(
 )
 def test_text_preserves_unicode(text: str) -> None:
     child: Final[Text] = Text(text)
-    assert (child.text, Element("p", children=[child]).text) == (text, text)
+    parent: Final[Element] = Element("p", children=[child])
+    assert (child.text, parent.text, parent.serialize(inner=True)) == (text, text, text)
 
 
 @pytest.mark.parametrize(
