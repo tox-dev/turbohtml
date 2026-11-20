@@ -324,12 +324,18 @@ def test_dict_attribute_name_must_be_a_str() -> None:
         Element("p", {5: "x"})  # ty: ignore[invalid-argument-type]  # the name check is the point
 
 
+def test_constructor_rejects_children_of_a_void_element() -> None:
+    with pytest.raises(ValueError, match="void element 'br' cannot have children"):
+        Element("br", None, [Text("a")])
+
+
 @pytest.mark.parametrize(
     ("call", "expected"),
     [
         pytest.param(lambda: Element(tag="p"), "<p></p>", id="keyword-tag"),
         pytest.param(lambda: Element("p", children=[Text("a")]), "<p>a</p>", id="keyword-children"),
         pytest.param(lambda: Element("p", {"id": "x"}, [Text("a")]), '<p id="x">a</p>', id="three-positional"),
+        pytest.param(lambda: Element("p", None, [Text("a"), Text("b")]), "<p>ab</p>", id="several-children"),
     ],
 )
 def test_constructor_argument_shapes(call: Callable[[], Element], expected: str) -> None:
