@@ -651,10 +651,35 @@ static int starts_with_brace_or_keyword(const jm_program *prog, int32_t index) {
     }
 }
 
+/* Rewrite a separator-free 0x/0o/0b literal of len code points in buf as its decimal digits when they are shorter:
+   0x10000 is 65536. Only a value up to 2^53 converts, where every integer is exact; a larger one keeps the radix
+   spelling, whose digits the engine rounds. Returns the decimal length, or 0 when buf is unchanged. */
+static TH_NOINLINE Py_ssize_t to_decimal(Py_UCS4 *buf, Py_ssize_t len) {
+    unsigned base = buf[1] == 'x' || buf[1] == 'X' ? 16 : buf[1] == 'o' || buf[1] == 'O' ? 8 : 2;
+    uint64_t value = 0;
+    for (Py_ssize_t index = 2; index < len; index++) {
+        Py_UCS4 ch = buf[index];
+        unsigned digit = ch <= '9' ? ch - '0' : (ch | 0x20) - 'a' + 10;
+        if (value > ((UINT64_C(1) << 53) - digit) / base) {
+            return 0;
+        }
+        value = value * base + digit;
+    }
+    char digits[24];
+    int digit_len = snprintf(digits, sizeof(digits), "%llu", (unsigned long long)value);
+    if (digit_len >= len) {
+        return 0;
+    }
+    for (int index = 0; index < digit_len; index++) {
+        buf[index] = (Py_UCS4)(unsigned char)digits[index];
+    }
+    return digit_len;
+}
+
 /* Emit a numeric literal in its shortest value-preserving form: drop `_` separators,
    remove redundant zeros (1.0 -> 1, 0.5 -> .5, 5. -> 5), and fold trailing integer
-   zeros into an exponent (1000 -> 1e3) when shorter. Radix (0x/0o/0b), legacy-octal,
-   exponent-bearing and over-long literals are emitted underscore-free but unchanged. */
+   zeros into an exponent (1000 -> 1e3) when shorter. A radix (0x/0o/0b) literal turns decimal when that is
+   shorter; legacy-octal, exponent-bearing and over-long literals are emitted underscore-free but unchanged. */
 static void print_number(St *st, const jm_node *node) {
     Py_UCS4 buf[64];
     Py_ssize_t len = 0;
@@ -704,8 +729,12 @@ static void print_number(St *st, const jm_node *node) {
     /* a leading 0 followed by another digit (not x/o/b) is a legacy octal, left as-is */
     int legacy = dot < 0 && !has_e && len > 1 && buf[0] == '0' && buf[1] <= '9';
     if (radix || has_e || legacy) {
-        put_run(st, buf, len); /* leave these forms alone beyond stripping separators */
-        return;
+        Py_ssize_t decimal_len = radix ? to_decimal(buf, len) : 0;
+        if (decimal_len == 0) {
+            put_run(st, buf, len); /* leave these forms alone beyond stripping separators */
+            return;
+        }
+        len = decimal_len; /* a radix literal has no dot, so its decimal digits take the integer path */
     }
     Py_UCS4 out[80];
     Py_ssize_t out_len = 0;

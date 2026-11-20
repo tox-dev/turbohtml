@@ -31,7 +31,7 @@ _NODE: Final[str | None] = shutil.which("node")
         pytest.param("x=!!0", "x=!1", id="nested-not"),
         pytest.param("x=true", "x=!0", id="true"),
         pytest.param("x=false", "x=!1", id="false"),
-        pytest.param("x=a?true:false", "x=a?!0:!1", id="ternary"),
+        pytest.param("x=a?true:false", "x=!!a", id="ternary"),
         pytest.param("x=true.toString()", "x=(!0).toString()", id="bool-member-parenthesized"),
         pytest.param("x={true:1,get false(){}}", "x={true:1,get false(){}}", id="bool-keys-kept"),
         pytest.param("x=a.true", "x=a.true", id="bool-property-kept"),
@@ -55,6 +55,40 @@ _NODE: Final[str | None] = shutil.which("node")
         # the branch, and two same-target assignments merge; an impure test or a non-ident target is kept
         pytest.param("x=a?a:b", "x=a||b", id="cond-self-or"),
         pytest.param("x=a?b:a", "x=a&&b", id="cond-self-and"),
+        # a boolean literal branch turns the conditional into a short circuit of the same value; the test is negated
+        # where its truthy side must give the literal, and kept bare only when it is itself a boolean
+        pytest.param("x=a?b:!0", "x=!a||b", id="cond-true-alt-or"),
+        pytest.param("x=a?!1:b", "x=!a&&b", id="cond-false-cons-and"),
+        pytest.param("x=a==1?b:!1", "x=a==1&&b", id="cond-boolean-test-false-alt-and"),
+        pytest.param("x=a<1?!0:b", "x=a<1||b", id="cond-boolean-test-true-cons-or"),
+        pytest.param("x=a===1?b:!0", "x=a!==1||b", id="cond-equality-test-flips"),
+        pytest.param("x=a.b?(g(),!1):!0", "x=!a.b||(g(),!1)", id="cond-sequence-branch"),
+        pytest.param("x=a.b?c&&d:!0", "x=!a.b||c&&d", id="cond-and-branch-under-or"),
+        pytest.param("x=a?b:!1", "x=a?b:!1", id="cond-non-boolean-test-false-alt-kept"),
+        pytest.param("x=a?!0:b", "x=a?!0:b", id="cond-non-boolean-test-true-cons-kept"),
+        pytest.param("x=a?b=1:!0", "x=a?b=1:!0", id="cond-assign-branch-kept"),
+        pytest.param("x=a?b||c:!1", "x=a?b||c:!1", id="cond-or-branch-under-and-kept"),
+        pytest.param("x=a?b??c:!0", "x=a?b??c:!0", id="cond-nullish-branch-kept"),
+        pytest.param("x=a+b?c:!0", "x=a+b?c:!0", id="cond-arithmetic-test-kept"),
+        pytest.param("x=a.b?c||d:!0", "x=!a.b||c||d", id="cond-or-branch-under-or"),
+        pytest.param("x=g()?b:!0", "x=!g()||b", id="cond-call-test-negated"),
+        pytest.param("x=-a?b:!0", "x=!-a||b", id="cond-unary-test-negated"),
+        pytest.param("x=a?!b:!0", "x=!a||!b", id="cond-negated-branch-is-not-literal"),
+        pytest.param("x=a>b?c:!1", "x=a>b&&c", id="cond-greater-test"),
+        pytest.param("x=a<=b?c:!1", "x=a<=b&&c", id="cond-less-equal-test"),
+        pytest.param("x=a>=b?c:!1", "x=a>=b&&c", id="cond-greater-equal-test"),
+        pytest.param("x=a!=b?c:!1", "x=a!=b&&c", id="cond-inequality-test"),
+        pytest.param("x=a!==b?c:!1", "x=a!==b&&c", id="cond-strict-inequality-test"),
+        pytest.param("x=a===b?c:!1", "x=a===b&&c", id="cond-strict-equality-test"),
+        pytest.param("x=-a?b:!1", "x=-a?b:!1", id="cond-unary-test-not-boolean-kept"),
+        pytest.param("x=a+b?c:!1", "x=a+b?c:!1", id="cond-arithmetic-test-not-boolean-kept"),
+        pytest.param("x=a?b:!1e3", "x=a?b:!1e3", id="cond-exponent-literal-kept"),
+        pytest.param("x=a?()=>1:!0", "x=a?()=>1:!0", id="cond-arrow-branch-kept"),
+        pytest.param("function*g(){x=a?yield:!0}", "function*g(){x=a?yield:!0}", id="cond-yield-branch-kept"),
+        pytest.param("x=a?!0:!0", "x=a?!0:!0", id="cond-same-boolean-branches-kept"),
+        pytest.param("x=a?!0:!1", "x=!!a", id="cond-boolean-branches-to-boolean"),
+        pytest.param("x=a<b?!0:!1", "x=a<b", id="cond-boolean-branches-boolean-test"),
+        pytest.param("x=a?!1:!0", "x=!a", id="cond-boolean-branches-negated"),
         # a free-name test can throw a ReferenceError, so `a?b:b` may not drop to `b` here (#435); the
         # drop applies only to a resolvable binding, gated behind the mangler -- see test_mangle.py
         pytest.param("x=a?b:b", "x=a?b:b", id="cond-same-branches-free-test-kept"),
@@ -89,10 +123,27 @@ _NODE: Final[str | None] = shutil.which("node")
         pytest.param("x=a===null", "x=a===null", id="eq-null-kept"),
         pytest.param("x=a===void 0", "x=a===void 0", id="eq-undefined-kept"),
         pytest.param("x=1===a", "x=1===a", id="eq-number-unknown-kept"),
-        # -a coerces to an unknown numeric-or-bigint and delete yields its own boolean, but neither
-        # is a shape static_type vouches for, so both keep ===
+        # -a and ~a may be a BigInt, and a-b too when neither side is known to be a number, so they keep ===;
+        # unary +, >>>, and arithmetic with a number operand are numbers (a BigInt throws instead), a concatenation
+        # with a string is a string, and delete, relational and worded operators are booleans
         pytest.param("x=-a===-b", "x=-a===-b", id="eq-minus-unary-kept"),
-        pytest.param("x=delete a.b===c", "x=delete a.b===c", id="eq-delete-kept"),
+        pytest.param("x=~a===~b", "x=~a===~b", id="eq-bitnot-unary-kept"),
+        pytest.param("x=a-b===c-d", "x=a-b===c-d", id="eq-unknown-arithmetic-kept"),
+        pytest.param("x=a+1===b+1", "x=a+1===b+1", id="eq-number-plus-unknown-kept"),
+        pytest.param("x=1+a===b+1", "x=1+a===b+1", id="eq-number-plus-unknown-right-kept"),
+        pytest.param("x=delete a.b===c", "x=delete a.b===c", id="eq-delete-unknown-kept"),
+        pytest.param("x=+a!==+a", "x=+a!=+a", id="ne-unary-plus-weakens"),
+        pytest.param("x=1/+a===1/b", "x=1/+a==1/b", id="eq-division-weakens"),
+        pytest.param("x=a-1===b*2", "x=a-1==b*2", id="eq-arithmetic-weakens"),
+        pytest.param("x=a>>>0===b>>>0", "x=a>>>0==b>>>0", id="eq-unsigned-shift-weakens"),
+        pytest.param("x=(a|0)===(b<<1)", "x=(a|0)==b<<1", id="eq-bitwise-weakens"),
+        pytest.param("x=1+2*a===3", "x=1+2*a==3", id="eq-number-plus-weakens"),
+        pytest.param('x=""+a===b+""', 'x=""+a==b+""', id="eq-concat-weakens"),
+        pytest.param('x="a"+b+c===d', 'x="a"+b+c===d', id="eq-concat-unknown-kept"),
+        pytest.param('x="a"+b+c+d+e+f===""+g', 'x="a"+b+c+d+e+f===""+g', id="eq-concat-past-depth-kept"),
+        pytest.param("x=delete a.b===!c", "x=delete a.b==!c", id="eq-delete-weakens"),
+        pytest.param("x=(a<b)!==(c in d)", "x=a<b!=c in d", id="ne-relational-in-weakens"),
+        pytest.param("x=a instanceof b===!c", "x=a instanceof b==!c", id="eq-instanceof-weakens"),
         # negation is applied or removed wherever it nets bytes: !(a==b) is exactly a!=b (7.2.13/
         # 7.2.14, both booleans), a test position absorbs a ! by swapping branches or flipping the
         # connective, and && / || De-Morgan when both sides negate for free; !(a<b) stays (NaN)
@@ -178,6 +229,48 @@ _NODE: Final[str | None] = shutil.which("node")
         ),
         pytest.param(
             "function f(){return void g(),h()}", "function f(){return void g(),h()}", id="tail-seq-valued-kept"
+        ),
+        # a return of undefined is a bare return anywhere in a body, which a guard then folds; a tail conditional
+        # with an undefined branch becomes an if, since falling off the end returns undefined too
+        pytest.param(
+            "function f(){for(;;){if(a)return void 0;g()}}",
+            "function f(){for(;;){if(a)return;g()}}",
+            id="return-undefined-bare",
+        ),
+        pytest.param(
+            "function f(){if(a)return void 0;g();h()}", "function f(){a||(g(),h())}", id="return-undefined-guard"
+        ),
+        pytest.param(
+            "function f(){for(;;){if(a)return void g();h()}}",
+            "function f(){for(;;){if(a)return void g();h()}}",
+            id="return-void-call-kept",
+        ),
+        pytest.param("function f(){if(a)return;return b}", "function f(){if(!a)return b}", id="bare-then-return"),
+        pytest.param("function f(){if(a)return b;return}", "function f(){if(a)return b}", id="bare-next-return"),
+        pytest.param(
+            "function f(){for(;;){if(a)return;return b}}",
+            "function f(){for(;;)return a?void 0:b}",
+            id="bare-return-merged",
+        ),
+        pytest.param(
+            "function f(){for(;;){if(a)return;return}}",
+            "function f(){for(;;){if(a)return;return}}",
+            id="both-bare-returns-kept",
+        ),
+        pytest.param(
+            "function f(){return a==null?void 0:a.b}",
+            "function f(){if(a!=null)return a.b}",
+            id="tail-cond-undefined-then",
+        ),
+        pytest.param(
+            "function f(){return a?a.b:void 0}", "function f(){if(a)return a.b}", id="tail-cond-undefined-else"
+        ),
+        pytest.param(
+            "function f(){g();return a?a.b:void 0}", "function f(){if(g(),a)return a.b}", id="tail-cond-undefined-seq"
+        ),
+        pytest.param("function f(){return a?b:c}", "function f(){return a?b:c}", id="tail-cond-valued-kept"),
+        pytest.param(
+            "function f(){return a?b:void g()}", "function f(){return a?b:void g()}", id="tail-cond-void-call-kept"
         ),
         pytest.param(
             "function f(){for(;;){return void g()}}",
@@ -282,6 +375,11 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
         pytest.param("x='a'+'b'", "x='ab'", id="string-concat-single-quote"),
         pytest.param('x=1+"a"', 'x=1+"a"', id="mixed-add-kept"),
         pytest.param("x=1e3+2", "x=1e3+2", id="exponent-operand-kept"),
+        # a radix operand folds like the decimal value the printer writes for it
+        pytest.param("x=4*0x40", "x=256", id="hex-operand"),
+        pytest.param("x=0b11+0o7", "x=10", id="binary-octal-operands"),
+        pytest.param("x=0x1_0*2", "x=32", id="separated-hex-operand"),
+        pytest.param("x=0x38D7EA4C68000+0", "x=0x38D7EA4C68000+0", id="oversize-hex-operand-kept"),
         # a legacy octal is not its decimal digits: 010 is 8
         pytest.param("x=010*2", "x=010*2", id="legacy-octal-operand-kept"),
         pytest.param("x=08+1", "x=08+1", id="leading-zero-decimal-operand-kept"),
@@ -630,10 +728,46 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
             "function f(a){if(a)return 1;g(),h()}",
             id="guard-return-valued-kept",
         ),
+        # the rest of the body moves into the guard's block unless it declares a binding the block would rescope
         pytest.param(
             "function f(a){if(a)return;g();var x=h();x()}",
-            "function f(a){if(a)return;g();var b=h();b()}",
-            id="guard-return-decl-kept",
+            "function f(a){if(!a){g();var b=h();b()}}",
+            id="guard-return-var-wrapped",
+        ),
+        pytest.param(
+            "function f(a,b){if(a)return;if(b)return 1;return 2}",
+            "function f(a,b){if(!a)return b?1:2}",
+            id="guard-return-before-return",
+        ),
+        pytest.param(
+            "function f(a){if(a==null)return;for(;;)g()}",
+            "function f(a){if(a!=null)for(;;)g()}",
+            id="guard-return-equality-flips",
+        ),
+        pytest.param(
+            "function f(a){if(a)return;l:for(;;){g();break l}}",
+            "function f(a){if(!a)a:for(;;){g();break a}}",
+            id="guard-return-labeled-loop-wrapped",
+        ),
+        pytest.param(
+            "function f(a){if(a)return;g();let x=h();x();x()}",
+            "function f(b){if(b)return;g();let a=h();a(),a()}",
+            id="guard-return-let-kept",
+        ),
+        pytest.param(
+            "function f(a){if(a)return;g();class C{}h(C,C)}",
+            "function f(a){if(a)return;g();class b{}h(b,b)}",
+            id="guard-return-class-kept",
+        ),
+        pytest.param(
+            "function f(a){if(a)return;g();function h(){}h(h)}",
+            "function f(a){if(a)return;g();function b(){}b(b)}",
+            id="guard-return-function-kept",
+        ),
+        pytest.param(
+            "function f(a){if(a)return;g();l:function h(){}h(h)}",
+            "function f(a){if(a)return;g();a:function h(){}h(h)}",
+            id="guard-return-labeled-function-kept",
         ),
         pytest.param(
             "function g(a){while(1){if(a)return;h()}}",
@@ -910,6 +1044,26 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
             "function f(){var a=g();return o.f(a)}",
             "function f(){var a=g();return o.f(a)}",
             id="inline-into-method-call-kept",
+        ),
+        # an access evaluates its object, then a computed key, before the property get that may run a getter
+        pytest.param(
+            "function f(){var a=g();return a.x}", "function f(){return g().x}", id="inline-into-member-object"
+        ),
+        pytest.param(
+            "function f(){var a=g();return a.f(1)}", "function f(){return g().f(1)}", id="inline-into-method-object"
+        ),
+        pytest.param(
+            "function f(p){var a=g();return p[a]}", "function f(a){return a[g()]}", id="inline-into-computed-key"
+        ),
+        pytest.param(
+            "function f(){var a=g();return o.x[a]}",
+            "function f(){var a=g();return o.x[a]}",
+            id="inline-past-getter-kept",
+        ),
+        pytest.param(
+            "function f(){var a=g(),b=h();return a.x(b)}",
+            "function f(){var a=g(),b=h();return a.x(b)}",
+            id="inline-into-method-argument-kept",
         ),
         pytest.param(
             "function f(p){var a=g();return p?.(a)}",
@@ -2024,6 +2178,19 @@ def test_indirect_eval_leaves_locals_renamable() -> None:
             "console.log(JSON.stringify([f(1,0),f(2,5),f(0,0),log]))",
             id="hoisted-call",
         ),
+        pytest.param(
+            "var log=[];function g(v){log.push(v);return v}"
+            "function f(a){if(a===1)return void 0;if(a===2)return;g(a);return a>3?g(a+1):void 0}"
+            "function*h(a){if(a)return void 0;yield 1}"
+            "console.log(JSON.stringify([f(1),f(2),f(3),f(4),log,[...h(0)],[...h(1)]]))",
+            id="undefined-returns",
+        ),
+        pytest.param(
+            "var o={valueOf(){return 2}};"
+            "console.log(+o===+'2',1/+o===1/o,''+o===o+'',o-0===2,delete o.p===!0,(o<3)===('valueOf'in o),"
+            "o>>>0===2>>>0,typeof(+'x'),+'x'!==+'x')",
+            id="same-type-equality",
+        ),
     ],
 )
 def test_folding_preserves_behavior(snippet: str) -> None:
@@ -2785,7 +2952,7 @@ def test_arguments_alias_preserves_behavior(snippet: str) -> None:
         ),
         pytest.param(
             "function f(){if(a)return;else{let x=g();h(x)}d()}",
-            "function f(){if(a)return;{let x=g();h(x)}d()}",
+            "function f(){if(!a){{let x=g();h(x)}d()}}",
             id="lexical-block-alternate",
         ),
     ],
