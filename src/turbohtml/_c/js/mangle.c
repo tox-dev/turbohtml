@@ -299,6 +299,9 @@ typedef struct {
     int32_t deepest;     /* the largest depth reached under the function being analyzed */
     int poisoned;        /* a with / eval was seen: stop renaming entirely */
     int failed;
+    int32_t *crossings; /* (binding, scope) pairs: a reference in scope to a binding declared in another */
+    int32_t crossing_count;
+    int32_t crossing_cap;
 } M;
 
 static int32_t htab_get(htab *table, const Py_UCS4 *name, Py_ssize_t len) {
@@ -336,6 +339,30 @@ static void push(M *mangler, htab *table, const Py_UCS4 *name, Py_ssize_t len, i
     mangler->undo[mangler->undo_count].old = slot->val;
     mangler->undo_count++;
     slot->val = val;
+}
+
+/* Record that scope names sym, which another scope declares: the bindings of the scopes between may not take its
+   name. */
+static void note_crossing(M *mangler, int32_t sym, int32_t scope) {
+    if (mangler->crossing_count + 2 > mangler->crossing_cap) { /* the cap need not be even */
+        size_t cap;
+        size_t bytes;
+        int grew = th_grow_cap((size_t)mangler->crossing_cap + 2, (size_t)mangler->crossing_cap,
+                               (size_t)mangler->prog->node_count / 4 + 2, sizeof(int32_t), &cap, &bytes);
+        if (!grew || cap > INT32_MAX) { /* GCOVR_EXCL_BR_LINE: needs over a billion crossing references */
+            mangler->failed = 1;        /* GCOVR_EXCL_LINE */
+            return;                     /* GCOVR_EXCL_LINE */
+        }
+        int32_t *grown = jm_realloc(mangler->crossings, bytes);
+        if (grown == NULL) {     /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+            mangler->failed = 1; /* GCOVR_EXCL_LINE */
+            return;              /* GCOVR_EXCL_LINE */
+        }
+        mangler->crossings = grown;
+        mangler->crossing_cap = (int32_t)cap;
+    }
+    mangler->crossings[mangler->crossing_count++] = sym;
+    mangler->crossings[mangler->crossing_count++] = scope;
 }
 
 /* Unwind the undo log back to mark, restoring each shadowed binding. The name re-lookup
@@ -727,27 +754,31 @@ static void walk_node(M *mangler, int32_t idx, int32_t scope, int bind) {
         int32_t sym = resolve(mangler, node->str, node->str_len);
         node->sym = sym;
         if (sym >= 0) {
-            mangler->prog->syms[sym].uses++;
+            jm_sym *binding = &mangler->prog->syms[sym]; /* held once: a store through it may alias mangler */
+            binding->uses++;
             if (bind != 1 && reached_early(mangler, sym)) {
-                mangler->prog->syms[sym].early = 1;
+                binding->early = 1;
+            }
+            if (binding->scope != scope) {
+                note_crossing(mangler, sym, scope);
             }
             if (bind == 0) { /* a read reference */
-                mangler->prog->syms[sym].refs++;
-                mangler->prog->syms[sym].ref_node = idx;
+                binding->refs++;
+                binding->ref_node = idx;
                 if (mangler->track_stmt) {
-                    mangler->prog->syms[sym].ref_stmt = mangler->stmt;
+                    binding->ref_stmt = mangler->stmt;
                 }
-                mangler->prog->syms[sym].ref_depth = mangler->depth;
-                if (mangler->prog->syms[sym].refs == 1) {
-                    mangler->prog->syms[sym].ref_scope = scope;
-                } else if (mangler->prog->syms[sym].ref_scope != scope) {
-                    mangler->prog->syms[sym].ref_scope = -1;
+                binding->ref_depth = mangler->depth;
+                if (binding->refs == 1) {
+                    binding->ref_scope = scope;
+                } else if (binding->ref_scope != scope) {
+                    binding->ref_scope = -1;
                 }
-                if (idx < mangler->prog->syms[sym].min_ref) {
-                    mangler->prog->syms[sym].min_ref = idx;
+                if (idx < binding->min_ref) {
+                    binding->min_ref = idx;
                 }
             } else if (bind == 2) { /* an assignment / update / for-in target: a write */
-                mangler->prog->syms[sym].writes++;
+                binding->writes++;
             } /* bind == 1: a declaration target, neither read nor write */
         } else {
             if (mangler->args_scope >= 0 && word_is(node->str, node->str_len, "arguments")) {
@@ -932,6 +963,9 @@ static void walk_node(M *mangler, int32_t idx, int32_t scope, int bind) {
             if (self >= 0 && bind == 0) {
                 mangler->prog->syms[self].ref_prop = idx;
             }
+            if (self >= 0 && node->b >= 0) { /* `{ x = 1 }` walked x under its default too, but names it once */
+                mangler->prog->syms[self].uses--;
+            }
         }
         return;
     case JN_MEMBER: /* class member: key may be computed; value is a function */
@@ -1111,29 +1145,161 @@ static int is_forbidden(M *mangler, const Py_UCS4 *name, Py_ssize_t len) {
     return is_reserved(name, len) || htab_get(&mangler->frees, name, len) > 0;
 }
 
-/* Give every renamable binding of scope (and, recursively, its children) a slot index.
+static int renamable(const jm_sym *binding) {
+    return !binding->pinned && binding->decl_node != -2;
+}
 
-   The slot counter is inherited from the enclosing scope: a nested scope starts where
-   its parent stopped, so a binding here can never share a slot with a visible ancestor
-   -- the parent's count already passed every ancestor binding. Sibling scopes do not
-   nest, so each restarts from the same inherited base and shares the other's slots.
-   Names are assigned to slots afterwards, by frequency, so the slot is just a position;
-   bindings that share a slot (across disjoint scopes) end up with the same short name. */
-static void assign_slots(M *mangler, int32_t scope, int32_t base) {
-    int32_t counter = base;
-    for (int32_t sym = mangler->prog->scopes[scope].first_sym; sym >= 0; sym = mangler->prog->syms[sym].scope_next) {
-        if (mangler->prog->syms[sym].pinned || mangler->prog->syms[sym].decl_node == -2) {
+/* Order a scope's bindings most-used first, then by index, so its most-used names gather in the low slots. members
+   holds them in index order and is rewritten in place, unless already in order; counts (sym_count + 1 entries) and
+   sorted (count entries) are scratch. A short list takes an insertion sort; a long one a counting sort on its use
+   counts, capped at sym_count so the counts fit, which only leaves bindings used more often than there are bindings in
+   index order. */
+static void order_by_uses(const jm_program *prog, int32_t *members, int32_t count, int32_t *counts, int32_t *sorted) {
+    const jm_sym *syms = prog->syms;
+    int32_t ordered = 1;
+    while (ordered < count && syms[members[ordered - 1]].uses >= syms[members[ordered]].uses) {
+        ordered++;
+    }
+    if (ordered >= count) {
+        return;
+    }
+    if (count <= 16) {
+        for (int32_t index = 1; index < count; index++) {
+            int32_t sym = members[index];
+            int32_t at = index;
+            for (; at > 0 && syms[members[at - 1]].uses < syms[sym].uses; at--) {
+                members[at] = members[at - 1];
+            }
+            members[at] = sym;
+        }
+        return;
+    }
+    uint32_t cap = (uint32_t)prog->sym_count;
+    uint32_t top = 0;
+    for (int32_t index = 0; index < count; index++) {
+        uint32_t uses = syms[members[index]].uses < cap ? syms[members[index]].uses : cap;
+        top = uses > top ? uses : top;
+    }
+    memset(counts, 0, ((size_t)top + 1) * sizeof(int32_t));
+    for (int32_t index = 0; index < count; index++) {
+        counts[top - (syms[members[index]].uses < cap ? syms[members[index]].uses : cap)]++;
+    }
+    for (uint32_t key = 0, at = 0; key <= top; key++) {
+        int32_t run = counts[key];
+        counts[key] = (int32_t)at;
+        at += (uint32_t)run;
+    }
+    for (int32_t index = 0; index < count; index++) {
+        sorted[counts[top - (syms[members[index]].uses < cap ? syms[members[index]].uses : cap)]++] = members[index];
+    }
+    memcpy(members, sorted, (size_t)count * sizeof(int32_t));
+}
+
+/* Give every renamable binding below the global scope a slot; bindings sharing a slot take the same short name.
+
+   A binding takes the lowest slot no other binding of its scope holds and no binding read or written inside its scope
+   but declared further out holds: that outer binding's name would be captured there. Any other outer binding is
+   shadowed harmlessly, so a nested function reuses the names of the outer bindings it never names, as terser does,
+   and a scope's most-used bindings come first so they gather in the low slots. The scopes between a reference and its
+   binding are collected per binding, a scope once each, by walking up from every crossing reference until a scope
+   already marked for it. A parent scope is created before its children, so index order visits it first. */
+static void assign_slots(M *mangler, int32_t global) {
+    jm_program *prog = mangler->prog;
+    if (prog->scope_count < 2) {
+        return; /* no scope below the global one, whose bindings keep their names */
+    }
+    int32_t scopes = prog->scope_count;
+    int32_t pairs = mangler->crossing_count / 2;
+    size_t syms = (size_t)prog->sym_count + 1;
+    /* one zeroed block holds starts, taken, members and the sort's scratch, order, marked and heads */
+    int32_t *block = jm_calloc(syms * 4 + (size_t)pairs + 1 + (size_t)scopes * 2, sizeof(int32_t));
+    int32_t links_cap = pairs; /* every crossing marks one scope at least, and a deep one more */
+    int32_t *links = pairs > 0 ? jm_malloc((size_t)links_cap * 2 * sizeof(int32_t)) : NULL; /* (binding, next) */
+    if (block == NULL || (pairs > 0 && links == NULL)) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        mangler->failed = 1;                             /* GCOVR_EXCL_LINE */
+        goto done;                                       /* GCOVR_EXCL_LINE */
+    }
+    int32_t *starts = block;
+    int32_t *taken = starts + syms;
+    int32_t *members = taken + syms; /* then the sort's scratch */
+    int32_t *order = members + syms * 2;
+    int32_t *marked = order + pairs + 1;
+    int32_t *heads = marked + scopes;
+    for (int32_t scope = 0; scope < scopes; scope++) {
+        marked[scope] = -1;
+        heads[scope] = -1;
+    }
+    int32_t entries = 0;
+    for (int32_t at = 0; at < pairs * 2; at += 2) {
+        starts[mangler->crossings[at] + 1]++;
+    }
+    for (int32_t sym = 0; pairs > 0 && sym < prog->sym_count; sym++) {
+        starts[sym + 1] += starts[sym];
+    }
+    for (int32_t at = 0; at < pairs * 2; at += 2) {
+        order[starts[mangler->crossings[at]]++] = mangler->crossings[at + 1];
+    }
+    for (int32_t sym = 0, first = 0; pairs > 0 && sym < prog->sym_count; sym++) {
+        int32_t last = starts[sym]; /* the fill above advanced each start to the next binding's */
+        int32_t home = prog->syms[sym].scope;
+        for (int32_t index = first; index < last && renamable(&prog->syms[sym]) && home != global; index++) {
+            for (int32_t scope = order[index]; scope != home && marked[scope] != sym;
+                 scope = prog->scopes[scope].parent) {
+                if (entries == links_cap) {
+                    size_t cap;
+                    size_t bytes;
+                    int grew =
+                        th_grow_cap((size_t)entries + 1, (size_t)links_cap, 256, 2 * sizeof(int32_t), &cap, &bytes);
+                    int32_t *grown =
+                        grew && cap <= INT32_MAX ? jm_realloc(links, bytes) : NULL; /* GCOVR_EXCL_BR_LINE */
+                    if (grown == NULL) {     /* GCOVR_EXCL_BR_LINE: allocation-failure path or a billion entries */
+                        mangler->failed = 1; /* GCOVR_EXCL_LINE */
+                        goto done;           /* GCOVR_EXCL_LINE */
+                    }
+                    links = grown;
+                    links_cap = (int32_t)cap;
+                }
+                marked[scope] = sym;
+                links[(size_t)entries * 2] = sym;
+                links[(size_t)entries * 2 + 1] = heads[scope];
+                heads[scope] = entries++;
+            }
+        }
+        first = last;
+    }
+    for (int32_t scope = 0; scope < scopes; scope++) {
+        int32_t stamp = scope + 1;
+        int32_t count = 0;
+        int32_t *listed = members + syms; /* the chain runs latest first, so the list fills down to index order */
+        for (int32_t sym = prog->scopes[scope].first_sym; scope != global && sym >= 0;
+             sym = prog->syms[sym].scope_next) {
+            if (renamable(&prog->syms[sym])) {
+                *--listed = sym;
+                count++;
+            }
+        }
+        if (count == 0) {
             continue;
         }
-        mangler->prog->syms[sym].slot = counter++;
+        for (int32_t entry = heads[scope]; entry >= 0; entry = links[(size_t)entry * 2 + 1]) {
+            taken[prog->syms[links[(size_t)entry * 2]].slot] = stamp;
+        }
+        order_by_uses(prog, listed, count, starts, members + syms);
+        int32_t slot = 0;
+        for (int32_t index = 0; index < count; index++) {
+            while (taken[slot] == stamp) {
+                slot++;
+            }
+            prog->syms[listed[index]].slot = slot;
+            taken[slot] = stamp;
+        }
+        if (slot + 1 > mangler->slot_count) {
+            mangler->slot_count = slot + 1;
+        }
     }
-    if (counter > mangler->slot_count) {
-        mangler->slot_count = counter;
-    }
-    for (int32_t child = mangler->prog->scopes[scope].first_child; child >= 0;
-         child = mangler->prog->scopes[child].next_sibling) {
-        assign_slots(mangler, child, counter);
-    }
+done:
+    jm_free(block);
+    jm_free(links);
 }
 
 /* A slot paired with the total number of references the bindings sharing it make, so
@@ -1438,7 +1604,14 @@ static int fuse_unread_tail(jm_program *prog, int32_t stmt, int *open) {
     int32_t tail = -1;
     for (int32_t declr = kept >= 0 ? prog->nodes[kept].next : prog->nodes[stmt].a; declr >= 0;
          declr = prog->nodes[declr].next) {
-        prog->syms[prog->nodes[prog->nodes[declr].a].sym].decl_node = -2;
+        jm_sym *gone = &prog->syms[prog->nodes[prog->nodes[declr].a].sym];
+        if (gone->decl == 3) {
+            /* a var redeclaring a parameter leaves the parameter, to be named from what the tree now holds, which only
+               a fresh analysis counts */
+            *open = 1;
+        } else {
+            gone->decl_node = -2;
+        }
         int32_t init = prog->nodes[declr].b;
         prog->nodes[init].next = -1;
         *open |= reads_movable(prog, init);
@@ -2460,6 +2633,7 @@ static void mangler_free(M *mangler) {
     jm_free(mangler->frees.slots);
     jm_free(mangler->labels.slots);
     jm_free(mangler->undo);
+    jm_free(mangler->crossings);
 }
 
 struct jm_analysis {
@@ -2547,10 +2721,7 @@ void jm_mangle(jm_program *prog, jm_analysis *settled) {
                     }
                 }
             }
-            for (int32_t child = prog->scopes[global].first_child; child >= 0;
-                 child = prog->scopes[child].next_sibling) {
-                assign_slots(&mangler, child, 0);
-            }
+            assign_slots(&mangler, global);
             assign_names_by_frequency(&mangler);
             /* a kept name whose reservation failed could be handed out again, capturing its references */
             prog->failed |= mangler.failed || mangler.frees.failed; /* GCOVR_EXCL_BR_LINE: allocation failure */

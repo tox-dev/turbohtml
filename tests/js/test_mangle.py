@@ -20,19 +20,38 @@ _NODE: Final[str | None] = shutil.which("node")
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
-        pytest.param("function f(longName, other){return longName+other}", "function f(b,a){return b+a}", id="params"),
+        pytest.param("function f(longName, other){return longName+other}", "function f(a,b){return a+b}", id="params"),
         pytest.param(
             "function f(){var localVar=g();return localVar*localVar}",
             "function f(){var a=g();return a*a}",
             id="local",
         ),
-        pytest.param("var g=(alpha,beta)=>alpha+beta", "var g=(b,a)=>b+a", id="arrow-params"),
+        pytest.param("var g=(alpha,beta)=>alpha+beta", "var g=(a,b)=>a+b", id="arrow-params"),
         pytest.param(
             "function outer(x){function inner(y){return x+y}return inner}",
             "function outer(a){return function(b){return a+b}}",
             id="closure-capture",
         ),
         pytest.param("function f(p,q){return p+p+q}", "function f(a,b){return a+a+b}", id="frequency-shortest-name"),
+        pytest.param("function f(p,q){return q+q+q+p}", "function f(b,a){return a+a+a+b}", id="most-used-first"),
+        # a nested function reuses the name of an outer binding it never reads
+        pytest.param(
+            "function f(longName){return function(inner){return inner}}",
+            "function f(a){return function(a){return a}}",
+            id="unread-outer-name-reused",
+        ),
+        pytest.param(
+            "function f(x){return function(){return function(){return function(){return x}}}}",
+            "function f(a){return function(){return function(){return function(){return a}}}}",
+            id="read-through-nested-scopes",
+        ),
+        pytest.param(
+            f"function f({','.join(f'p{index}' for index in range(20))})"
+            f"{{return {'+'.join(f'p{index}' for index in range(20))}+p19+p19}}",
+            "function f(b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,a){return b+c+d+e+f+g+h+i+j+k+l+m+n+o+p+q+r+s+t+a+a+a}",
+            id="many-bindings-most-used-first",
+        ),
+        pytest.param("function f(a1){var a1=g()}", "function f(a){g()}", id="parameter-redeclared-unread"),
         pytest.param(
             "function transform(value){return value+a+b+c}",
             "function transform(d){return d+a+b+c}",
@@ -54,7 +73,7 @@ _NODE: Final[str | None] = shutil.which("node")
         pytest.param("let top=1;function f(){return top}", "let top=1;function f(){return top}", id="global-kept"),
         # a named function/class expression binds its name only inside its own body, so the name
         # is renamed like any local (its references go with it); a declaration name stays kept
-        pytest.param("var f=function rec(n){return rec}", "var f=function b(a){return b}", id="nfe-name-renamed"),
+        pytest.param("var f=function rec(n){return rec}", "var f=function a(b){return a}", id="nfe-name-renamed"),
         pytest.param(
             "var C=class Self{m(){return Self}}", "var C=class a{m(){return a}}", id="class-expr-name-renamed"
         ),
@@ -214,6 +233,11 @@ def test_binding_read_that_moved_survives(source: str, options: JSMinify, expect
             "try{(function(){g();function g(){var y;y=x}let x=1})()}catch(e){console.log(e.constructor.name)}",
             id="read-before-initialization-throws",
         ),
+        pytest.param(
+            "(function(){var one=g(1),two=g(2);function g(n){return function(m){return n+m+typeof two}}"
+            "console.log(one(3),two(4),(function(x){return x*2})(5))})()",
+            id="outer-names-reused-unless-read",
+        ),
     ],
 )
 def test_mangling_preserves_behavior(snippet: str) -> None:
@@ -226,6 +250,31 @@ def _run(code: str) -> str:
     # is only here to bound a snippet that never returns, so it sits well clear of a slow launch
     result = subprocess.run([_NODE, "-e", code], capture_output=True, text=True, timeout=300, check=False)  # ruff:ignore[subprocess-without-shell-equals-true]
     return result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("function f(a1){var a1=g()}", id="parameter-redeclared-unread"),
+        pytest.param(
+            "x=(p,q)=>{try{throw 1}catch(e){try{var p=typeof c}catch(E){L(E)}}return 6}",
+            id="parameter-redeclared-in-catch",
+        ),
+        pytest.param(
+            "function f(){function h(){return 1}var h=g();return function(){return h}}", id="function-redeclared"
+        ),
+        # a `{x = 1}` shorthand names x once, as its `{x: y = 1}` output does
+        pytest.param(
+            "function memo(fn,options={}){const{cache=new Map,key}=options;"
+            "return function(arg){const k=key?key(arg):arg;return cache.has(k)?cache.get(k):fn(arg)}}",
+            id="shorthand-default",
+        ),
+        pytest.param("function conv(g,o,{context='v'}={}){h(g,o,{context});return context+o}", id="shorthand-param"),
+    ],
+)
+def test_renaming_is_stable(source: str) -> None:
+    once = minify_js(source)
+    assert minify_js(once) == once
 
 
 @pytest.mark.parametrize(
@@ -415,7 +464,7 @@ def test_function_declaration_shares_binding_preserves_behavior(snippet: str) ->
             id="top-level-function-called-outside",
         ),
         pytest.param(
-            "var a=1;function f(x,y){return a+x+y}", "var a=1;function f(c,b){return a+c+b}", id="top-level-var-read"
+            "var a=1;function f(x,y){return a+x+y}", "var a=1;function f(b,c){return a+b+c}", id="top-level-var-read"
         ),
         pytest.param(
             "var a=1;function f(x){return function(y){return a+x+y}}",
@@ -437,7 +486,7 @@ def test_function_declaration_shares_binding_preserves_behavior(snippet: str) ->
         # the var binds the function's a, past both catch parameters; only the inner one, which it redeclares, is kept
         pytest.param(
             "function f(x){try{throw 1}catch(a){try{throw 2}catch(a){var a=3}}return[a,x]}",
-            "function f(b){try{throw 1}catch(c){try{throw 2}catch(a){var a=3}}return[a,b]}",
+            "function f(b){try{throw 1}catch(b){try{throw 2}catch(a){var a=3}}return[a,b]}",
             id="pinned-inner-catch-parameter",
         ),
         # a var in a catch body that names something else is an ordinary local

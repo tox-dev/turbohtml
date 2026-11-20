@@ -527,7 +527,7 @@ def test_minify_js_rejects_non_string() -> None:
 def test_inline_script_keeps_bang_comment() -> None:
     # the license header survives minification of an inline <script>, as it does for the standalone call
     out = _serialize_script("<script>/*! lib v1 */\nfunction plus(a,b){return a+b}</script>")
-    assert out == "<script>/*! lib v1 */function plus(b,a){return b+a}</script>"
+    assert out == "<script>/*! lib v1 */function plus(a,b){return a+b}</script>"
 
 
 def _serialize_script(html: str) -> str:
