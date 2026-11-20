@@ -463,6 +463,25 @@ static void hoist_vars(M *mangler, int32_t idx, int32_t fn_scope) {
     }
 }
 
+/* Pin each binding of name from scope out to the one its enclosing function's own code reaches: the var Annex B adds
+   to that function shadows the outer ones, so a catch parameter between them must not hide one from the pin. */
+static void pin_reachable(jm_program *prog, int32_t scope, const Py_UCS4 *name, Py_ssize_t len) {
+    int past = 0;
+    for (int32_t at = scope; at >= 0; at = prog->scopes[at].parent) {
+        int found = 0;
+        for (int32_t sym = prog->scopes[at].first_sym; sym >= 0; sym = prog->syms[sym].scope_next) {
+            if (name_eq(prog->syms[sym].name, prog->syms[sym].name_len, name, len)) {
+                prog->syms[sym].pinned = 1;
+                found = 1;
+            }
+        }
+        past |= prog->scopes[at].kind == 1;
+        if (found && past) {
+            return;
+        }
+    }
+}
+
 /* Declare the block-level bindings (let/const, function and class declarations) that
    appear directly among stmts, in scope. */
 static void hoist_block(M *mangler, int32_t first, int32_t scope) {
@@ -475,12 +494,11 @@ static void hoist_block(M *mangler, int32_t first, int32_t scope) {
         } else if (node->kind == JN_FUNC) { /* in a statement list a function is always a named declaration */
             /* Annex B.3.3: in sloppy code, running the block that declares a function also assigns it to a
                same-named var of the enclosing function, which code after the block reads. The analysis
-               sees neither that var nor the assignment, so the block binding and whatever binding the
-               name reaches from outside the block stay exactly as written. */
+               sees neither that var nor the assignment, so the block binding and every binding the name
+               reaches from outside the block stay exactly as written. */
             int annex_b = mangler->prog->scopes[scope].kind != 1;
-            int32_t outer = annex_b ? resolve(mangler, node->str, node->str_len) : -1;
-            if (outer >= 0) {
-                mangler->prog->syms[outer].pinned = 1;
+            if (annex_b) {
+                pin_reachable(mangler->prog, scope, node->str, node->str_len);
             }
             declare(mangler, scope, node->str, node->str_len, 4);
             node->sym = resolve(mangler, node->str, node->str_len); /* so the name renames with its references */

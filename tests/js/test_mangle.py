@@ -280,6 +280,13 @@ def _run(code: str) -> str:
             "function t(){var g=1;if(0);else function g(){}return typeof g}",
             id="else-clause-outer-var-kept",
         ),
+        # a same-named catch parameter sits between the block and the function's own binding, which the hoisted var
+        # still shadows
+        pytest.param(
+            "function t(){return function g(){try{}catch(g){{function g(){}}}return typeof g}}",
+            "function t(){return function g(){try{}catch(g){{function g(){}}}return typeof g}}",
+            id="catch-parameter-hides-self-name",
+        ),
         # a catch block scopes its own let like any block, so the binding renames instead of resolving outward
         pytest.param(
             "function t(){try{throw 0}catch(e){let q=h();return[q,q]}}",
@@ -320,6 +327,10 @@ def test_annex_b_block_function(source: str, expected: str) -> None:
             "function o(){var g=5;function t(){try{throw 0}catch(e){function g(){}}return g}return typeof t()}"
             "console.log(o())",
             id="catch-block-outer-function-binding",
+        ),
+        pytest.param(
+            "console.log((function g(){try{}catch(g){{function g(){}}}return typeof g})())",
+            id="catch-parameter-hides-self-name",
         ),
         pytest.param("function f(){var g=1;if(1)function g(){}return typeof g}console.log(f())", id="if-clause"),
         pytest.param(
