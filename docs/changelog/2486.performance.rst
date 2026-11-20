@@ -1,1 +1,0 @@
-``normalize()`` and ``is_normalized()`` are faster on decomposable and combining text.

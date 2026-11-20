@@ -1,2 +1,0 @@
-Parsing XML no longer copies plain attribute values twice: a value with no reference and no whitespace to normalize is
-written straight into the tree, cutting the parse of a document with a 100k-character attribute value about fourfold.

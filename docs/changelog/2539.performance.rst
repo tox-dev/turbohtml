@@ -1,1 +1,0 @@
-Detecting the encoding of mostly ASCII bytes is faster.

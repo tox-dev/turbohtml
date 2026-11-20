@@ -1,2 +1,0 @@
-Detecting a single-byte legacy encoding scores each candidate with a loop specialized to its kind, so detecting
-windows-1251 or windows-1252 text takes 13-20% fewer instructions.

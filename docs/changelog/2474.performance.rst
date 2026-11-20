@@ -1,1 +1,0 @@
-XSLT transforms with many templates that match few nodes run faster.

@@ -1,4 +1,0 @@
-``Element.after()`` in ``rewrite()`` on an unclosed raw-text element, such as a ``<script>`` or ``<style>`` with no end
-tag, now writes its text unescaped, so it reads back as written and a carriage return is written as a line feed. Text
-that would end the element early raises ``ValueError``, as it does for ``append()``; ``html=True`` content is written as
-given, as it is for ``append()``.

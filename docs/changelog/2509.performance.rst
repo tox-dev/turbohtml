@@ -1,2 +1,0 @@
-Parsing a document stored with 2-byte characters scans text across line breaks in one vector pass, as 1-byte input
-already did, and checks the input for carriage returns and NUL characters with vector compares.

@@ -1,1 +1,0 @@
-XPath ``count()`` over a descendant step, such as ``count(//a)``, is faster.

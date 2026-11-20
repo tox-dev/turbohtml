@@ -6,6 +6,246 @@
 
 .. towncrier release notes start
 
+.. _release-1-16-0:
+
+**********************
+ v1.16.0 (2026-11-20)
+**********************
+
+.. _release-1-16-0-added:
+
+Added
+=====
+
+- ``minify_css`` writes whole millisecond counts as seconds (``200ms`` → ``.2s``), 3D transform functions that fix two
+  axes as their single-axis form (``translate3d(0,0,z)`` → ``translateZ(z)``), and drops an ``@media`` or ``@supports``
+  block that an identical later block repeats (:pr:`2512`) by :user:`gaborbernat`.
+
+.. _release-1-16-0-changes:
+
+Changes
+=======
+
+- ``minify()`` writes text and attribute values in the shortest form that reparses to the same tree. ``&`` stays literal
+  where it cannot start a reference, ``>`` and U+00A0 stay literal in text, an attribute value takes whichever quote it
+  holds fewer of, and a value ending in ``/`` or holding a literal ``&`` drops its quotes. Pages come out 0.3-1.3%
+  smaller in 0.6-2.8% fewer instructions (:pr:`2511`) by :user:`gaborbernat`.
+- ``minify_css()`` merges rules across a ``/*! ... */`` bang comment between them and writes the comment after the
+  merged rule. A comment takes no part in the cascade, so ``a{color:red}/*!k*/b{color:red}`` → ``a,b{color:red}/*!k*/``.
+  A stylesheet of 200 identical rules split by bang comments comes out 41% smaller (:pr:`2535`) by :user:`gaborbernat`.
+- ``minify_css()`` writes ``transform-origin`` and ``perspective-origin`` keywords as offsets, drops a zero z offset,
+  writes a centered position as ``top`` or ``bottom``, drops ``ease`` from a ``transition`` layer that names its
+  property first, and drops the initial ``outside`` and ``disc`` from ``list-style``. animate.css comes out 212 bytes
+  smaller and foundation.css 121 bytes (:pr:`2537`) by :user:`gaborbernat`.
+
+.. _release-1-16-0-fixed:
+
+Fixed
+=====
+
+- RELAX NG validation no longer raises ``ValueError`` as too ambiguous for a valid document with repeated blocks of
+  optional elements, and checking a block takes time in proportion to the elements it holds (:pr:`2448`) by
+  :user:`gaborbernat`. (:issue:`2382`)
+- XPath predicates that select the nearest node with ``[1]`` before another predicate, such as ``ancestor::b[1][@x]``,
+  no longer slow down quadratically on long documents; results are unchanged (:pr:`2446`) by :user:`gaborbernat`.
+  (:issue:`2444`)
+- ``Range`` boundaries now follow the DOM live-range rules through ``normalize()`` and whitespace collapse. A boundary
+  on a parent element at a text node that ``normalize()`` merges moves into the merged text, and a boundary past
+  whitespace that the collapse drops shifts with the text, so ``compare_point()`` matches the text again (:pr:`2447`) by
+  :user:`gaborbernat`. (:issue:`2445`)
+- ``Element.after()`` in ``rewrite()`` on an unclosed raw-text element, such as a ``<script>`` or ``<style>`` with no
+  end tag, now writes its text unescaped, so it reads back as written and a carriage return is written as a line feed.
+  Text that would end the element early raises ``ValueError``, as it does for ``append()``; ``html=True`` content is
+  written as given, as it is for ``append()`` (:pr:`2450`) by :user:`gaborbernat`. (:issue:`2449`)
+- ``encode()`` now refuses U+000E, U+000F and U+001B under a stateful codec whatever its name, including one that cannot
+  encode the sample characters the probe used before. Such a codec wrote the raw byte, which a decoder reads as a shift,
+  so the markup could read back with a different meaning. ``tostring()`` writes the character as a reference, as it does
+  for the ISO-2022 codecs (:pr:`2454`) by :user:`gaborbernat`. (:issue:`2453`)
+- Encoding detection now agrees with chardetng on input that starts with an ASCII run followed by a non-ASCII byte. Such
+  input could land on another single-byte encoding: ``b"a1111\xaa "`` detected as ISO-8859-4 where chardetng says
+  windows-1252. The confidence reported for some of these inputs changes too, so with a ``threshold`` such input can now
+  detect an encoding where it returned ``None`` (:pr:`2473`) by :user:`gaborbernat`.
+- Encoding detection keeps GBK in the running when a four-byte GB18030 sequence ends in a 0xFF byte, or in an ASCII byte
+  after a 0xA0 or 0xFE byte, as chardetng does. A stream such as ``b"\xe26\x90\xff0\xa3\x89"`` with a ``.cn`` hint now
+  detects as GBK instead of IBM866 (:pr:`2487`) by :user:`gaborbernat`.
+- Encoding detection no longer scores the ASCII byte that follows an unmapped Big5 character as a letter, as chardetng
+  does. Some streams that hold such a pair now detect as Big5 instead of windows-1252 (:pr:`2488`) by
+  :user:`gaborbernat`.
+- On 32-bit builds, minifying a very large stylesheet or script, or escaping a very long identifier, now raises
+  ``MemoryError`` instead of letting a buffer size wrap around and writing past the allocation (:pr:`2493`) by
+  :user:`gaborbernat`.
+- ``rewrite()`` no longer raises ``ValueError`` when ``Element.after()`` adds text to an unclosed ``<script>`` whose
+  input already holds a ``<!--``. Text that would end the element early still raises ``ValueError`` (:pr:`2497`) by
+  :user:`gaborbernat`.
+- Writing a document with ``meta_charset=True`` no longer refuses text the declared encoding can represent: the bytes
+  now come from the WHATWG encoder the ``<meta charset>`` names, and only a character with no byte in that encoding is
+  refused (:pr:`2499`) by :user:`gaborbernat`.
+- On a free-threaded build, appending an element that holds wrapped descendants into another tree no longer crashes when
+  another thread moves one of those descendants at the same time. Releasing the old tree's references during the move
+  could let the other thread change the subtree being walked (:pr:`2523`) by :user:`gaborbernat`.
+- ``minify_js()`` folds integer arithmetic over literals with ``_`` separators. ``1_0+1`` printed as ``10+1``, which a
+  second minification then folded to ``11``, so minifying the output again changed it (:pr:`2529`) by
+  :user:`gaborbernat`.
+- ``minify_js()`` keeps a read or write of a ``let``, ``const`` or ``class`` binding that can run before the declaration
+  initializes it, since that access throws a ``ReferenceError``. It dropped ``x=2`` from ``x=2;let x=1`` and the read of
+  ``x`` from ``y=x`` with ``y`` unused, also when the access sat in a hoisted function called early or after a skipped
+  ``switch`` case (:pr:`2526`) by :user:`gaborbernat`.
+- ``minify_js()`` keeps assignments to top-level bindings. It dropped ``x=2`` from ``var x=1;x=2`` when the script never
+  read ``x`` again, but a top-level binding is a global that another script on the page can read (:pr:`2525`) by
+  :user:`gaborbernat`.
+- ``minify_js()`` keeps the name of an outer binding that a block function inside a same-named ``catch`` clause shadows.
+  Annex B hoists such a function to a ``var`` of the enclosing function, but only the ``catch`` parameter kept its name,
+  so in ``function g(){try{}catch(g){{function g(){}}}return typeof g}`` the renamed self-name changed ``typeof g`` from
+  ``"undefined"`` to ``"function"`` (:pr:`2527`) by :user:`gaborbernat`.
+- ``minify_js()`` no longer folds arithmetic over a legacy octal literal as if it were decimal: ``010*2`` became ``20``
+  where it evaluates to ``16`` (:pr:`2528`) by :user:`gaborbernat`.
+- ``minify_js()`` no longer inlines a function declaration into the body of a ``while`` or ``do``-``while`` loop written
+  without braces, where the function was created again on every iteration. A block the output prints without braces also
+  resolves its names as the output parses, so minifying the output again changes it in fewer cases (:pr:`2524`) by
+  :user:`gaborbernat`.
+- ``minify_js()`` weighs a number literal by the spelling it prints, not the one in the source, when deciding whether to
+  copy it into every read. ``const h=3600000`` read twice now inlines as ``36e5`` in one pass; before, the second
+  minification inlined it, so minifying the output again changed it (:pr:`2531`) by :user:`gaborbernat`.
+- ``parse()`` again reports ``unexpected-null-character`` for a NUL inside a long run of plain Latin-1 text on x86-64.
+  It dropped that error, while a streamed parse of the same string reported it (:pr:`2467`) by :user:`gaborbernat`.
+
+.. _release-1-16-0-performance:
+
+Performance
+===========
+
+- Parsing XML no longer copies plain attribute values twice: a value with no reference and no whitespace to normalize is
+  written straight into the tree, cutting the parse of a document with a 100k-character attribute value about fourfold
+  (:pr:`2464`) by :user:`gaborbernat`.
+- Building elements with ``Element(...)`` and ``E.<tag>(...)`` from plain dicts runs faster: the mapping check skips the
+  abstract base class and short attribute names are lowercased without a heap allocation (:pr:`2469`) by
+  :user:`gaborbernat`.
+- Encoding detection skips over long runs of ASCII in each candidate encoding instead of scoring them byte by byte, so
+  detecting a mostly ASCII document with a legacy encoding takes much less time (:pr:`2470`) by :user:`gaborbernat`.
+- Encoding detection returns sooner when a byte-order mark or a ``<meta>`` declaration decides the answer, both for a
+  one-shot call and for a streamed detector, and reuses the result it builds for the default options (:pr:`2471`) by
+  :user:`gaborbernat`.
+- Decoding GB18030 text, which includes four-byte characters, runs faster for both two-byte and four-byte characters
+  (:pr:`2472`) by :user:`gaborbernat`.
+- XSLT transforms with many templates that match few nodes run faster (:pr:`2474`) by :user:`gaborbernat`.
+- XSLT transforms that emit many literal or xsl:text nodes run faster (:pr:`2475`) by :user:`gaborbernat`.
+- Comparing two elements with many attributes is faster, and so is comparing elements whose attributes come in the same
+  order (:pr:`2477`) by :user:`gaborbernat`.
+- Extracting links with ``links()`` builds each link record without a Python-level constructor call, so it runs faster
+  (:pr:`2478`) by :user:`gaborbernat`.
+- Node transform pipelines skip a type check for each stage that returns the node it was given, so they run slightly
+  faster (:pr:`2479`) by :user:`gaborbernat`.
+- Resolving a URL that needs no percent-encoding checks its characters with a lookup table, so base URL and link
+  resolution spend less time on it (:pr:`2480`) by :user:`gaborbernat`.
+- ``escape()`` is faster on text that contains characters above U+FFFF, such as emoji (:pr:`2481`) by
+  :user:`gaborbernat`.
+- ``IncrementalParser`` is faster on mostly ASCII input and on documents that contain a U+0000 character (:pr:`2482`) by
+  :user:`gaborbernat`.
+- Minifying a ``unicode-range`` descriptor with hundreds of ranges is up to twice as fast, most of all when the ranges
+  are listed in descending order (:pr:`2483`) by :user:`gaborbernat`.
+- Minifying a stylesheet whose rules repeat a selector with a body that matches an earlier rule no longer re-parses the
+  repeated body, so such stylesheets minify about twice as fast (:pr:`2484`) by :user:`gaborbernat`.
+- Minifying JavaScript is about ten percent faster on common libraries (:pr:`2485`) by :user:`gaborbernat`.
+- ``normalize()`` and ``is_normalized()`` are faster on decomposable and combining text (:pr:`2486`) by
+  :user:`gaborbernat`.
+- XPath relational comparisons between two node-sets, such as ``//li < //b``, stop at the first matching pair and no
+  longer convert every node of both sets (:pr:`2489`) by :user:`gaborbernat`.
+- XPath ``set:distinct()`` is faster on large node-sets, since it no longer creates a Python string for each node
+  (:pr:`2490`) by :user:`gaborbernat`.
+- XPath ``str:concat()`` is faster when the text of each member sits in one text node, possibly under a chain of
+  single-child elements, since the text is copied once into a result that is allocated once (:pr:`2491`) by
+  :user:`gaborbernat`.
+- Extracting publication dates is much faster on text without digits and on pages whose date comes late in the text
+  (:pr:`2492`) by :user:`gaborbernat`.
+- Building elements with ``Element(...)`` and ``E.<tag>(...)`` from a dict of attributes is faster again: the attribute
+  loop no longer goes through helper calls for each attribute (:pr:`2495`) by :user:`gaborbernat`.
+- Detecting a single-byte legacy encoding scores each candidate with a loop specialized to its kind, so detecting
+  windows-1251 or windows-1252 text takes 13-20% fewer instructions (:pr:`2504`) by :user:`gaborbernat`.
+- ``base_url()`` and ``meta_refresh()`` skip the URL parse for an already canonical fallback and resolve a plain
+  relative path such as ``/sub/`` or ``next.html`` without it, taking 14-17% fewer instructions (:pr:`2505`) by
+  :user:`gaborbernat`.
+- :func:`turbohtml.detect.normalize` and :func:`turbohtml.detect.is_normalized` call straight into C, and the quick
+  check stops at the first character that needs work, so normalizing is up to about a third faster (:pr:`2507`) by
+  :user:`gaborbernat`.
+- ``text`` of a subtree with a single Text node builds its ``str`` straight from where the characters sit, copied once
+  in their own width instead of widened to UCS-4 and narrowed back, and no longer leaves a UCS-4 copy of the text in the
+  tree; one 256 KiB Text node reads about 15x faster (:pr:`2508`) by :user:`gaborbernat`.
+- Parsing a document stored with 2-byte characters scans text across line breaks in one vector pass, as 1-byte input
+  already did, and checks the input for carriage returns and NUL characters with vector compares (:pr:`2509`) by
+  :user:`gaborbernat`.
+- Detecting an encoding takes fewer instructions: Windows-1251 text about half as many, a repeated :func:`detect
+  <turbohtml.detect.detect>` of a short ASCII or byte-order-marked input about a third, and :class:`EncodingDetector
+  <turbohtml.detect.EncodingDetector>` fed 16-byte chunks about a third. The detector now runs construction, ``feed``,
+  ``reset``, ``done`` and ``result`` in C; an instance no longer accepts arbitrary attributes or weak references
+  (:pr:`2510`) by :user:`gaborbernat`.
+- ``minify_css`` no longer rescans the inner calls of a deeply nested value once per enclosing function, cutting the
+  minification of nested ``var()`` fallbacks about fivefold (:pr:`2512`) by :user:`gaborbernat`.
+- XML Schema validation resolves each element and attribute declaration once at compile time, so validating a document
+  runs about 30% faster, and an element with hundreds of declared attributes up to 13 times faster (:pr:`2513`) by
+  :user:`gaborbernat`.
+- XSLT transforms with ``method="text"`` output build their result string in one pass, and template lookup skips match
+  sets and caches it does not need, so text-heavy transforms run about twice as fast (:pr:`2515`) by
+  :user:`gaborbernat`.
+- :class:`~turbohtml.build.ElementMaker` tag lookups such as ``E.div`` and positional :class:`~turbohtml.Element` calls
+  run in C, and building elements is about twice as fast (:pr:`2516`) by :user:`gaborbernat`.
+- :func:`~turbohtml.clean.linkify` runs the default :func:`~turbohtml.clean.nofollow` and
+  :func:`~turbohtml.clean.target_blank` callbacks in C, so linking prose is about a third faster (:pr:`2518`) by
+  :user:`gaborbernat`.
+- Detecting Shift_JIS text runs about three times faster. ``detect()`` with its default cache and ``parse(...,
+  detect_encoding=True)`` also stop scoring single-byte encodings once they can no longer win, which speeds up Cyrillic
+  and Latin detection as well (:pr:`2519`) by :user:`gaborbernat`.
+- An XPath expression whose result is ``str:concat`` over text, comments, single-text element chains or attribute values
+  builds its ``str`` straight from where the characters sit, in their narrowest width, instead of through a UCS-4 buffer
+  it then scans and narrows; ten 32,768-character nested nodes concatenate about 25x faster (:pr:`2520`) by
+  :user:`gaborbernat`.
+- Serializing a whole document reserves room for output that runs past the input, so the common case needs one
+  allocation instead of a realloc that copies the buffer, and timings no longer shift with heap layout (:pr:`2534`) by
+  :user:`gaborbernat`.
+- Comparing elements whose attributes come in a different order is faster (:pr:`2536`) by :user:`gaborbernat`.
+- XPath ``count()`` over a descendant step, such as ``count(//a)``, is faster (:pr:`2538`) by :user:`gaborbernat`.
+- Detecting the encoding of mostly ASCII bytes is faster (:pr:`2539`) by :user:`gaborbernat`.
+- Importing ``turbohtml`` and opening CLI help are faster on Python 3.15 because modules load when their functions are
+  used (:pr:`2459`) by :user:`gaborbernat`.
+- ``minify_js()`` copies a literal into the closures that read its binding when the declarators before it in the
+  function's first statement run no code, not only when it is the first declarator, so a module that opens with a run of
+  constants, as lodash does, minifies 0.2% smaller (:pr:`2524`) by :user:`gaborbernat`.
+- ``minify_js()`` drops the names of a declaration's trailing declarators that the next statement reads once, in order,
+  or that nothing reads, keeping their initializers, so code that declares call results to use them once minifies 29-46%
+  smaller. A fold pass also skips the functions the pass before it left unchanged, so jquery, lodash and underscore
+  minify with 4-9% fewer instructions (:pr:`2524`) by :user:`gaborbernat`.
+- ``minify_js()`` folds a conditional with a ``true`` or ``false`` branch into a short circuit of the same value:
+  ``c?x:!0`` becomes ``!c||x``, ``c?!1:x`` becomes ``!c&&x``, and with a comparison ``c``, ``c?x:!1`` becomes ``c&&x``
+  (:pr:`2530`) by :user:`gaborbernat`.
+- ``minify_js()`` lets a local take the name of a top-level binding that nothing in the script reads or writes, since no
+  reference to that binding can be captured, so one more single-letter name is free in such scripts (:pr:`2524`) by
+  :user:`gaborbernat`.
+- ``minify_js()`` lets a nested function reuse the short name of an outer binding it never reads, and gives the shortest
+  names to the most-read bindings first. Output gets smaller, and minifying it a second time now returns it unchanged in
+  cases where names used to shift between runs (:pr:`2524`) by :user:`gaborbernat`.
+- ``minify_js()`` moves a single-use initializer into the object or computed key of a property access in the next
+  statement: ``var b=g();return b.slice(1)`` becomes ``return g().slice(1)`` (:pr:`2530`) by :user:`gaborbernat`.
+- ``minify_js()`` re-spells a string literal from its value when that is shorter: an escaped character is written as
+  itself, the quote the value holds fewer of delimits it, and a ``+`` chain of strings joins across quote styles, so
+  lodash minifies 0.9% smaller (:pr:`2524`) by :user:`gaborbernat`.
+- ``minify_js()`` rewrites a conditional whose two arms call the same name with arguments that differ in one place,
+  ``c?g(a):g(b)``, as ``g(c?a:b)`` when evaluating the test can neither throw nor run code, so a chain of guard returns
+  that each call one function minifies about 20% smaller (:pr:`2524`) by :user:`gaborbernat`.
+- ``minify_js()`` turns a guard ``if(c)return;`` at the top of a function body, or ``if(c)continue;`` at the top of a
+  loop body, into ``if(!c){...}`` around the statements after it, which drops the jump for a pair of braces. It did this
+  only when every following statement was an expression; it now also does it for loops, ``var`` declarations and other
+  statements, as long as none declares a ``let``, ``const``, ``class`` or function the block would rescope (:pr:`2530`)
+  by :user:`gaborbernat`.
+- ``minify_js()`` writes ``===`` and ``!==`` as ``==`` and ``!=`` whenever both operands are certain to share a type,
+  not only for ``typeof``, ``!`` and ``void``: ``+a!==+a``, ``1/+a===1/b``, ``""+a===b+""``, ``a>>>0===b>>>0`` and
+  ``delete a.b===!c`` all lose a byte (:pr:`2530`) by :user:`gaborbernat`.
+- ``minify_js()`` writes ``return void 0`` as a bare ``return``, which lets a guard such as ``if(a)return void 0;g()``
+  fold to ``a||g()``. A function that ends in ``return c?x:void 0`` ends in ``if(c)return x`` instead, and
+  ``if(c)return;return x`` merges into a conditional return like any other pair of returns (:pr:`2530`) by
+  :user:`gaborbernat`.
+- ``minify_js()`` writes a hexadecimal, octal or binary literal in decimal when that is shorter and the value is exact:
+  ``0x10000`` becomes ``65536`` and ``0x3E8`` becomes ``1e3``. Integer arithmetic over such literals now folds as well,
+  so ``4*0x40`` becomes ``256`` in one pass instead of two (:pr:`2530`) by :user:`gaborbernat`.
+
 .. _release-1-15-12:
 
 ***********************

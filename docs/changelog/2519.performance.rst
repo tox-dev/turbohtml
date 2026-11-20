@@ -1,3 +1,0 @@
-Detecting Shift_JIS text runs about three times faster. ``detect()`` with its default cache and ``parse(...,
-detect_encoding=True)`` also stop scoring single-byte encodings once they can no longer win, which speeds up Cyrillic
-and Latin detection as well.

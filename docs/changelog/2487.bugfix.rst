@@ -1,3 +1,0 @@
-Encoding detection keeps GBK in the running when a four-byte GB18030 sequence ends in a 0xFF byte, or in an ASCII byte
-after a 0xA0 or 0xFE byte, as chardetng does. A stream such as ``b"\xe26\x90\xff0\xa3\x89"`` with a ``.cn`` hint now
-detects as GBK instead of IBM866.

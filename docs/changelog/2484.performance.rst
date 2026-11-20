@@ -1,2 +1,0 @@
-Minifying a stylesheet whose rules repeat a selector with a body that matches an earlier rule no longer re-parses the
-repeated body, so such stylesheets minify about twice as fast.

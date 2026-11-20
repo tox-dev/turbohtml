@@ -1,1 +1,0 @@
-XPath ``set:distinct()`` is faster on large node-sets, since it no longer creates a Python string for each node.

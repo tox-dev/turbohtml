@@ -1,1 +1,0 @@
-Minifying JavaScript is about ten percent faster on common libraries.

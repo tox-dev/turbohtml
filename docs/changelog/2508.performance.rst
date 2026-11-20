@@ -1,3 +1,0 @@
-``text`` of a subtree with a single Text node builds its ``str`` straight from where the characters sit, copied once in
-their own width instead of widened to UCS-4 and narrowed back, and no longer leaves a UCS-4 copy of the text in the
-tree; one 256 KiB Text node reads about 15x faster.

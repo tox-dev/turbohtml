@@ -1,2 +1,0 @@
-On 32-bit builds, minifying a very large stylesheet or script, or escaping a very long identifier, now raises
-``MemoryError`` instead of letting a buffer size wrap around and writing past the allocation.

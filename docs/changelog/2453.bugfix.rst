@@ -1,4 +1,0 @@
-``encode()`` now refuses U+000E, U+000F and U+001B under a stateful codec whatever its name, including one that cannot
-encode the sample characters the probe used before. Such a codec wrote the raw byte, which a decoder reads as a shift,
-so the markup could read back with a different meaning. ``tostring()`` writes the character as a reference, as it does
-for the ISO-2022 codecs.

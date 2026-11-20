@@ -1,2 +1,0 @@
-:func:`~turbohtml.clean.linkify` runs the default :func:`~turbohtml.clean.nofollow` and
-:func:`~turbohtml.clean.target_blank` callbacks in C, so linking prose is about a third faster.

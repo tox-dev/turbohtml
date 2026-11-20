@@ -1,2 +1,0 @@
-:func:`turbohtml.detect.normalize` and :func:`turbohtml.detect.is_normalized` call straight into C, and the quick check
-stops at the first character that needs work, so normalizing is up to about a third faster.

@@ -1,2 +1,0 @@
-``base_url()`` and ``meta_refresh()`` skip the URL parse for an already canonical fallback and resolve a plain relative
-path such as ``/sub/`` or ``next.html`` without it, taking 14-17% fewer instructions.

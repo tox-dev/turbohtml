@@ -1,3 +1,0 @@
-``minify_css`` writes whole millisecond counts as seconds (``200ms`` → ``.2s``), 3D transform functions that fix two
-axes as their single-axis form (``translate3d(0,0,z)`` → ``translateZ(z)``), and drops an ``@media`` or ``@supports``
-block that an identical later block repeats.
