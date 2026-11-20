@@ -406,6 +406,14 @@ def test_function_declaration_shares_binding_preserves_behavior(snippet: str) ->
     ("source", "expected"),
     [
         pytest.param("var a;function f(x){a++}", "var a;function f(b){a++}", id="top-level-var-written-inside"),
+        pytest.param("var a;function f(x){[a]=x}", "var a;function f(b){[a]=b}", id="top-level-var-only-written"),
+        # a top-level binding nothing reads or writes has no reference a local of its name could capture
+        pytest.param("var a;function f(x){return x}", "var a;function f(a){return a}", id="top-level-var-unreferenced"),
+        pytest.param(
+            "function a(){}function f(x){return x}a()",
+            "function a(){}function f(b){return b}a()",
+            id="top-level-function-called-outside",
+        ),
         pytest.param(
             "var a=1;function f(x,y){return a+x+y}", "var a=1;function f(c,b){return a+c+b}", id="top-level-var-read"
         ),
@@ -493,6 +501,7 @@ def test_scope_analysis_of_many_bindings_stays_linear(build: Callable[[int], str
     "snippet",
     [
         pytest.param("var a;function f(x){a++}f();console.log(a)", id="top-level-var-written-inside"),
+        pytest.param("function a(){return 1}function f(x){return x+1}console.log(f(2))", id="top-level-unreferenced"),
         pytest.param("var a=1;function f(x,y){return a+x+y}console.log(f(2,3))", id="top-level-var-read"),
         pytest.param("let a=1;{let x=g();console.log(a,x,x)}function g(){return 2}", id="top-level-block"),
         pytest.param("try{}catch(a){var a}console.log(a)", id="catch-var-top-level"),

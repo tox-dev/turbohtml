@@ -2467,9 +2467,12 @@ void jm_mangle(jm_program *prog, jm_analysis *settled) {
             prog->resolved = 1;
             /* Reserve every kept (top-level or pinned) binding name. Slots keep only renamed bindings apart, so a
                new name equal to a kept one would capture its references inside the renamed scope, or be captured
-               inside its scope. Labels have their own namespace. */
+               inside its scope. A top-level binding nothing reads or writes has no reference to capture, and every
+               renamed binding sits inside it. Labels have their own namespace. */
             for (int32_t sym = 0; sym < prog->sym_count; sym++) {
-                if (prog->syms[sym].decl != 8 && (prog->syms[sym].scope == global || prog->syms[sym].pinned)) {
+                const jm_sym *kept = &prog->syms[sym];
+                if (kept->decl != 8 &&
+                    (kept->pinned || (kept->scope == global && (kept->refs != 0 || kept->writes != 0)))) {
                     hslot *slot = htab_slot(&mangler.frees, prog->syms[sym].name, prog->syms[sym].name_len, 1);
                     if (slot != NULL) { /* GCOVR_EXCL_BR_LINE: the false branch is an allocation failure */
                         slot->val = 1;
