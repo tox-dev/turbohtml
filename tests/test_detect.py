@@ -624,8 +624,8 @@ def test_chunked_feeds_equal_a_one_shot_detect() -> None:
 
 def test_a_chunk_opening_on_an_ascii_run_equals_a_one_shot_detect() -> None:
     # only a later chunk reaches the candidates starting on ASCII; a one-shot detect starts them at the first non-ASCII
-    run: Final = b" plain words between two russian sentences, long enough to skip over "
-    detector: Final = EncodingDetector()
+    run: Final[bytes] = b" plain words between two russian sentences, long enough to skip over "
+    detector: Final[EncodingDetector] = EncodingDetector()
     detector.feed(_DETECTOR_RUSSIAN)
     detector.feed(run + _DETECTOR_RUSSIAN)
     assert detector.close() == detect(_DETECTOR_RUSSIAN + run + _DETECTOR_RUSSIAN)
