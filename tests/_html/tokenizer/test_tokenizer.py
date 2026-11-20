@@ -145,6 +145,13 @@ def test_text_run_breaks_on_special_characters(state: str, text: str, expected: 
     assert tokens == [("Character", expected)]
 
 
+def test_data_run_across_lines_keeps_error_positions(storage_kind: int) -> None:
+    # each line outruns a vector block, so the data scan folds every newline before the error
+    text: Final[str] = "first line of prose\nsecond line, also long\n\nfourth & last <a =b>"
+    _, errors = _tokenize_states(text, "Data state", None, storage_kind)
+    assert errors == [("unexpected-equals-sign-before-attribute-name", 4, 17)]
+
+
 @pytest.mark.parametrize(
     ("args", "expected"),
     [

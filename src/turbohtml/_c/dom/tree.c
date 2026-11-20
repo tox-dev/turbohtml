@@ -5487,25 +5487,9 @@ static void run_close(th_tree *tree) {
 /* Feed the input to the tokenizer (borrowing when there is no CR to normalize)
    and point tree->data at the tokenizer's authoritative input base. */
 static int setup_input(th_tree *tree, th_tokenizer *sm, int kind, const void *data, Py_ssize_t length) {
-    /* hoist the width check out of the per-character loop: a 1-byte buffer uses
-       libc's vectorized memchr, the wide buffers a tight typed scan */
-    int has_cr = 0;
-    if (kind == PyUnicode_1BYTE_KIND) {
-        has_cr = memchr(data, '\r', (size_t)length) != NULL;
-        tree->has_nul = memchr(data, '\0', (size_t)length) != NULL;
-    } else if (kind == PyUnicode_2BYTE_KIND) {
-        const uint16_t *units = (const uint16_t *)data;
-        for (Py_ssize_t index = 0; index < length; index++) {
-            has_cr |= units[index] == '\r';
-            tree->has_nul |= units[index] == 0;
-        }
-    } else {
-        const uint32_t *units = (const uint32_t *)data;
-        for (Py_ssize_t index = 0; index < length; index++) {
-            has_cr |= units[index] == '\r';
-            tree->has_nul |= units[index] == 0;
-        }
-    }
+    int has_nul;
+    int has_cr = th_tok_scan_cr_nul(kind, data, length, &has_nul);
+    tree->has_nul |= has_nul;
     if (has_cr) {
         th_tok_feed(sm, kind, data, length);
     } else {

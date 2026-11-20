@@ -286,6 +286,9 @@ void th_tok_feed(th_tokenizer *self, int kind, const void *data, Py_ssize_t leng
    the machine; streaming feed() copies. */
 void th_tok_borrow_input(th_tokenizer *self, int kind, const void *data, Py_ssize_t length);
 
+/* Whether a unicode object's storage holds a '\r' (the return value) and whether it holds a NUL (*has_nul). */
+int th_tok_scan_cr_nul(int kind, const void *data, Py_ssize_t length, int *has_nul);
+
 /* Start reading the input at code point `pos`, which sits at line:col, in the data state. */
 void th_tok_seek(th_tokenizer *self, Py_ssize_t pos, Py_ssize_t line, Py_ssize_t col);
 
