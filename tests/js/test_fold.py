@@ -427,6 +427,23 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
             "function f(){return function(a){return[1,1,2,2]}}",
             id="two-bindings-propagate-in-one-pass",
         ),
+        # a number weighs as it prints, so 3600000 costs its four-character 36e5 and propagates in the first pass
+        # rather than in a re-minification
+        pytest.param(
+            "function f(a){const h=3600000;return[a/h,a*h]}",
+            "function f(a){return[a/36e5,a*36e5]}",
+            id="number-weighs-printed-spelling",
+        ),
+        pytest.param(
+            "function f(a){const h=1.50;return[a/h,a*h,a-h,a+h]}",
+            "function f(a){const b=1.5;return[a/b,a*b,a-b,a+b]}",
+            id="number-printed-spelling-kept",
+        ),
+        pytest.param(
+            f"function f(a){{const h=1.{'5' * 70};return[a/h,a*h]}}",
+            f"function f(a){{const b=1.{'5' * 70};return[a/b,a*b]}}",
+            id="number-past-spelling-buffer-kept",
+        ),
         pytest.param(
             'function f(){var t="[object Foo]";return function(x){return q(x)==t||r(x)==t}}',
             'function f(){var a="[object Foo]";return function(b){return q(b)==a||r(b)==a}}',

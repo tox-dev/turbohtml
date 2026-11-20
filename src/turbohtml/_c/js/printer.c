@@ -676,43 +676,21 @@ static TH_NOINLINE Py_ssize_t to_decimal(Py_UCS4 *buf, Py_ssize_t len) {
     return digit_len;
 }
 
-/* Emit a numeric literal in its shortest value-preserving form: drop `_` separators,
-   remove redundant zeros (1.0 -> 1, 0.5 -> .5, 5. -> 5), and fold trailing integer
-   zeros into an exponent (1000 -> 1e3) when shorter. A radix (0x/0o/0b) literal turns decimal when that is
-   shorter; legacy-octal, exponent-bearing and over-long literals are emitted underscore-free but unchanged. */
-static void print_number(St *st, const jm_node *node) {
-    Py_UCS4 buf[64];
+/* Spell a numeric literal in its shortest value-preserving form into buf (JM_NUMBER_SPELL_MAX code points): drop `_`
+   separators, remove redundant zeros (1.0 -> 1, 0.5 -> .5, 5. -> 5), and fold trailing integer zeros into an exponent
+   (1000 -> 1e3) when shorter. A radix (0x/0o/0b) literal turns decimal when that is shorter; legacy-octal,
+   exponent-bearing and over-long literals are spelled underscore-free but unchanged. Every rewrite only shortens, so
+   it runs in place. Returns the length, or -1 when the separator-free lexeme does not fit buf. */
+Py_ssize_t jm_number_spell(const jm_node *node, Py_UCS4 *buf) {
     Py_ssize_t len = 0;
-    int overflow = 0;
     for (Py_ssize_t index = 0; index < node->str_len; index++) {
         if (node->str[index] == '_') {
             continue;
         }
-        if (len >= (Py_ssize_t)(sizeof(buf) / sizeof(buf[0]))) {
-            overflow = 1;
-            break;
+        if (len >= JM_NUMBER_SPELL_MAX) {
+            return -1;
         }
         buf[len++] = node->str[index];
-    }
-    if (overflow) { /* an unusually long literal (a huge exponent): one run, separators removed */
-        /* GCOVR_EXCL_START: needs a 32-bit build and a literal of over a billion code points */
-        Py_UCS4 *big = ((size_t)node->str_len > SIZE_MAX / sizeof(Py_UCS4))
-                           ? NULL
-                           : jm_malloc((size_t)node->str_len * sizeof(Py_UCS4));
-        /* GCOVR_EXCL_STOP */
-        if (big == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-            st->failed = 1; /* GCOVR_EXCL_LINE */
-            return;         /* GCOVR_EXCL_LINE */
-        }
-        Py_ssize_t pos = 0;
-        for (Py_ssize_t index = 0; index < node->str_len; index++) {
-            if (node->str[index] != '_') {
-                big[pos++] = node->str[index];
-            }
-        }
-        put_run(st, big, pos);
-        jm_free(big);
-        return;
     }
     int has_e = 0;
     Py_ssize_t dot = -1;
@@ -731,13 +709,10 @@ static void print_number(St *st, const jm_node *node) {
     if (radix || has_e || legacy) {
         Py_ssize_t decimal_len = radix ? to_decimal(buf, len) : 0;
         if (decimal_len == 0) {
-            put_run(st, buf, len); /* leave these forms alone beyond stripping separators */
-            return;
+            return len; /* leave these forms alone beyond stripping separators */
         }
         len = decimal_len; /* a radix literal has no dot, so its decimal digits take the integer path */
     }
-    Py_UCS4 out[80];
-    Py_ssize_t out_len = 0;
     if (dot < 0) {
         Py_ssize_t zeros = 0;
         while (zeros < len && buf[len - 1 - zeros] == '0') {
@@ -745,20 +720,15 @@ static void print_number(St *st, const jm_node *node) {
         }
         Py_ssize_t head = len - zeros;
         if (head == 0 || zeros < 3) { /* an exponent needs at least two characters */
-            put_run(st, buf, len);
-            return;
+            return len;
         }
         char digits[8];
         int digit_len = snprintf(digits, sizeof(digits), "%lld", (long long)zeros);
-        for (Py_ssize_t index = 0; index < head; index++) {
-            out[out_len++] = buf[index];
-        }
-        out[out_len++] = 'e';
+        buf[head] = 'e'; /* `e` and the zero count take no more room than the three or more zeros they replace */
         for (int index = 0; index < digit_len; index++) {
-            out[out_len++] = (Py_UCS4)(unsigned char)digits[index];
+            buf[head + 1 + index] = (Py_UCS4)(unsigned char)digits[index];
         }
-        put_run(st, out, out_len);
-        return;
+        return head + 1 + digit_len;
     }
     Py_ssize_t istart = 0;
     while (istart < dot && buf[istart] == '0') {
@@ -768,19 +738,47 @@ static void print_number(St *st, const jm_node *node) {
     while (fend > dot + 1 && buf[fend - 1] == '0') {
         fend--; /* 1.50 -> 1.5 */
     }
+    Py_ssize_t out_len = 0; /* trails every read index, so the copy never overwrites what it has yet to read */
     for (Py_ssize_t index = istart; index < dot; index++) {
-        out[out_len++] = buf[index];
+        buf[out_len++] = buf[index];
     }
     if (fend > dot + 1) {
-        out[out_len++] = '.';
+        buf[out_len++] = '.';
         for (Py_ssize_t index = dot + 1; index < fend; index++) {
-            out[out_len++] = buf[index];
+            buf[out_len++] = buf[index];
         }
     }
     if (out_len == 0) { /* 0.0 collapsed to nothing */
-        out[out_len++] = '0';
+        buf[out_len++] = '0';
     }
-    put_run(st, out, out_len);
+    return out_len;
+}
+
+static void print_number(St *st, const jm_node *node) {
+    Py_UCS4 buf[JM_NUMBER_SPELL_MAX];
+    Py_ssize_t len = jm_number_spell(node, buf);
+    if (len >= 0) {
+        put_run(st, buf, len);
+        return;
+    }
+    /* an unusually long literal (a huge exponent): one run, separators removed */
+    /* GCOVR_EXCL_START: needs a 32-bit build and a literal of over a billion code points */
+    Py_UCS4 *big = ((size_t)node->str_len > SIZE_MAX / sizeof(Py_UCS4))
+                       ? NULL
+                       : jm_malloc((size_t)node->str_len * sizeof(Py_UCS4));
+    /* GCOVR_EXCL_STOP */
+    if (big == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        st->failed = 1; /* GCOVR_EXCL_LINE */
+        return;         /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t pos = 0;
+    for (Py_ssize_t index = 0; index < node->str_len; index++) {
+        if (node->str[index] != '_') {
+            big[pos++] = node->str[index];
+        }
+    }
+    put_run(st, big, pos);
+    jm_free(big);
 }
 
 /* A BigInt literal carries no dot or exponent, so stripping numeric separators is its only safe

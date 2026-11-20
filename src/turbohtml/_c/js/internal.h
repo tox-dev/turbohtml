@@ -578,5 +578,8 @@ Py_UCS4 *jm_dump(const jm_program *prog, Py_ssize_t *out_len);
 /* Print the program as minified code into a freshly PyMem-allocated buffer
    (*out_len receives the length). NULL on OOM. Phase 3: whitespace/semicolons. */
 Py_UCS4 *jm_print(const jm_program *prog, Py_ssize_t *out_len);
+/* The shortest spelling of a JN_NUM, as the printer writes it; see printer.c. */
+#define JM_NUMBER_SPELL_MAX 64
+Py_ssize_t jm_number_spell(const jm_node *node, Py_UCS4 *buf);
 
 #endif /* TURBOHTML_SERIALIZE_JS_INTERNAL_H */
