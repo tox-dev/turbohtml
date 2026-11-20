@@ -1349,7 +1349,8 @@ static int32_t walk_list(F *folder, int32_t first, int32_t depth) {
    radix prefix) under 10^15 so every sum/product stays an exact IEEE-754 integer. 1 and *out set,
    or 0. */
 static int int_value(const jm_node *node, uint64_t *out) {
-    if (node->kind != JN_NUM || node->str_len > 15) {
+    /* a legacy octal (`010` is 8) does not read as its decimal digits, so it never folds */
+    if (node->kind != JN_NUM || node->str_len > 15 || (node->str_len > 1 && node->str[0] == '0')) {
         return 0;
     }
     uint64_t value = 0;
