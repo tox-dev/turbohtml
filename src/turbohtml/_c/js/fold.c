@@ -1345,20 +1345,25 @@ static int32_t walk_list(F *folder, int32_t first, int32_t depth) {
     return first;
 }
 
-/* Parse a plain non-negative decimal integer lexeme (digits only, no dot, exponent, separator or
-   radix prefix) under 10^15 so every sum/product stays an exact IEEE-754 integer. 1 and *out set,
+/* Parse a plain non-negative decimal integer lexeme (digits and `_` separators only, no dot, exponent or radix
+   prefix) under 10^15 so every sum/product stays an exact IEEE-754 integer. The printer drops the separators, so
+   reading through them folds `1_0+1` in the pass that prints it rather than in a re-minification. 1 and *out set,
    or 0. */
 static int int_value(const jm_node *node, uint64_t *out) {
     /* a legacy octal (`010` is 8) does not read as its decimal digits, so it never folds */
-    if (node->kind != JN_NUM || node->str_len > 15 || (node->str_len > 1 && node->str[0] == '0')) {
+    if (node->kind != JN_NUM || (node->str_len > 1 && node->str[0] == '0')) {
         return 0;
     }
     uint64_t value = 0;
     for (Py_ssize_t index = 0; index < node->str_len; index++) {
-        if (node->str[index] < '0' || node->str[index] > '9') {
+        Py_UCS4 ch = node->str[index];
+        if (ch == '_') {
+            continue;
+        }
+        if (ch < '0' || ch > '9' || value > (UINT64_C(999999999999999) - (ch - '0')) / 10) {
             return 0;
         }
-        value = value * 10 + (uint64_t)(node->str[index] - '0');
+        value = value * 10 + (uint64_t)(ch - '0');
     }
     *out = value;
     return 1;

@@ -287,6 +287,10 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
         pytest.param("x=08+1", "x=08+1", id="leading-zero-decimal-operand-kept"),
         pytest.param("x=0+1", "x=1", id="zero-operand"),
         pytest.param("x=9999999999999999+1", "x=9999999999999999+1", id="oversize-int-kept"),
+        # separators fold like the digits the printer keeps, so a second minification has nothing left to fold
+        pytest.param("x=1_0+1", "x=11", id="separated-operand"),
+        pytest.param("x=999_999_999_999_999+0", "x=999999999999999", id="separated-largest-operand"),
+        pytest.param("x=1_000_000_000_000_000+0", "x=1e15+0", id="separated-oversize-operand-kept"),
         pytest.param("x=0*7", "x=0", id="int-mul-zero"),
         pytest.param("x=99999999*99999999", "x=99999999*99999999", id="int-mul-overflow-kept"),
         pytest.param('x="a"+5', 'x="a"+5', id="string-plus-number-kept"),
