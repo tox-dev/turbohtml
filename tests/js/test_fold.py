@@ -950,6 +950,26 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
             "function f(){var a=g();return o.f(a)}",
             id="inline-into-method-call-kept",
         ),
+        # an access evaluates its object, then a computed key, before the property get that may run a getter
+        pytest.param(
+            "function f(){var a=g();return a.x}", "function f(){return g().x}", id="inline-into-member-object"
+        ),
+        pytest.param(
+            "function f(){var a=g();return a.f(1)}", "function f(){return g().f(1)}", id="inline-into-method-object"
+        ),
+        pytest.param(
+            "function f(p){var a=g();return p[a]}", "function f(a){return a[g()]}", id="inline-into-computed-key"
+        ),
+        pytest.param(
+            "function f(){var a=g();return o.x[a]}",
+            "function f(){var a=g();return o.x[a]}",
+            id="inline-past-getter-kept",
+        ),
+        pytest.param(
+            "function f(){var a=g(),b=h();return a.x(b)}",
+            "function f(){var a=g(),b=h();return a.x(b)}",
+            id="inline-into-method-argument-kept",
+        ),
         pytest.param(
             "function f(p){var a=g();return p?.(a)}",
             "function f(a){var b=g();return a?.(b)}",

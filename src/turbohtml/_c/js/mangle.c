@@ -1774,9 +1774,19 @@ static int scan_inline_reads(jm_program *prog, int32_t idx, jm_inline_scan *scan
             }
         }
         return 1;
+    case JN_MEMBER_EXPR:
+        /* the object evaluates first, then the key; the access itself may run a getter */
+        if (scan_inline_reads(prog, node->a, scan, depth + 1) && (node->flags & JN_F_COMPUTED)) {
+            scan_inline_reads(prog, node->b, scan, depth + 1);
+        }
+        return 0;
     case JN_CALL:
     case JN_NEW: {
         int32_t callee = node->a;
+        if (node->kind == JN_CALL && prog->nodes[callee].kind == JN_MEMBER_EXPR) {
+            scan_inline_reads(prog, callee, scan, depth + 1); /* a method call reads its object first */
+            return 0;
+        }
         if (prog->nodes[callee].kind != JN_IDENT || prog->nodes[callee].sym < 0 ||
             prog->syms[prog->nodes[callee].sym].decl != 3 || prog->syms[prog->nodes[callee].sym].writes != 0 ||
             (node->flags & JN_F_OPTIONAL)) {
