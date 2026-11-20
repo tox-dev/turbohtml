@@ -1607,6 +1607,60 @@ def test_minify_css_position_order_controls(source: str, expected: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("declaration", "expected"),
+    [
+        pytest.param("background-position:center bottom", "background-position:bottom", id="center-bottom"),
+        pytest.param("background-position:top center", "background-position:top", id="top-center-keyword"),
+        pytest.param("background:url(a) center top/cover", "background:url(a)top/cover", id="shorthand"),
+        pytest.param("transform-origin:center bottom", "transform-origin:bottom", id="origin-bottom"),
+        pytest.param("transform-origin:left bottom", "transform-origin:0 100%", id="origin-offsets"),
+        pytest.param("transform-origin:right center", "transform-origin:100%", id="origin-centered-y"),
+        pytest.param("transform-origin:center", "transform-origin:50%", id="origin-center"),
+        pytest.param("-webkit-transform-origin:top center", "-webkit-transform-origin:top", id="origin-prefixed"),
+        pytest.param("transform-origin:center center 0px", "transform-origin:50%", id="origin-zero-z"),
+        pytest.param("transform-origin:center center 0", "transform-origin:50%", id="origin-unitless-zero-z"),
+        pytest.param("transform-origin:center center 2px", "transform-origin:center center 2px", id="origin-z"),
+        pytest.param("transform-origin:center center 0deg", "transform-origin:center center 0deg", id="origin-angle-z"),
+        pytest.param("transform-origin:left left 0", "transform-origin:left left", id="origin-invalid-order"),
+        pytest.param("transform-origin:left 10px top", "transform-origin:left 10px top", id="origin-edge-offset"),
+        pytest.param("transform-origin:var(--x)", "transform-origin:var(--x)", id="origin-substitution"),
+        pytest.param("scroll-padding-block-end:0px", "scroll-padding-block-end:0", id="origin-length-other-property"),
+        pytest.param("perspective-origin:right top", "perspective-origin:100% 0", id="perspective-origin"),
+        pytest.param("-webkit-perspective-origin:center", "-webkit-perspective-origin:50%", id="perspective-prefixed"),
+        pytest.param("perspective-origin:center center 0", "perspective-origin:center center 0", id="perspective-no-z"),
+        pytest.param("transition:opacity .6s ease", "transition:opacity .6s", id="ease"),
+        pytest.param("transition:opacity EASE,top 1s ease", "transition:opacity,top 1s", id="ease-layers"),
+        pytest.param("-webkit-transition:opacity ease", "-webkit-transition:opacity", id="ease-prefixed"),
+        pytest.param("transition:ease .6s", "transition:ease .6s", id="ease-names-property"),
+        pytest.param("transition:.2s ease opacity", "transition:.2s ease opacity", id="ease-before-property"),
+        pytest.param("transition:normal ease", "transition:normal ease", id="ease-after-behavior"),
+        pytest.param("transition:opacity ease linear", "transition:opacity ease linear", id="ease-competing"),
+        pytest.param(
+            "transition:opacity ease cubic-bezier(0,0,1,1)",
+            "transition:opacity ease cubic-bezier(0,0,1,1)",
+            id="ease-competing-function",
+        ),
+        pytest.param("transition:opacity ease steps(2)", "transition:opacity ease steps(2)", id="ease-steps"),
+        pytest.param("transition:opacity ease linear(0,1)", "transition:opacity ease linear(0,1)", id="ease-linear-fn"),
+        pytest.param("transition:inherit ease", "transition:inherit ease", id="ease-wide-keyword"),
+        pytest.param("transition:opacity ease env(x)", "transition:opacity ease env(x)", id="ease-env"),
+        pytest.param("transition:opacity ease var(--t)", "transition:opacity ease var(--t)", id="ease-var"),
+        pytest.param("transition:opacity ease attr(t)", "transition:opacity ease attr(t)", id="ease-attr"),
+        pytest.param("transition:opacity ease foo(1)", "transition:opacity foo(1)", id="ease-other-function"),
+        pytest.param("transition:allow-discrete ease", "transition:allow-discrete ease", id="ease-after-discrete"),
+        pytest.param("transition:opacity ease ease-in", "transition:opacity ease ease-in", id="ease-in-competing"),
+        pytest.param("transition:opacity ease step-end", "transition:opacity ease step-end", id="step-end-competing"),
+        pytest.param("-moz-transition:opacity ease", "-moz-transition:opacity", id="ease-moz"),
+        pytest.param("-o-transition:opacity ease", "-o-transition:opacity", id="ease-o"),
+        pytest.param("transition:opacity ease calc(1s)", "transition:opacity 1s", id="ease-calc"),
+        pytest.param("animation:x 1s ease", "animation:x 1s ease", id="animation-keeps-ease"),
+    ],
+)
+def test_minify_css_inline_initial_keywords(declaration: str, expected: str) -> None:
+    assert (minify_css_inline(declaration), minify_css_inline(expected)) == (expected, expected)
+
+
+@pytest.mark.parametrize(
     ("percentage", "expected"),
     [
         pytest.param(f"{'0' * 128}1%", f"right {'0' * 128}1% top 10px", id="nonzero-offset"),
