@@ -153,8 +153,9 @@ def test_dropped_function_in_inline_script_leaves_no_binding_behind() -> None:
     ],
 )
 def test_string_line_continuation_lexes(body: str, value: str) -> None:
-    # the standalone literal keeps its lexeme, so lexing it proves the fix; concatenating "" folds by value
-    assert minify_js(f'x="{body}"') == f'x="{body}"'
+    # without folding the literal keeps its lexeme, so lexing it proves the fix; folding re-encodes it by value
+    assert minify_js(f'x="{body}"', JSMinify(fold=False)) == f'x="{body}"'
+    assert minify_js(f'x="{body}"') == f'x="{value}"'
     assert minify_js(f'x="{body}"+""') == f'x="{value}"'
 
 

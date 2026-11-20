@@ -290,7 +290,7 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
         pytest.param("x=0*7", "x=0", id="int-mul-zero"),
         pytest.param("x=99999999*99999999", "x=99999999*99999999", id="int-mul-overflow-kept"),
         pytest.param('x="a"+5', 'x="a"+5', id="string-plus-number-kept"),
-        pytest.param("x=\"a\"+'b'", "x=\"a\"+'b'", id="concat-mixed-quote-kept"),
+        pytest.param("x=\"a\"+'b'", 'x="ab"', id="concat-mixed-quote-joined"),
         # more folded literals than the program's initial owned-buffer capacity, forcing it to grow
         pytest.param(
             f"x=[{','.join(f'{index}+1' for index in range(18))}]",
@@ -2051,7 +2051,7 @@ _PS: Final[str] = chr(0x2029)
         pytest.param(r'"\f"+"a"', r'"\fa"', id="form-feed"),
         pytest.param(r'"\v"+"a"', r'"\va"', id="vertical-tab"),
         pytest.param(r'"a\\b"+"c"', r'"a\\bc"', id="backslash"),
-        pytest.param(r'"x"+"a\"b"', r'"xa\"b"', id="escaped-quote-reescaped"),
+        pytest.param(r'"x"+"a\"b"', """'xa"b'""", id="escaped-quote-requoted"),
         pytest.param(r'"\q"+"z"', r'"qz"', id="unknown-escape-is-literal"),
         pytest.param(f'"{_BS}u2028"+"a"', f'"{_BS}u2028a"', id="line-separator-value"),
         pytest.param(f'"{_BS}u2029"+"a"', f'"{_BS}u2029a"', id="paragraph-separator-value"),
@@ -2073,6 +2073,36 @@ _PS: Final[str] = chr(0x2029)
 )
 def test_concat_reencodes_by_value(source: str, expected: str) -> None:
     assert minify_js(f"x={source}") == f"x={expected}"
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(f'x="{_BS}xc0"', 'x="\u00c0"', id="hex-to-two-bytes"),
+        pytest.param(f'x="{_BS}u2019"', 'x="\u2019"', id="unicode-to-three-bytes"),
+        pytest.param(f'x="{_BS}ud83d{_BS}ude00"', 'x="\U0001f600"', id="surrogate-pair-to-four-bytes"),
+        pytest.param(f'x="{_BS}u{{1F600}}"', 'x="\U0001f600"', id="braced-astral"),
+        pytest.param(f'x="{_BS}ud83d"', f'x="{_BS}ud83d"', id="lone-high-surrogate-kept"),
+        pytest.param(f'x="{_BS}ud83d"+"a"', f'x="{_BS}ud83da"', id="lone-high-surrogate-joined"),
+        pytest.param(f'x="{_BS}ude00"+"a"', f'x="{_BS}ude00a"', id="lone-low-surrogate-joined"),
+        pytest.param(f'x="{_BS}x00"', f'x="{_BS}0"', id="nul"),
+        pytest.param(f'x="{_BS}x00a"', f'x="{_BS}0a"', id="nul-before-letter"),
+        pytest.param(f'x="{_BS}ud83d{_BS}uff21"', f'x="{_BS}ud83d\uff21"', id="high-surrogate-before-non-surrogate"),
+        pytest.param(f'x="{_BS}x00"+"1"', f'x="{_BS}x001"', id="nul-before-digit"),
+        pytest.param(f'x="a{_BS}"b"', "x='a\"b'", id="double-quote-swapped"),
+        pytest.param(f"x='a{_BS}'b'", 'x="a\'b"', id="single-quote-swapped"),
+        pytest.param(f'x="{_BS}"\'{_BS}x41"', f'x="{_BS}"\'A"', id="quote-tie-keeps-quote"),
+        pytest.param(f'x="{_BS}n"', f'x="{_BS}n"', id="escape-already-shortest"),
+        pytest.param(f'x="{_BS}xZZ"', f'x="{_BS}xZZ"', id="valueless-kept"),
+        pytest.param(f'x={{"{_BS}x41":1}}', "x={A:1}", id="object-key"),
+        pytest.param(f'class A{{"{_BS}x41"(){{}}}}', "class A{A(){}}", id="class-member-key"),
+        pytest.param(
+            f'function f(){{"{_BS}x41";return 1}}', f'function f(){{"{_BS}x41";return 1}}', id="directive-kept"
+        ),
+    ],
+)
+def test_string_literal_respelled_by_value(source: str, expected: str) -> None:
+    assert minify_js(source) == expected
 
 
 # A hex or unicode escape that is malformed, or names a value past U+10FFFF, has no value to join by, and one past
@@ -2142,7 +2172,7 @@ def test_concat_chain_frees_the_lexemes_it_supersedes(operand: str) -> None:
     [
         pytest.param('x="a"+"b"+y+("c"+"d")', 'x="ab"+y+"cd"', id="operand-after-prefix-keeps-its-fold"),
         pytest.param('x="a"+"b"+"\\xZZ"+"c"', 'x="ab"+"\\xZZ"+"c"', id="valueless-escape-after-prefix"),
-        pytest.param('x="a"+"b"+\'c\'+"d"', 'x="ab"+\'c\'+"d"', id="quote-change-after-prefix"),
+        pytest.param('x="a"+"b"+\'c\'+"d"', 'x="abcd"', id="quote-change-after-prefix"),
         pytest.param('x=1+2+"a"+"b"', 'x=3+"a"+"b"', id="integer-prefix-then-string"),
         pytest.param('x="a"+y+"b"+"c"', 'x="a"+y+"b"+"c"', id="string-after-non-string-not-joined"),
         pytest.param('x=a*b+"c"+"d"', 'x=a*b+"c"+"d"', id="product-prefix-not-joined"),

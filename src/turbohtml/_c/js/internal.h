@@ -276,6 +276,7 @@ enum {
     JN_F_DIRECTIVE = 1 << 16, /* an expression statement the source wrote in a directive prologue */
     JN_F_GROUPED = 1 << 17,   /* an expression the source wrote in parentheses, which no binding may be */
     JN_F_LOOP_HEAD = 1 << 18, /* a declaration the last analysis found in a for head, not in a statement list */
+    JN_F_CANONICAL = 1 << 19, /* a string literal fold already spelled in its fewest bytes */
 };
 
 typedef struct {
