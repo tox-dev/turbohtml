@@ -294,6 +294,7 @@ typedef struct {
     int32_t stmt;        /* the innermost enclosing expression, return or throw statement (-1 outside one) */
     int track_stmt;      /* a regex literal was parsed, so reads record their statement (see walk) */
     int32_t fn_scope;    /* the scope walk_function last opened */
+    int32_t fn_now;      /* the function scope the walk stands in */
     int32_t depth;       /* walk calls on the stack: how deep the node being analyzed sits */
     int32_t deepest;     /* the largest depth reached under the function being analyzed */
     int poisoned;        /* a with / eval was seen: stop renaming entirely */
@@ -619,6 +620,23 @@ static void walk_if_clause(M *mangler, int32_t clause, int32_t scope) {
 }
 
 /* Open a function/arrow scope: declare params + hoisted bindings, then walk the body. */
+/* Whether a reference to sym may run before its let, const or class declaration initializes it: one textually
+   before the declaration, or one in another function, which a hoisted declaration can call first. */
+static int reached_early(const M *mangler, int32_t sym) {
+    const jm_sym *binding = &mangler->prog->syms[sym];
+    if (binding->decl != 1 && binding->decl != 2 && binding->decl != 6) {
+        return 0;
+    }
+    if (binding->decl_node < 0) {
+        return 1;
+    }
+    int32_t home = binding->scope;
+    while (mangler->prog->scopes[home].kind != 1) {
+        home = mangler->prog->scopes[home].parent;
+    }
+    return home != mangler->fn_now;
+}
+
 static void walk_function(M *mangler, int32_t idx, int32_t parent) {
     jm_node *node = &mangler->prog->nodes[idx];
     int32_t scope = jm_scope_new(mangler->prog, parent, 1);
@@ -628,6 +646,8 @@ static void walk_function(M *mangler, int32_t idx, int32_t parent) {
     }
     int32_t mark = mangler->undo_count;
     int32_t outer_args = mangler->args_scope;
+    int32_t outer_fn = mangler->fn_now;
+    mangler->fn_now = scope;
     int32_t own_scope = scope;
     if (node->kind == JN_FUNC) { /* an arrow has no arguments object of its own (§10.2.11) */
         mangler->args_scope = scope;
@@ -647,6 +667,7 @@ static void walk_function(M *mangler, int32_t idx, int32_t parent) {
         walk_chain(mangler, node->a, scope, 1);
         walk(mangler, body, scope, 0);
         mangler->args_scope = outer_args;
+        mangler->fn_now = outer_fn;
         mangler->fn_scope = own_scope;
         undo_to(mangler, mark);
         return;
@@ -663,6 +684,7 @@ static void walk_function(M *mangler, int32_t idx, int32_t parent) {
         alias_parameters(mangler, mangler->prog->scopes[scope].args_reads - 1);
     }
     mangler->args_scope = outer_args;
+    mangler->fn_now = outer_fn;
     mangler->fn_scope = own_scope;
     undo_to(mangler, mark);
 }
@@ -687,6 +709,9 @@ static void walk_node(M *mangler, int32_t idx, int32_t scope, int bind) {
         node->sym = sym;
         if (sym >= 0) {
             mangler->prog->syms[sym].uses++;
+            if (bind != 1 && reached_early(mangler, sym)) {
+                mangler->prog->syms[sym].early = 1;
+            }
             if (bind == 0) { /* a read reference */
                 mangler->prog->syms[sym].refs++;
                 mangler->prog->syms[sym].ref_node = idx;
@@ -938,6 +963,7 @@ static void walk_node(M *mangler, int32_t idx, int32_t scope, int bind) {
         for (int32_t sym = mangler->prog->scopes[inner].first_sym; sym >= 0;
              sym = mangler->prog->syms[sym].scope_next) {
             mangler->prog->syms[sym].decl_node = -1;
+            mangler->prog->syms[sym].early = 1;
         }
         undo_to(mangler, mark);
         return;
@@ -1221,7 +1247,7 @@ static int is_droppable_init(jm_program *prog, int32_t init);
    call or free-name read may throw or run a getter, so it is not pure. */
 static int is_pure_value(jm_program *prog, int32_t idx) {
     if (prog->nodes[idx].kind == JN_IDENT && prog->nodes[idx].sym >= 0) {
-        return 1;
+        return !prog->syms[prog->nodes[idx].sym].early;
     }
     return is_droppable_init(prog, idx);
 }
@@ -1242,7 +1268,7 @@ static int32_t dead_store_value(jm_program *prog, int32_t node) {
         return -1;
     }
     int32_t target = prog->nodes[prog->nodes[node].a].sym;
-    if (target < 0 || prog->syms[target].refs != 0 || is_immutable(&prog->syms[target])) {
+    if (target < 0 || prog->syms[target].refs != 0 || is_immutable(&prog->syms[target]) || prog->syms[target].early) {
         return -1;
     }
     prog->syms[target].writes--;
@@ -1827,6 +1853,7 @@ static int32_t analyze(M *mangler, jm_program *prog) {
         return -1;    /* GCOVR_EXCL_LINE */
     }
     mangler->global = global;
+    mangler->fn_now = global;
     mangler->args_scope = -1;
     mangler->stmt = -1;
     mangler->track_stmt = prog->has_regex;

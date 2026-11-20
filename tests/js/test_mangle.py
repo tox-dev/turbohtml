@@ -210,6 +210,10 @@ def test_binding_read_that_moved_survives(source: str, options: JSMinify, expect
             "var t=7;console.log((function(){const t=5;var s=t;return s})())",
             id="read-survives-inlined-initializer",
         ),
+        pytest.param(
+            "try{(function(){g();function g(){var y;y=x}let x=1})()}catch(e){console.log(e.constructor.name)}",
+            id="read-before-initialization-throws",
+        ),
     ],
 )
 def test_mangling_preserves_behavior(snippet: str) -> None:
