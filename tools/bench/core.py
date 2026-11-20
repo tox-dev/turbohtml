@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import functools
 import re
-import subprocess
 import sys
 from collections import deque
 from dataclasses import replace
@@ -217,6 +216,8 @@ def _slotted(case: tuple[int, str]) -> turbohtml.Element:
 
 def _startup(mode: str) -> str:
     # Include interpreter startup so cached imports cannot hide wheel initialization costs.
+    import subprocess  # ruff:ignore[import-outside-top-level]  # bench.memory imports this module, and subprocess's threading and selectors would add 2 MB to every turbohtml peak
+
     return subprocess.run(
         [sys.executable, "-c", "import turbohtml; print(turbohtml.__version__)"]
         if mode == "import"

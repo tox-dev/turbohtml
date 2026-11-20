@@ -15,17 +15,24 @@ from __future__ import annotations
 import importlib
 import os
 import sys
+from pathlib import Path
 
 from bench.operations import INPUTS
 from bench.timing import Mutating
 
 
 def _peak_bytes() -> int:
-    # Return this process's peak resident set size in bytes; ``ru_maxrss`` reports bytes on macOS, KiB on Linux.
+    # Return this process's peak resident set size in bytes. On Linux ``ru_maxrss`` is no use here: execve folds the
+    # spawning process's resident set into it, and subprocess spawns through vfork, so every case would report the
+    # size of the pyperf worker that launched it. VmHWM belongs to the memory map execve built, so it counts this
+    # process only.
+    if sys.platform == "linux":
+        for line in Path("/proc/self/status").read_text(encoding="ascii").splitlines():
+            if line.startswith("VmHWM:"):
+                return int(line.split()[1]) * 1024
     import resource  # ruff:ignore[import-outside-top-level]  # POSIX-only; imported here so a Windows import of the module stays clean
 
-    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    return peak if sys.platform == "darwin" else peak * 1024
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss  # bytes on macOS
 
 
 def main() -> None:

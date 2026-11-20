@@ -9,10 +9,10 @@ the representative training workload from :mod:`pgo_train`, then a ``-Db_pgo=use
 counters. gcc writes ``.gcda`` files the second build reads directly; clang writes ``.profraw`` that must first be
 merged into ``default.profdata``, which this driver does when it finds them, so one command works under either compiler.
 
-The CodSpeed gate builds this way through the ``codspeed`` tox environment (``--phase full``, which finishes with the
-profiled editable install the benchmarks then import). The release wheels build this way through cibuildwheel, whose
-``before-build`` hook runs ``--phase profile`` to leave the profile in the shared build directory that the wheel build
-then reuses with ``-Db_pgo=use``.
+The comparison benchmark (``tox -e bench -- --pgo``) builds this way with ``--phase full``, which finishes with a
+regular install of the profiled build. The release wheels build this way through cibuildwheel, whose ``before-build``
+hook runs ``--phase profile`` to leave the profile in the shared build directory that the wheel build then reuses with
+``-Db_pgo=use``.
 """
 
 from __future__ import annotations
@@ -29,7 +29,10 @@ _ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 
 
 def _install(python: str, build_dir: Path, root: Path, phase: str, *, system: bool) -> None:
-    # Reinstall the extension editable into ``python``'s environment at PGO ``phase``, reusing ``build_dir``.
+    # Reinstall the extension into ``python``'s environment at PGO ``phase``, reusing ``build_dir``. The instrumented
+    # build is editable so training imports it from the build directory; the profiled one is a regular install, as a
+    # wheel is, since an editable install puts meson-python's loader in every interpreter start and its 4.5 MB in each
+    # peak-memory measurement.
     subprocess.run(
         [
             "uv",
@@ -42,7 +45,7 @@ def _install(python: str, build_dir: Path, root: Path, phase: str, *, system: bo
             "--reinstall",
             "--no-deps",
             "--no-build-isolation",
-            "--editable",
+            *(["--editable"] if phase == "generate" else []),
             str(root),
             f"--config-settings=build-dir={build_dir}",
             "--config-settings=setup-args=-Dbuildtype=release",
