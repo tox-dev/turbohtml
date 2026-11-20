@@ -112,4 +112,4 @@ scripts ends an enclosing ``<noscript>``.
 
 .. testoutput::
 
-    <p>hi<script>function plus(b,a){return b+a}</script>
+    <p>hi<script>function plus(a,b){return a+b}</script>

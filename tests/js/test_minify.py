@@ -153,8 +153,9 @@ def test_dropped_function_in_inline_script_leaves_no_binding_behind() -> None:
     ],
 )
 def test_string_line_continuation_lexes(body: str, value: str) -> None:
-    # the standalone literal keeps its lexeme, so lexing it proves the fix; concatenating "" folds by value
-    assert minify_js(f'x="{body}"') == f'x="{body}"'
+    # without folding the literal keeps its lexeme, so lexing it proves the fix; folding re-encodes it by value
+    assert minify_js(f'x="{body}"', JSMinify(fold=False)) == f'x="{body}"'
+    assert minify_js(f'x="{body}"') == f'x="{value}"'
     assert minify_js(f'x="{body}"+""') == f'x="{value}"'
 
 
@@ -526,7 +527,7 @@ def test_minify_js_rejects_non_string() -> None:
 def test_inline_script_keeps_bang_comment() -> None:
     # the license header survives minification of an inline <script>, as it does for the standalone call
     out = _serialize_script("<script>/*! lib v1 */\nfunction plus(a,b){return a+b}</script>")
-    assert out == "<script>/*! lib v1 */function plus(b,a){return b+a}</script>"
+    assert out == "<script>/*! lib v1 */function plus(a,b){return a+b}</script>"
 
 
 def _serialize_script(html: str) -> str:

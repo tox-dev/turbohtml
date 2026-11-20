@@ -100,7 +100,8 @@ static int string_value_empty(const jm_node *node) {
             return 0;           /* GCOVR_EXCL_LINE */
         }
         Py_UCS4 next = inner[index + 1];
-        if (next == '\r' && index + 2 < len && inner[index + 2] == '\n') { /* a CRLF continuation */
+        /* a CRLF continuation; at the content's end the read lands on the closing quote, which is no LF */
+        if (next == '\r' && inner[index + 2] == '\n') {
             index += 3;
         } else if (next == '\n' || next == '\r' || next == 0x2028 || next == 0x2029) {
             index += 2;
@@ -1414,6 +1415,17 @@ static void fold_arithmetic(F *folder, int32_t idx) {
     }
 }
 
+/* The quote that delimits value[0..len) with fewer escapes, or current when both need as many. */
+static Py_UCS4 fewer_escapes_quote(const Py_UCS4 *value, Py_ssize_t len, Py_UCS4 current) {
+    Py_ssize_t singles = 0;
+    Py_ssize_t doubles = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        singles += value[index] == '\'';
+        doubles += value[index] == '"';
+    }
+    return singles < doubles ? '\'' : doubles < singles ? '"' : current;
+}
+
 /* The decoded operands of a `+` chain, joined left to right (ECMA-262 13.15.3). The operand values are decoded and the
    joined value re-encoded rather than the raw lexemes spliced: a trailing variable-length escape (a legacy octal or a
    `\x`) in the left operand would otherwise absorb the right operand's first character and change the value
@@ -1423,7 +1435,7 @@ typedef struct {
     Py_UCS4 *value;   /* the decoded operands joined so far */
     Py_ssize_t len;   /* the code points in value */
     Py_ssize_t cap;   /* the code points value can hold */
-    Py_UCS4 quote;    /* the quote every joined operand uses */
+    Py_UCS4 quote;    /* the first operand's quote, which the joined value keeps unless the other one escapes less */
     int32_t join;     /* the last `+` the run joined, whose node takes the value; -1 while none */
     int32_t boundary; /* the owned count right after the last joined operand's walk */
     int32_t mark;     /* the owned count before the chain's first operand was walked */
@@ -1489,8 +1501,7 @@ static void concat_join(F *folder, concat_run *run, int32_t idx, int32_t right_i
         return;
     }
     const jm_node *right = &folder->prog->nodes[right_index];
-    /* same-quote operands only, so the result keeps that quote and re-encoding stays minimal */
-    if (right->kind != JN_STRING || right->str[0] != run->quote) {
+    if (right->kind != JN_STRING) {
         run->open = 0;
         return;
     }
@@ -1527,10 +1538,11 @@ static void concat_commit(F *folder, concat_run *run) {
         folder->prog->failed = 1; /* GCOVR_EXCL_LINE */
         return;                   /* GCOVR_EXCL_LINE */
     }
-    lexeme[0] = run->quote;
     TH_WORK_STEPS_ADD(run->len);
-    Py_ssize_t inner = jm_str_encode(run->value, run->len, run->quote, lexeme + 1);
-    lexeme[inner + 1] = run->quote;
+    Py_UCS4 quote = fewer_escapes_quote(run->value, run->len, run->quote);
+    lexeme[0] = quote;
+    Py_ssize_t inner = jm_str_encode(run->value, run->len, quote, lexeme + 1);
+    lexeme[inner + 1] = quote;
     const Py_UCS4 *owned = jm_program_own(folder->prog, lexeme, inner + 2);
     jm_free(lexeme);
     if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
@@ -1539,6 +1551,7 @@ static void concat_commit(F *folder, concat_run *run) {
     jm_program_release(folder->prog, run->mark, run->boundary);
     jm_node *node = &folder->prog->nodes[run->join];
     node->kind = JN_STRING;
+    node->flags &= ~(uint32_t)JN_F_CANONICAL;
     node->str = owned;
     node->str_len = inner + 2;
     node->a = -1;
@@ -1712,6 +1725,124 @@ static inline void walk_stmt(F *folder, int32_t idx, int32_t depth, int member) 
     }
 }
 
+/* The mark slot of the function body body, or of the free slot its probe ends on. */
+static jm_fold_mark *mark_slot(jm_fold_marks *marks, int32_t body) {
+    uint32_t mask = (uint32_t)marks->cap - 1;
+    uint32_t hash = (uint32_t)body * 0x9E3779B1u;
+    for (uint32_t slot = (hash ^ (hash >> 16)) & mask;; slot = (slot + 1) & mask) {
+        jm_fold_mark *mark = &marks->slots[slot];
+        if (mark->body == body || mark->body < 0) {
+            return mark;
+        }
+    }
+}
+
+/* Whether the function at idx is one an earlier pass of this fold call walked at the same depth without a change: a
+   pass over it now would change nothing either, so it only counts how deep it reaches. Every fold inside a function
+   reads the tree below it and how deep that sits, never the statements around it, and a fold of the code around it
+   leaves its body alone. */
+static int skip_unchanged(F *folder, int32_t idx, int32_t depth) {
+    const jm_program *prog = folder->prog;
+    if (prog->fold_marks == NULL) {
+        return 0;
+    }
+    const jm_fold_mark *mark = mark_slot(prog->fold_marks, prog->nodes[idx].b);
+    if (mark->body < 0 || mark->stamp != prog->fold_stamp || mark->depth != depth) {
+        return 0;
+    }
+    note_depth(folder, mark->reach);
+    return 1;
+}
+
+/* Record how the walk of the function at idx went: a mark when it changed nothing, and none left behind when it did,
+   since an earlier mark at another depth describes the body before this walk changed it. */
+static void mark_walked(F *folder, int32_t idx, int32_t depth) {
+    jm_program *prog = folder->prog;
+    jm_fold_marks *marks = prog->fold_marks;
+    int32_t body = prog->nodes[idx].b;
+    if (folder->changed || folder->with_depth > 0) {
+        if (marks != NULL) {
+            mark_slot(marks, body)->stamp = 0;
+        }
+        return;
+    }
+    if (marks == NULL || marks->count * 2 >= marks->cap) {
+        int32_t cap = marks == NULL ? 8 : marks->cap * 2;
+        jm_fold_marks *grown = jm_malloc(sizeof(jm_fold_marks) + (size_t)cap * sizeof(jm_fold_mark));
+        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+            return;          /* GCOVR_EXCL_LINE: the function is walked again, as without the mark */
+        }
+        grown->cap = cap;
+        grown->count = 0;
+        for (int32_t slot = 0; slot < cap; slot++) {
+            grown->slots[slot].body = -1;
+        }
+        for (int32_t slot = 0; marks != NULL && slot < marks->cap; slot++) {
+            if (marks->slots[slot].body >= 0) {
+                *mark_slot(grown, marks->slots[slot].body) = marks->slots[slot];
+                grown->count++;
+            }
+        }
+        jm_free(marks);
+        prog->fold_marks = marks = grown;
+    }
+    jm_fold_mark *mark = mark_slot(marks, body);
+    marks->count += mark->body < 0;
+    *mark = (jm_fold_mark){body, prog->fold_stamp, depth, folder->deepest};
+}
+
+/* The UTF-8 bytes of the code points text[0..len). */
+static Py_ssize_t utf8_size(const Py_UCS4 *text, Py_ssize_t len) {
+    Py_ssize_t size = len;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        size += (text[index] >= 0x80) + (text[index] >= 0x800) + (text[index] >= 0x10000);
+    }
+    return size;
+}
+
+/* Re-encode the string literal at idx from its value when that prints fewer UTF-8 bytes: a code point an escape
+   spelled is written raw, and the quote the value holds fewer of delimits it. Only a literal with an escape can
+   shrink, and a directive keeps its spelling, which is what makes it one (11.2.1). The literal is marked, so later
+   passes skip it. */
+static void canonical_string(F *folder, int32_t idx) {
+    jm_program *prog = folder->prog;
+    if (prog->nodes[idx].flags & JN_F_CANONICAL) {
+        return;
+    }
+    prog->nodes[idx].flags |= JN_F_CANONICAL;
+    const Py_UCS4 *lexeme = prog->nodes[idx].str;
+    Py_ssize_t len = prog->nodes[idx].str_len;
+    Py_ssize_t escape = 1;
+    while (escape < len - 1 && lexeme[escape] != '\\') {
+        escape++;
+    }
+    if (escape >= len - 1) {
+        return;
+    }
+    Py_UCS4 *value = jm_malloc((size_t)(len * 7 + 2) * sizeof(Py_UCS4)); /* the value, then its widest encoding */
+    if (value == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation-failure path keeps the literal */
+        folder->prog->failed = 1; /* GCOVR_EXCL_LINE */
+        return;                   /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t decoded = jm_str_decode(lexeme, len, value);
+    if (decoded >= 0) {
+        Py_UCS4 quote = fewer_escapes_quote(value, decoded, lexeme[0]);
+        Py_UCS4 *encoded = value + len;
+        encoded[0] = quote;
+        Py_ssize_t inner = jm_str_encode(value, decoded, quote, encoded + 1);
+        encoded[inner + 1] = quote;
+        if (utf8_size(encoded, inner + 2) < utf8_size(lexeme, len)) {
+            const Py_UCS4 *owned = jm_program_own(prog, encoded, inner + 2);
+            if (owned != NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path keeps the literal */
+                prog->nodes[idx].str = owned;
+                prog->nodes[idx].str_len = inner + 2;
+                folder->changed = 1;
+            }
+        }
+    }
+    jm_free(value);
+}
+
 /* Fold the subtree at idx, which sits depth walk calls under the program root. folder->deepest is the deepest point
    the walk has reached under the innermost if, logical or statement list around it: the guard fold and the chain
    rotation read it to know how tall the tree they are about to grow already is. */
@@ -1723,8 +1854,10 @@ static void walk(F *folder, int32_t idx, int32_t depth) {
     jm_node *node = &folder->prog->nodes[idx];
     int kind = node->kind;
     switch (kind) {
-    case JN_NUM:
     case JN_STRING:
+        canonical_string(folder, idx);
+        return;
+    case JN_NUM:
     case JN_REGEX:
     case JN_BIGINT:
     case JN_EMPTY:
@@ -1777,6 +1910,8 @@ static void walk(F *folder, int32_t idx, int32_t depth) {
     case JN_MEMBER:
         if (flags & JN_F_COMPUTED) {
             walk(folder, child_a, depth + 1);
+        } else if (child_a >= 0 && folder->prog->nodes[child_a].kind == JN_STRING) {
+            canonical_string(folder, child_a);
         }
         walk(folder, child_b, depth + 1);
         return;
@@ -1805,7 +1940,9 @@ static void walk(F *folder, int32_t idx, int32_t depth) {
         }
         return;
     case JN_EXPR_STMT:
-        walk(folder, child_a, depth + 1);
+        if (!(flags & JN_F_DIRECTIVE)) {
+            walk(folder, child_a, depth + 1);
+        }
         /* a constant has no side effect, so the statement only matters as a directive (11.2.1) */
         if (is_pure_const(folder, child_a) && !(folder->prog->nodes[idx].flags & JN_F_DIRECTIVE)) {
             jm_node_empty(folder->prog, idx);
@@ -1821,7 +1958,14 @@ static void walk(F *folder, int32_t idx, int32_t depth) {
         walk_block(folder, idx, depth, 0);
         return;
     case JN_FUNC:
-    case JN_ARROW:
+    case JN_ARROW: {
+        if (skip_unchanged(folder, idx, depth)) {
+            return;
+        }
+        int outer_changed = folder->changed;
+        int32_t outer = folder->deepest;
+        folder->changed = 0;
+        folder->deepest = depth;
         walk_chain(folder, child_a, depth + 1); /* params (default values may fold) */
         walk(folder, child_b, depth + 1);       /* body */
         if (!(kind == JN_ARROW && (flags & JN_F_EXPRBODY))) {
@@ -1830,7 +1974,13 @@ static void walk(F *folder, int32_t idx, int32_t depth) {
             fold_tail_return(folder, child_b);
             fold_guard_jump(folder, folder->prog->nodes[child_b].a, JN_RETURN);
         }
+        mark_walked(folder, idx, depth);
+        folder->changed |= outer_changed;
+        if (outer > folder->deepest) {
+            folder->deepest = outer;
+        }
         return;
+    }
     case JN_FOR:
     case JN_FORIN:
     case JN_FOROF:
@@ -2039,7 +2189,7 @@ static void walk(F *folder, int32_t idx, int32_t depth) {
     }
 }
 
-int jm_fold(jm_program *prog) {
+static int fold_passes(jm_program *prog) {
     F folder = {.prog = prog, .changed = 0};
     /* with a binding named `undefined` anywhere, only a read resolution proves global folds. The passes move and
        drop bindings but never create one, so once none is named `undefined` a later fold need not look again. */
@@ -2064,4 +2214,27 @@ int jm_fold(jm_program *prog) {
     }
     jm_free(folder.hoists);
     return any;
+}
+
+int jm_fold(jm_program *prog) {
+    prog->fold_stamp++; /* the marks an earlier call left describe a tree the passes since may have changed */
+    return fold_passes(prog);
+}
+
+int jm_fold_touched(jm_program *prog) {
+    return fold_passes(prog);
+}
+
+void jm_fold_touch_function(jm_program *prog, int32_t func) {
+    if (prog->fold_marks != NULL) {
+        mark_slot(prog->fold_marks, prog->nodes[func].b)->stamp = 0;
+    }
+}
+
+void jm_fold_touch(jm_program *prog, int32_t scope) {
+    for (; scope >= 0; scope = prog->scopes[scope].parent) {
+        if (prog->scopes[scope].node >= 0) {
+            jm_fold_touch_function(prog, prog->scopes[scope].node);
+        }
+    }
 }

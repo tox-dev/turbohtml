@@ -275,6 +275,8 @@ enum {
                                  (`(0,o.f)()`): marks the slot, so it survives an in-place rewrite */
     JN_F_DIRECTIVE = 1 << 16, /* an expression statement the source wrote in a directive prologue */
     JN_F_GROUPED = 1 << 17,   /* an expression the source wrote in parentheses, which no binding may be */
+    JN_F_LOOP_HEAD = 1 << 18, /* a declaration the last analysis found in a for head, not in a statement list */
+    JN_F_CANONICAL = 1 << 19, /* a string literal fold already spelled in its fewest bytes */
 };
 
 typedef struct {
@@ -351,7 +353,7 @@ typedef struct {
 typedef struct {
     int32_t parent;
     uint8_t kind;         /* 0 block / 1 function / 2 catch / 3 with */
-    int poisoned;         /* a with or a direct eval makes renaming unsafe in this subtree */
+    uint8_t poisoned;     /* a with or a direct eval makes renaming unsafe in this subtree */
     int32_t first_sym;    /* head of the chain of symbols declared here (jm_sym.scope == this) */
     int32_t first_child;  /* head of the child-scope list, for an O(scopes) tree walk */
     int32_t next_sibling; /* next scope with the same parent */
@@ -361,7 +363,26 @@ typedef struct {
                              so a var literal declared there dominates every read (-1 elsewhere) */
     int32_t args_reads;   /* a function scope's free `arguments` reads, each one a read and a write of
                              every parameter */
+    int32_t node;         /* a function scope's function node, else -1 */
 } jm_scope;
+
+/* What a fold pass learned about the function whose body is the node body: it changed nothing there (stamp names
+   the fold call), at depth, with nothing below reaching deeper than reach. Keyed by the body, the mark follows the
+   function when a rewrite copies its node into another slot, and never describes another function's. */
+typedef struct {
+    int32_t body; /* -1 for a free slot */
+    int32_t stamp;
+    int32_t depth;
+    int32_t reach;
+} jm_fold_mark;
+
+/* The functions the last fold pass found unchanged, so the next one need not walk them again: an open-addressed table
+   of cap (a power of two) slots keyed by body, count of them used. */
+typedef struct {
+    int32_t cap;
+    int32_t count;
+    jm_fold_mark slots[];
+} jm_fold_marks;
 
 /* A parsed program: the node arena, the symbol and scope tables, the root node, and
    the borrowed source. Owned by one minify call and freed with jm_program_free. */
@@ -396,10 +417,13 @@ typedef struct jm_program {
     int32_t comment_count;
     int32_t comment_cap;
 
-    int shadows_undefined; /* some binding is named `undefined`, so the fold pass must check each read */
-    int never_undefined;   /* a fold found no binding named `undefined`; no pass creates a binding, so none appears */
-    int resolved;          /* every identifier carries its symbol from a with/eval-free resolution */
-    int has_regex;         /* a regex literal was parsed: only then can a binding be initialized to one */
+    jm_fold_marks *fold_marks; /* NULL until a fold pass marks a function */
+    int32_t fold_stamp;        /* the running fold call's stamp, counted from 1 */
+
+    uint8_t shadows_undefined; /* some binding is named `undefined`, so the fold pass must check each read */
+    uint8_t never_undefined; /* a fold found no binding named `undefined`; no pass creates a binding, so none appears */
+    uint8_t resolved;        /* every identifier carries its symbol from a with/eval-free resolution */
+    uint8_t has_regex;       /* a regex literal was parsed: only then can a binding be initialized to one */
     /* How deep, in walk calls from the program root, a rewrite may leave the tree. The fold, mangle and print walks
        recurse once per level and are sized for the height the parser's nesting cap admits, but three rewrites turn
        something that cap never meters into height: the guard fold nests a statement list once per `if(c)return v;`,
@@ -412,6 +436,35 @@ typedef struct jm_program {
     int *parse_err; /* the parser's error flag while jm_parse runs, else NULL: a failed node allocation stops the
                        parse the way a syntax error does, so no early-error walk follows a link into the sink */
 } jm_program;
+
+/* A block scopes its `let`/`const`/class/function declarations, so those keep their braces; a `var` or an ordinary
+   statement does not, so a single one can shed the braces. */
+static inline int jm_keeps_block_scope(const jm_program *prog, int32_t stmt) {
+    int kind = prog->nodes[stmt].kind;
+    return kind == JN_CLASS || kind == JN_FUNC || (kind == JN_VAR && prog->nodes[stmt].decl != 0);
+}
+
+enum { JM_NO_STATEMENT = -2 };
+
+/* The statement a block prints braceless -- its single scope-free statement --, -1 when the braces stay (several
+   statements, or one that needs the block scope), or JM_NO_STATEMENT when it holds none. */
+static inline int32_t jm_block_single_stmt(const jm_program *prog, int32_t block) {
+    int32_t only = -1;
+    int count = 0;
+    for (int32_t stmt = prog->nodes[block].a; stmt >= 0; stmt = prog->nodes[stmt].next) {
+        if (prog->nodes[stmt].kind == JN_EMPTY) {
+            continue;
+        }
+        only = stmt;
+        if (++count > 1) {
+            break;
+        }
+    }
+    if (count == 0) {
+        return JM_NO_STATEMENT;
+    }
+    return count == 1 && !jm_keeps_block_scope(prog, only) ? only : -1;
+}
 
 /* Overwrite node dst in place with a copy of src, keeping dst's sibling link and its JN_F_VALUE mark:
    the mark belongs to the slot, not to the expression that now fills it. */
@@ -477,14 +530,29 @@ void jm_program_free(jm_program *prog);
    before mangling. Value-exact; an allocation failure sets prog->failed. */
 int jm_fold(jm_program *prog); /* 1 when any transform fired: the tree needs another look */
 
+/* Fold again a tree the last jm_fold left at a fixpoint, after jm_fold_touch named every function a rewrite changed
+   since: only those functions are walked. Returns 1 when any transform fired. */
+int jm_fold_touched(jm_program *prog);
+
+/* Note that a rewrite changed the statements of the function scope's function, or of the program when it is the
+   global scope, and of every function around it. */
+void jm_fold_touch(jm_program *prog, int32_t scope);
+
+/* Note that a rewrite changed the function at func, whose own enclosing functions the caller notes as well. */
+void jm_fold_touch_function(jm_program *prog, int32_t func);
+
 /* The resolution of a settled tree, which jm_mangle reuses instead of resolving the tree again. */
 typedef struct jm_analysis jm_analysis;
 
 /* Run one compression pass: resolve every binding, then drop dead ones, inline single-use values, and
    collapse assignment temporaries. Returns 1 if the tree changed (run again), 0 at a fixpoint, -1 when
-   with/eval or an allocation makes it unusable. Interleave with jm_fold until it returns <= 0. A fixpoint
-   sets settled to the resolution the pass ran on, which jm_mangle takes over; otherwise settled is NULL. */
+   with/eval or an allocation makes it unusable. Interleave with jm_fold until it returns <= 0. A 2 means only the
+   declarator rewrites changed the tree, in ways that leave the resolution exact for every pass: it is a fixpoint
+   once jm_fold_touched finds nothing to fold. A fixpoint or a 2 sets settled to the resolution the pass ran on, which
+   jm_mangle takes over; otherwise settled is NULL. */
 int jm_compress(jm_program *prog, jm_analysis **settled);
+
+void jm_analysis_free(jm_analysis *analysis);
 
 /* Assign names over the resolution settled, or over a fresh one when settled is NULL. */
 void jm_mangle(jm_program *prog, jm_analysis *settled);

@@ -113,6 +113,7 @@ int32_t jm_scope_new(jm_program *prog, int32_t parent, uint8_t kind) {
     scope->sunk = 0;
     scope->grown = 0;
     scope->args_reads = 0;
+    scope->node = -1;
     if (parent >= 0) {
         scope->next_sibling = prog->scopes[parent].first_child;
         prog->scopes[parent].first_child = index;
@@ -360,7 +361,11 @@ Py_ssize_t jm_str_encode(const Py_UCS4 *value, Py_ssize_t len, Py_UCS4 quote, Py
     Py_ssize_t write = 0;
     for (Py_ssize_t read = 0; read < len; read++) {
         Py_UCS4 ch = value[read];
-        if (ch == quote || ch == '\\') {
+        Py_UCS4 next = read + 1 < len ? value[read + 1] : 0;
+        if (ch >= 0xD800 && ch <= 0xDBFF && next >= 0xDC00 && next <= 0xDFFF) {
+            out[write++] = 0x10000 + ((ch - 0xD800) << 10) + (next - 0xDC00); /* a pair is one code point in UTF-8 */
+            read++;
+        } else if (ch == quote || ch == '\\') {
             out[write++] = '\\';
             out[write++] = ch;
         } else if (ch == 0x0A) {
@@ -388,9 +393,19 @@ Py_ssize_t jm_str_encode(const Py_UCS4 *value, Py_ssize_t len, Py_UCS4 quote, Py
             out[write++] = '0';
             out[write++] = '2';
             out[write++] = ch == 0x2028 ? '8' : '9';
-        } else if (ch < 0x20) { /* any other control takes a fixed-length \xHH: it cannot absorb a digit */
+        } else if (ch == 0 && (next < '0' || next > '9')) { /* \0 before a digit would read as a legacy octal */
             out[write++] = '\\';
-            out[write++] = 'x';
+            out[write++] = '0';
+        } else if (ch < 0x20 || (ch >= 0xD800 && ch <= 0xDFFF)) {
+            /* any other control, and a lone surrogate, which UTF-8 cannot carry, takes a fixed-length escape that
+               cannot absorb a digit */
+            int wide = ch > 0xFF;
+            out[write++] = '\\';
+            out[write++] = wide ? 'u' : 'x';
+            if (wide) {
+                out[write++] = (Py_UCS4)(unsigned char)hex[(ch >> 12) & 0xF];
+                out[write++] = (Py_UCS4)(unsigned char)hex[(ch >> 8) & 0xF];
+            }
             out[write++] = (Py_UCS4)(unsigned char)hex[(ch >> 4) & 0xF];
             out[write++] = (Py_UCS4)(unsigned char)hex[ch & 0xF];
         } else if (ch == '<' && (starts_with_ascii_ci(value + read, len - read, "</script") ||
@@ -423,6 +438,7 @@ void jm_program_free(jm_program *prog) {
     jm_free(prog->nodes);
     jm_free(prog->syms);
     jm_free(prog->scopes);
+    jm_free(prog->fold_marks);
     jm_free(prog);
 }
 
