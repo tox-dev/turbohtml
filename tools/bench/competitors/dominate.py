@@ -5,9 +5,7 @@ from __future__ import annotations
 import functools
 from typing import TYPE_CHECKING, Final
 
-from dominate import tags
-from dominate.util import escape as _escape
-from dominate.util import unescape as _unescape
+from dominate import tags, util
 
 if TYPE_CHECKING:
     from bench.operations import Timed
@@ -41,12 +39,12 @@ def emit(count: int) -> None:
 
 
 def escape(text: str) -> None:
-    _escape(text)
+    util.escape(text)
 
 
 def unescape(text: str) -> None:
     # Resolve character references with dominate's util.unescape.
-    _unescape(text)
+    util.unescape(text)
 
 
 OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {

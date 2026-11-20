@@ -17,8 +17,7 @@ from __future__ import annotations
 from typing import NamedTuple
 
 from ._html import MutationObserver as MutationObserver  # ruff:ignore[useless-import-alias]  # re-export the C type
-from ._html import Node
-from ._html import register_mutation_record as _register_mutation_record
+from ._html import Node, register_mutation_record
 
 
 class MutationRecord(NamedTuple):
@@ -53,7 +52,7 @@ class MutationRecord(NamedTuple):
     """the previous value, when the registration asked for it (else ``None``)."""
 
 
-_register_mutation_record(MutationRecord)
+register_mutation_record(MutationRecord)
 
 __all__ = [
     "MutationObserver",

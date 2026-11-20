@@ -17,13 +17,12 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from xml.etree.ElementTree import Element
 
+    from turbohtml import Document
+
 
 # Standalone adapters cannot depend on registry import order for codec registration.
 import_module("turbohtml.detect")
 
-# html5lib scans its open-element stack on every insertion, so its time is quadratic in nesting depth: about 100 ms at
-# 2500 nested divs. turbohtml caps its own tree depth and parses the same input in milliseconds.
-_ORACLE_MAX_NESTING: Final[int] = 2500
 _TAG: Final[re.Pattern[str]] = re.compile(r"<(?P<closing>/?)[a-zA-Z]")
 
 
@@ -63,17 +62,18 @@ def encoding_observation(
     decode: Callable[[bytes, str], str] = bytes.decode,
 ) -> str:
     # Compare decoded text with an independent HTML parser before admitting bytes.
-    document: Final = parse(data, detect_encoding=True) if sniff else parse(data, encoding=encoding)
+    document: Final[Document] = parse(data, detect_encoding=True) if sniff else parse(data, encoding=encoding)
     # BOMs override explicit codecs; late declarations can restart sniffed parsing.
-    decoded: Final = decode(data, f"whatwg-{document.encoding}").removeprefix("\ufeff")
-    nesting: Final = _nesting(decoded)
-    if nesting <= _ORACLE_MAX_NESTING:
-        unicode_text: Final = parse(decoded).text
+    decoded: Final[str] = decode(data, f"whatwg-{document.encoding}").removeprefix("\ufeff")
+    nesting: Final[int] = _nesting(decoded)
+    # html5lib scans its open-element stack on every insertion, so its time is quadratic in nesting depth: about 100 ms
+    # at 2500 nested divs. turbohtml caps its own tree depth and parses the same input in milliseconds.
+    if nesting <= 2500:
+        unicode_text: Final[str] = parse(decoded).text
         if document.text != unicode_text:
             msg = f"Encoded parser text differs: {document.text!r} != {unicode_text!r}"
             raise AssertionError(msg)
-        reference: Final = parse_reference(decoded)
-        expected: Final = _reference_text(reference)
+        expected: Final[str] = _reference_text(parse_reference(decoded))
         if unicode_text != expected:
             msg = f"Encoded parser text differs: {document.text!r} != {expected!r}"
             raise AssertionError(msg)

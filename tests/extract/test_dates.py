@@ -449,8 +449,8 @@ def test_title_attribute_dates_a_marked_element() -> None:
     "count", [pytest.param(1, id="single"), pytest.param(17, id="growth"), pytest.param(1000, id="collisions")]
 )
 def test_date_tally_ties_keeps_the_original(count: int) -> None:
-    start: Final = date(2000, 1, 1)
-    source: Final = f"<p>{' '.join((start + timedelta(days=index)).isoformat() for index in range(count))}</p>"
+    start: Final[date] = date(2000, 1, 1)
+    source: Final[str] = f"<p>{' '.join((start + timedelta(days=index)).isoformat() for index in range(count))}</p>"
     assert dates(source, DateExtraction(original=True)) == PublicationDate(start.isoformat(), "text")
 
 
@@ -458,16 +458,16 @@ def test_date_tally_ties_keeps_the_original(count: int) -> None:
     "count", [pytest.param(1, id="single"), pytest.param(17, id="growth"), pytest.param(1000, id="collisions")]
 )
 def test_date_tally_ties_keeps_the_last_modified(count: int) -> None:
-    start: Final = date(2000, 1, 1)
-    source: Final = f"<p>{' '.join((start + timedelta(days=index)).isoformat() for index in range(count))}</p>"
-    expected: Final = start + timedelta(days=count - 1)
+    start: Final[date] = date(2000, 1, 1)
+    source: Final[str] = f"<p>{' '.join((start + timedelta(days=index)).isoformat() for index in range(count))}</p>"
+    expected: Final[date] = start + timedelta(days=count - 1)
     assert dates(source, DateExtraction(original=False)) == PublicationDate(expected.isoformat(), "text")
 
 
 @pytest.mark.parametrize("original", [pytest.param(True, id="published"), pytest.param(False, id="modified")])
 def test_date_tally_frequency_precedes_date_order(*, original: bool) -> None:
-    start: Final = date(2000, 1, 1)
-    source: Final = (
+    start: Final[date] = date(2000, 1, 1)
+    source: Final[str] = (
         f"<p>{' '.join((start + timedelta(days=index)).isoformat() for index in range(100))} 2000-02-01 2000-02-01</p>"
     )
     assert dates(source, DateExtraction(original=original)) == PublicationDate("2000-02-01", "text")

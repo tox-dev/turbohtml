@@ -16,6 +16,7 @@ from turbohtml.query import Query, SelectorSyntaxError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
+    from types import ModuleType
 
     from work_steps import WorkSteps
 
@@ -57,8 +58,8 @@ def test_call_is_find() -> None:
 
 
 def test_construct_deduplicates_a_node_adopted_during_iteration() -> None:
-    node: Final = Element("b")
-    destination: Final = Element("main")
+    node: Final[Element] = Element("b")
+    destination: Final[Element] = Element("main")
 
     def nodes() -> Iterator[Element]:
         yield node
@@ -261,28 +262,28 @@ def test_chaining_example() -> None:
     ],
 )
 def test_query_closest_cross_tree_order(selector: str, expected: list[str]) -> None:
-    first: Final = Query('<main id="first"><p id="a"></p><p id="b"></p></main>')("p")
-    second: Final = Query('<main id="second"><p id="c"></p></main>')("p")
+    first: Final[Query] = Query('<main id="first"><p id="a"></p><p id="b"></p></main>')("p")
+    second: Final[Query] = Query('<main id="second"><p id="c"></p></main>')("p")
     assert [node.attrs["id"] for node in Query([first[0], second[0], first[1]]).closest(selector)] == expected
 
 
 def test_query_closest_parent_ownership() -> None:
-    selected: Final = Query("<main><p>x</p><p>y</p></main>")("p").closest("main")
+    selected: Final[Query] = Query("<main><p>x</p><p>y</p></main>")("p").closest("main")
     selected.attr("id", "retained")
     assert selected[0].serialize() == '<main id="retained"><p>x</p><p>y</p></main>'
 
 
 def test_query_closest_mixed_html_xml_tag_case() -> None:
-    html: Final = turbohtml.parse('<main id="html"><p/></main>').find("p")
-    xml: Final = turbohtml.parse_xml('<Root><main id="xml"><p/></main><MAIN id="upper"><p/></MAIN></Root>')
+    html: Final[Element | None] = turbohtml.parse('<main id="html"><p/></main>').find("p")
+    xml: Final[Document] = turbohtml.parse_xml('<Root><main id="xml"><p/></main><MAIN id="upper"><p/></MAIN></Root>')
     assert html is not None
-    paragraphs: Final = [html, *xml.find_all("p")]
+    paragraphs: Final[list[Element]] = [html, *xml.find_all("p")]
     assert [node.attrs["id"] for node in Query(paragraphs).closest("main")] == ["html", "xml"]
 
 
 def test_query_closest_foreign_namespace_tag() -> None:
-    svg_title: Final = turbohtml.parse('<svg><title id="svg">x</title></svg>').select_one("title")
-    html_title: Final = turbohtml.parse('<title id="html">x</title>').select_one("title")
+    svg_title: Final[Element | None] = turbohtml.parse('<svg><title id="svg">x</title></svg>').select_one("title")
+    html_title: Final[Element | None] = turbohtml.parse('<title id="html">x</title>').select_one("title")
     assert svg_title is not None
     assert html_title is not None
     assert [node.attrs["id"] for node in Query([svg_title, html_title]).closest("title")] == ["svg", "html"]
@@ -297,8 +298,8 @@ def test_query_closest_foreign_namespace_tag() -> None:
     ],
 )
 def test_query_closest_tag_name(name: str) -> None:
-    document: Final = turbohtml.parse(f"<{name}><p/></{name}>")
-    parent: Final = document.find(name)
+    document: Final[Document] = turbohtml.parse(f"<{name}><p/></{name}>")
+    parent: Final[Element | None] = document.find(name)
     assert parent is not None
     assert list(Query(document.find_all("p")).closest(name)) == [parent]
 
@@ -347,18 +348,18 @@ def test_query_closest_deeply_nested_answers_as_each_element(
     selector: str, count: int, reorder: Callable[[list[Element]], list[Element]]
 ) -> None:
     # a climb past 32 ancestors starts to share its answer with the climbs after it
-    document: Final = turbohtml.parse_xml(
+    document: Final[Document] = turbohtml.parse_xml(
         f"<book>{'<part>' * 49}<part class='mid'>{'<part>' * 50}{'</part>' * 100}</book>"
     )
-    sections: Final = reorder(document.select("part"))
-    nearest: Final = [section.closest(selector) for section in sections]
-    found: Final = list(Query(sections).closest(selector))
+    sections: Final[list[Element]] = reorder(document.select("part"))
+    nearest: Final[list[Element | None]] = [section.closest(selector) for section in sections]
+    found: Final[list[Element]] = list(Query(sections).closest(selector))
     assert found == list(dict.fromkeys(node for node in nearest if node is not None))
     assert len(found) == count
 
 
 def test_query_closest_deep_chain_shared_by_siblings() -> None:
-    document: Final = turbohtml.parse_xml(f"<book>{'<a>' * 80}<part/><part/><part/>{'</a>' * 80}</book>")
+    document: Final[Document] = turbohtml.parse_xml(f"<book>{'<a>' * 80}<part/><part/><part/>{'</a>' * 80}</book>")
     assert list(Query(document.select("part")).closest("book")) == document.select("book")
     assert len(Query(document.select("part")).closest("missing")) == 0
 
@@ -376,11 +377,11 @@ def test_query_closest_deep_chain_shared_by_siblings() -> None:
 )
 def test_query_closest_scope_from_nodes_that_are_not_elements(selector: str, count: int) -> None:
     # above a node that is not an element :scope stands for the document element, unlike above an element
-    document: Final = turbohtml.parse_xml(f"<book>{'<part>t' * 60}{'</part>' * 60}</book>")
-    sections: Final = document.select("part")
-    nodes: Final = [node for section in sections for node in (section.children[0], section)][::-1]
-    nearest: Final = [node.closest(selector) for node in nodes]
-    found: Final = list(Query(cast("list[Element]", nodes)).closest(selector))
+    document: Final[Document] = turbohtml.parse_xml(f"<book>{'<part>t' * 60}{'</part>' * 60}</book>")
+    sections: Final[list[Element]] = document.select("part")
+    nodes: Final[list[Node]] = [node for section in sections for node in (section.children[0], section)][::-1]
+    nearest: Final[list[Element | None]] = [node.closest(selector) for node in nodes]
+    found: Final[list[Element]] = list(Query(cast("list[Element]", nodes)).closest(selector))
     assert found == list(dict.fromkeys(node for node in nearest if node is not None))
     assert len(found) == count
 
@@ -390,7 +391,9 @@ def _tree(name: str, depth: int) -> list[Element]:
 
 
 def test_query_closest_deep_trees_interleaved() -> None:
-    mixed: Final = [section for pair in zip(_tree("first", 40), _tree("second", 40), strict=True) for section in pair]
+    mixed: Final[list[Element]] = [
+        section for pair in zip(_tree("first", 40), _tree("second", 40), strict=True) for section in pair
+    ]
     assert [node.attrs["id"] for node in Query(mixed).closest("book")] == ["first", "second"]
 
 
@@ -408,8 +411,8 @@ def test_query_closest_deep_trees_interleaved() -> None:
 def test_query_closest_mixed_trees_keep_the_order_the_set_reaches_them(
     pick: Callable[[list[Element], list[Element], list[Element]], list[Element]], selector: str
 ) -> None:
-    nodes: Final = pick(_tree("a", 40), _tree("b", 10), _tree("c", 40))
-    nearest: Final = [node.closest(selector) for node in nodes]
+    nodes: Final[list[Element]] = pick(_tree("a", 40), _tree("b", 10), _tree("c", 40))
+    nearest: Final[list[Element | None]] = [node.closest(selector) for node in nodes]
     assert list(Query(nodes).closest(selector)) == list(dict.fromkeys(node for node in nearest if node is not None))
 
 
@@ -427,11 +430,11 @@ def test_query_closest_mixed_trees_keep_the_order_the_set_reaches_them(
 def test_query_closest_takes_a_node_that_moved_trees_during_the_call(
     moved: int, expected: list[str], selector: str
 ) -> None:
-    first: Final = _tree("first", 40)
-    second: Final = turbohtml.parse_xml("<book id='second'><part/><part/></book>").select("part")
-    destination: Final = turbohtml.parse_xml("<book id='third'/>").select_one("book")
+    first: Final[list[Element]] = _tree("first", 40)
+    second: Final[list[Element]] = turbohtml.parse_xml("<book id='second'><part/><part/></book>").select("part")
+    destination: Final[Element | None] = turbohtml.parse_xml("<book id='third'/>").select_one("book")
     assert destination is not None
-    nodes: Final = [first[0], second[0], first[1], second[1]]
+    nodes: Final[list[Element]] = [first[0], second[0], first[1], second[1]]
 
     class MovingSelector(str):  # ruff:ignore[subclass-builtin]  # native selectors require a real str
         __slots__ = ()
@@ -457,9 +460,9 @@ def test_query_closest_takes_a_node_that_moved_trees_during_the_call(
 )
 def test_query_closest_sibling_combinator_over_a_long_run(selector: str, count: int) -> None:
     # the elements of one tree share a sibling memo, which a walk past 32 siblings reads
-    sections: Final = turbohtml.parse_xml(f"<book><lead/>{'<part/>' * 40}</book>").select("part")
-    nearest: Final = [section.closest(selector) for section in sections]
-    found: Final = list(Query(sections).closest(selector))
+    sections: Final[list[Element]] = turbohtml.parse_xml(f"<book><lead/>{'<part/>' * 40}</book>").select("part")
+    nearest: Final[list[Element | None]] = [section.closest(selector) for section in sections]
+    found: Final[list[Element]] = list(Query(sections).closest(selector))
     assert found == [node for node in nearest if node is not None]
     assert len(found) == count
 
@@ -470,7 +473,7 @@ def test_query_closest_under_long_class_grows_linearly(selector: str, work_steps
     work_steps.assert_linear(
         lambda n: partial(Query(parse(f'<ol class="{"w " * n}">{"<li>" * n}'))("li").closest, selector), (250, 1000)
     )
-    found: Final = Query(parse(f'<ol class="{"w " * 200}hit"><li><li></ol>'))("li").closest(selector)
+    found: Final[Query] = Query(parse(f'<ol class="{"w " * 200}hit"><li><li></ol>'))("li").closest(selector)
     assert [node.tag for node in found] == ["li", "li"]
 
 
@@ -507,13 +510,13 @@ def test_query_closest_of_an_empty_set() -> None:
 
 
 def test_query_closest_keeps_an_answer_seen_again_after_another() -> None:
-    document: Final = turbohtml.parse('<main id="a"><p>x</p><p>y</p></main><main id="b"><p>z</p></main>')
+    document: Final[Document] = turbohtml.parse('<main id="a"><p>x</p><p>y</p></main><main id="b"><p>z</p></main>')
     first, second, third = document.find_all("p")
     assert [node.attrs["id"] for node in Query([first, third, second]).closest("main")] == ["a", "b"]
 
 
 def test_query_closest_climbs_from_a_node_that_is_not_an_element() -> None:
-    document: Final = parse("<div class=box><p>a<!--b--></p></div>")
+    document: Final[Document] = parse("<div class=box><p>a<!--b--></p></div>")
     paragraph = document.find("p")
     assert paragraph is not None
     assert list(Query(cast("list[Element]", [paragraph, *paragraph.children])).closest("p")) == [paragraph]
@@ -542,20 +545,20 @@ def test_query_closest_entry_rejects_a_non_node(nodes: list[Element | str | None
     ],
 )
 def test_query_parent_encounter_order(indices: list[int], expected: list[str]) -> None:
-    children: Final = Query('<main id="left"><p></p><p></p></main><aside id="right"><p></p></aside>')("p")
+    children: Final[Query] = Query('<main id="left"><p></p><p></p></main><aside id="right"><p></p></aside>')("p")
     assert [node.attrs["id"] for node in Query(children[index] for index in indices).parent()] == expected
 
 
 def test_query_parent_cross_tree_order() -> None:
-    first: Final = Query('<main id="left"><p></p><p></p></main>')("p")
-    second: Final = Query('<main id="right"><p></p></main>')("p")
+    first: Final[Query] = Query('<main id="left"><p></p><p></p></main>')("p")
+    second: Final[Query] = Query('<main id="right"><p></p></main>')("p")
     assert [node.attrs["id"] for node in Query([first[0], second[0], first[1]]).parent()] == ["left", "right"]
 
 
 def test_query_parent_cross_tree_ownership() -> None:
-    first: Final = Query('<main id="left"><p></p><p></p></main>')("p")
-    second: Final = Query('<main id="right"><p></p></main>')("p")
-    parents: Final = Query([first[0], second[0], first[1]]).parent()
+    first: Final[Query] = Query('<main id="left"><p></p><p></p></main>')("p")
+    second: Final[Query] = Query('<main id="right"><p></p></main>')("p")
+    parents: Final[Query] = Query([first[0], second[0], first[1]]).parent()
     parents[0].attrs["id"] = "changed"
     assert [node.attrs["id"] for node in first.parent()] == ["changed"]
 
@@ -575,10 +578,10 @@ def test_query_parent_detached_root() -> None:
     ],
 )
 def test_query_sibling_encounter_order(selected: list[str], expected: list[str]) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         '<main><p id="a"></p><b id="b"></b><i id="c"></i></main><aside><p id="d"></p><b id="e"></b></aside>'
     )
-    roots: Final = [document.select_one(f"#{name}") for name in selected]
+    roots: Final[list[Element | None]] = [document.select_one(f"#{name}") for name in selected]
     assert all(isinstance(node, Element) for node in roots)
     assert [
         node.attrs["id"] for node in Query(node for node in roots if isinstance(node, Element)).siblings()
@@ -586,8 +589,8 @@ def test_query_sibling_encounter_order(selected: list[str], expected: list[str])
 
 
 def test_query_sibling_cross_tree_order() -> None:
-    first: Final = Query('<main><p id="a"></p><p id="b"></p></main>')("p")
-    second: Final = Query('<main><p id="c"></p><p id="d"></p></main>')("p")
+    first: Final[Query] = Query('<main><p id="a"></p><p id="b"></p></main>')("p")
+    second: Final[Query] = Query('<main><p id="c"></p><p id="d"></p></main>')("p")
     assert [node.attrs["id"] for node in Query([first[0], second[0], first[1], second[1]]).siblings()] == [
         "b",
         "d",
@@ -611,7 +614,7 @@ def test_query_sibling_detached_root() -> None:
     ],
 )
 def test_siblings_preserves_first_encounter_order(indices: list[int], expected: list[int]) -> None:
-    children: Final = [Element("b"), Element("i"), Element("em")]
+    children: Final[list[Element]] = [Element("b"), Element("i"), Element("em")]
     Element("div", children=children)
     assert list(Query([children[index] for index in indices]).siblings()) == [children[index] for index in expected]
 
@@ -685,7 +688,7 @@ def test_css_path_after_id_deletion() -> None:
 
 def test_css_path_of_detached_element_ignores_the_same_id_in_the_document() -> None:
     document: Final[Document] = parse('<i id="same"></i><b>text</b>')
-    element: Final = document.select("b")[0].extract()
+    element: Final[Element] = document.select("b")[0].extract()
     element.attrs["id"] = "same"
     assert element.css_path() == "b"
 
@@ -767,7 +770,7 @@ def test_css_path_after_duplicate_id_removal() -> None:
 
 
 def test_css_path_of_detached_element_with_id_absent_from_document() -> None:
-    element: Final = parse("<p>one</p>").select("p")[0]
+    element: Final[Element] = parse("<p>one</p>").select("p")[0]
     element.extract()
     element.attrs["id"] = "gone"
     assert element.css_path() == "p"
@@ -783,7 +786,7 @@ def test_css_path_of_detached_element_with_id_absent_from_document() -> None:
     ],
 )
 def test_css_path_of_detached_fragment_root_ignores_its_own_id(markup: str, expected: list[str]) -> None:
-    root: Final = turbohtml.parse_fragment(markup)
+    root: Final[Element] = turbohtml.parse_fragment(markup)
     root.extract()
     root.attrs["id"] = "top"
     assert [node.css_path() for node in (root, *root.select("p, i"))] == expected
@@ -794,7 +797,7 @@ def test_css_path_of_detached_fragment_root_with_id_costs_no_more_than_without(w
 
 
 def _detached_fragment_root(root_id: str | None) -> Element:
-    root: Final = turbohtml.parse_fragment("".join(f'<p id="p{index}">{index}</p>' for index in range(1000)))
+    root: Final[Element] = turbohtml.parse_fragment("".join(f'<p id="p{index}">{index}</p>' for index in range(1000)))
     root.extract()
     if root_id is not None:
         root.attrs["id"] = root_id
@@ -802,24 +805,24 @@ def _detached_fragment_root(root_id: str | None) -> Element:
 
 
 def test_css_path_of_constructed_root_with_id_ignores_its_own_id() -> None:
-    root: Final = Element("div")
+    root: Final[Element] = Element("div")
     root.attrs["id"] = "top"
-    child: Final = Element("p")
+    child: Final[Element] = Element("p")
     root.append(child)
     assert [root.css_path(), child.css_path()] == ["div", "div > p"]
 
 
 def test_css_path_of_subtree_extracted_from_detached_fragment_root_with_id() -> None:
-    root: Final = turbohtml.parse_fragment('<section><p id="one">one</p></section>')
+    root: Final[Element] = turbohtml.parse_fragment('<section><p id="one">one</p></section>')
     root.extract()
     root.attrs["id"] = "top"
-    section: Final = root.select("section")[0]
+    section: Final[Element] = root.select("section")[0]
     section.extract()
     assert [section.css_path(), section.select("p")[0].css_path()] == ["section", "section > p"]
 
 
 def test_css_path_of_fragment_root_detached_by_replace_with_ignores_its_own_id() -> None:
-    root: Final = turbohtml.parse_fragment("<p>one</p>")
+    root: Final[Element] = turbohtml.parse_fragment("<p>one</p>")
     root.attrs["id"] = "top"
     root.replace_with(Element("span"))
     assert [root.css_path(), root.select("p")[0].css_path()] == ["div", "div > p"]
@@ -845,7 +848,7 @@ def test_find_root_document_order(count: int, order: Callable[[list[Element]], l
 
 
 def test_find_duplicate_roots_preserve_document_order() -> None:
-    nodes: Final = parse(
+    nodes: Final[list[Element]] = parse(
         f"""<main>{"".join(f'<div><i id="{index}"></i></div>' for index in range(32))}</main>"""
     ).select("div")
     assert [node.attrs["id"] for node in Query([*reversed(nodes), *nodes]).find("i")] == [
@@ -854,10 +857,12 @@ def test_find_duplicate_roots_preserve_document_order() -> None:
 
 
 def test_find_root_order_after_mutation() -> None:
-    document: Final = parse(f"""<main>{"".join(f'<div><i id="{index}"></i></div>' for index in range(32))}</main>""")
-    nodes: Final = document.select("div")
-    query: Final = Query(list(reversed(nodes)))
-    before: Final = [node.attrs["id"] for node in query.find("i")]
+    document: Final[Document] = parse(
+        f"""<main>{"".join(f'<div><i id="{index}"></i></div>' for index in range(32))}</main>"""
+    )
+    nodes: Final[list[Element]] = document.select("div")
+    query: Final[Query] = Query(list(reversed(nodes)))
+    before: Final[list[str | list[str] | None]] = [node.attrs["id"] for node in query.find("i")]
     document.select("main")[0].append(nodes[0])
     assert (before, [node.attrs["id"] for node in query.find("i")]) == (
         [str(index) for index in range(32)],
@@ -870,16 +875,18 @@ def test_find_root_order_after_mutation() -> None:
 )
 @pytest.mark.parametrize("order", ["sorted", "reversed", "shuffled"])
 def test_find_nested_list_items_reports_each_match_once(count: int, order: str) -> None:
-    nodes: Final = turbohtml.parse_xml(f"<ul>{'<li><ol>' * count}<b></b>{'</ol></li>' * count}</ul>").select("li")
+    nodes: Final[list[Element]] = turbohtml.parse_xml(
+        f"<ul>{'<li><ol>' * count}<b></b>{'</ol></li>' * count}</ul>"
+    ).select("li")
     assert _tags(Query(_reorder(nodes, order)).find("li, b")) == ["li"] * (count - 1) + ["b"]
 
 
 @pytest.mark.parametrize("order", ["sorted", "reversed", "shuffled"])
 def test_find_roots_covered_between_uncovered_ones_below_a_deep_chain(order: str) -> None:
     # each outer <s> covers the <s> inside it and nothing after it, and all of them sit too deep to climb from each
-    branches: Final = "".join(f'<s><t id="{index}a"/><s><t id="{index}b"/></s></s>' for index in range(40))
-    document: Final = turbohtml.parse_xml(f"<r>{'<x>' * 80}{branches}{'</x>' * 80}<s><t id='last'/></s></r>")
-    found: Final = Query(_reorder(document.select("s"), order)).find("t")
+    branches: Final[str] = "".join(f'<s><t id="{index}a"/><s><t id="{index}b"/></s></s>' for index in range(40))
+    document: Final[Document] = turbohtml.parse_xml(f"<r>{'<x>' * 80}{branches}{'</x>' * 80}<s><t id='last'/></s></r>")
+    found: Final[Query] = Query(_reorder(document.select("s"), order)).find("t")
     assert [node.attrs["id"] for node in found] == [f"{index}{half}" for index in range(40) for half in "ab"] + ["last"]
 
 
@@ -888,13 +895,15 @@ def test_find_roots_covered_between_uncovered_ones_below_a_deep_chain(order: str
     [("sorted", "left", "right"), ("reversed", "right", "left"), ("shuffled", "left", "right")],
 )
 def test_find_groups_deep_roots_by_the_tree_they_are_in(order: str, first: str, second: str) -> None:
-    chain: Final = "<x>" * 80 + "<s><t/></s>" * 40 + "</x>" * 80
+    chain: Final[str] = "<x>" * 80 + "<s><t/></s>" * 40 + "</x>" * 80
     left, right = turbohtml.parse_xml(f"<r><a>{chain}</a><b>{chain}</b></r>").select("r > *")
     right.extract()
     for name, tree in (("left", left), ("right", right)):
         for index, node in enumerate(tree.select("t")):
             node.attrs["id"] = f"{name}{index}"
-    roots: Final = [node for pair in zip(left.select("s"), right.select("s"), strict=True) for node in pair]
+    roots: Final[list[Element]] = [
+        node for pair in zip(left.select("s"), right.select("s"), strict=True) for node in pair
+    ]
     assert [node.attrs["id"] for node in Query(_reorder(roots, order)).find("t")] == [
         f"{name}{index}" for name in (first, second) for index in range(40)
     ]
@@ -902,8 +911,8 @@ def test_find_groups_deep_roots_by_the_tree_they_are_in(order: str, first: str, 
 
 @pytest.mark.parametrize("order", ["sorted", "reversed", "shuffled"])
 def test_find_roots_under_parents_with_text_and_comments_keeps_order(order: str) -> None:
-    items: Final = "".join(f'<li>lead<!--c--><b></b><a><code id="{index}"></code></a></li>' for index in range(40))
-    nodes: Final = parse(f"<ul>{items}</ul>").select("a")
+    items: Final[str] = "".join(f'<li>lead<!--c--><b></b><a><code id="{index}"></code></a></li>' for index in range(40))
+    nodes: Final[list[Element]] = parse(f"<ul>{items}</ul>").select("a")
     assert [node.attrs["id"] for node in Query(_reorder(nodes, order)).find("code")] == [
         str(index) for index in range(40)
     ]
@@ -944,8 +953,10 @@ def test_find_many_roots_grow_linearly(
     ],
 )
 def test_query_root_groups_shared_inputs(case_index: int) -> None:
-    case: Final = cast("tuple[str, int]", INPUTS["query-root-groups"]()[case_index][1])
-    operation: Final = cast("Callable[[tuple[str, int]], Query]", OPERATIONS["query-root-groups"][0])
+    case: Final[tuple[str, int]] = cast("tuple[str, int]", INPUTS["query-root-groups"]()[case_index][1])
+    operation: Final[Callable[[tuple[str, int]], Query]] = cast(
+        "Callable[[tuple[str, int]], Query]", OPERATIONS["query-root-groups"][0]
+    )
     assert [node.text for node in operation(case)] == [str(index) for index in range(case[1])]
 
 
@@ -963,8 +974,8 @@ def test_query_root_groups_interleave_handles_and_nested_roots(selector: str, ex
     ).select("main")
     left.extract()
     right.extract()
-    middle: Final = parse("<main><p>c</p></main>").select("main")[0]
-    roots: Final = [left.select("section")[1], middle, right.select("section")[1], left, right]
+    middle: Final[Element] = parse("<main><p>c</p></main>").select("main")[0]
+    roots: Final[list[Element]] = [left.select("section")[1], middle, right.select("section")[1], left, right]
     assert [node.text for node in Query(roots).find(selector)] == expected
 
 
@@ -975,8 +986,8 @@ def test_query_root_groups_preserve_order_around_empty_group(empty_group: int) -
     first, last = parse("<main><p>a</p></main><main><p>c</p></main>").select("main")
     first.extract()
     last.extract()
-    middle: Final = parse("<main><p>b</p></main>").select("main")[0]
-    roots: Final = [first, middle, last]
+    middle: Final[Element] = parse("<main><p>b</p></main>").select("main")[0]
+    roots: Final[list[Element]] = [first, middle, last]
     roots[empty_group].select("p")[0].extract()
     assert [node.text for node in Query(roots).find("p")] == [
         value for index, value in enumerate("abc") if index != empty_group
@@ -987,16 +998,16 @@ def test_query_root_groups_refresh_after_reparenting() -> None:
     first, second = parse("<main><p>a</p></main><main><p>b</p></main>").select("main")
     first.extract()
     second.extract()
-    query: Final = Query([second, first])
+    query: Final[Query] = Query([second, first])
     query.find("p")
     first.append(second)
     assert [node.text for node in query.find("p")] == ["a", "b"]
 
 
 def test_query_root_groups_refresh_after_cross_document_adoption() -> None:
-    first: Final = parse("<main><p>a</p></main>").select("main")[0]
-    second: Final = parse("<main><p>b</p></main>").select("main")[0]
-    query: Final = Query([first, second])
+    first: Final[Element] = parse("<main><p>a</p></main>").select("main")[0]
+    second: Final[Element] = parse("<main><p>b</p></main>").select("main")[0]
+    query: Final[Query] = Query([first, second])
     query.find("p")
     second.append(first)
     assert [node.text for node in query.find("p")] == ["b", "a"]
@@ -1014,11 +1025,11 @@ def test_query_root_groups_refresh_after_cross_document_adoption() -> None:
 )
 def test_query_root_groups_follow_selector_eviction_mutation(destination_index: int, expected: list[str]) -> None:
     first, last = parse("<main><p>a</p></main><main><p>c</p></main>").select("main")
-    middle: Final = parse("<main><p>b</p></main>").select("main")[0]
+    middle: Final[Element] = parse("<main><p>b</p></main>").select("main")[0]
     first.extract()
     last.extract()
-    destination: Final = (first, middle)[destination_index]
-    extra: Final = [parse("<main><p>d</p></main>").select("main")[0] for _ in range(31)]
+    destination: Final[Element] = (first, middle)[destination_index]
+    extra: Final[list[Element]] = [parse("<main><p>d</p></main>").select("main")[0] for _ in range(31)]
 
     class MovingSelector(str):  # ruff:ignore[subclass-builtin]  # native selectors require a real str
         __slots__ = ()
@@ -1036,15 +1047,15 @@ def test_query_root_groups_keep_later_documents_after_reordering() -> None:
     first, third = parse("<main><p>a</p></main><main><p>c</p></main>").select("main")
     first.extract()
     third.extract()
-    second: Final = parse("<main><p>b</p></main>").select("main")[0]
-    fourth: Final = parse("<main><p>d</p></main>").select("main")[0]
+    second: Final[Element] = parse("<main><p>b</p></main>").select("main")[0]
+    fourth: Final[Element] = parse("<main><p>d</p></main>").select("main")[0]
     assert [node.text for node in Query([first, second, third, fourth]).find("p")] == list("abcd")
 
 
 def test_query_root_groups_interleaved_document_members() -> None:
-    first: Final = parse("<main><p>a</p></main>" * 32).select("main")
-    second: Final = parse("<main><p>b</p></main>" * 32).select("main")
-    roots: Final = [node for pair in zip(first, second, strict=True) for node in pair]
+    first: Final[list[Element]] = parse("<main><p>a</p></main>" * 32).select("main")
+    second: Final[list[Element]] = parse("<main><p>b</p></main>" * 32).select("main")
+    roots: Final[list[Element]] = [node for pair in zip(first, second, strict=True) for node in pair]
     assert [node.text for node in Query(roots).find("p")] == ["a"] * 32 + ["b"] * 32
 
 
@@ -1052,20 +1063,20 @@ def test_query_root_groups_accept_selector_subclass() -> None:
     class Selector(str):  # ruff:ignore[subclass-builtin]  # the native API requires a real str
         __slots__ = ()
 
-    roots: Final = [parse(f"<main><p>{index}</p></main>").select("main")[0] for index in range(32)]
+    roots: Final[list[Element]] = [parse(f"<main><p>{index}</p></main>").select("main")[0] for index in range(32)]
     assert [node.text for node in Query(roots).find(Selector("p"))] == [str(index) for index in range(32)]
 
 
 def test_query_root_groups_many_documents_reject_invalid_selector() -> None:
-    roots: Final = [parse("<main><p>x</p></main>").select("main")[0] for _ in range(32)]
+    roots: Final[list[Element]] = [parse("<main><p>x</p></main>").select("main")[0] for _ in range(32)]
     with pytest.raises(SelectorSyntaxError):
         Query(roots).find("[")
 
 
 @pytest.mark.oracle
 def test_pyquery_join_shared_benchmark_output() -> None:
-    pyquery: Final = pytest.importorskip("bench.competitors.pyquery", exc_type=ImportError)
-    case: Final = cast("tuple[int, bool]", INPUTS["query-parents"]()[0][1])
+    pyquery: Final[ModuleType] = pytest.importorskip("bench.competitors.pyquery", exc_type=ImportError)
+    case: Final[tuple[int, bool]] = cast("tuple[int, bool]", INPUTS["query-parents"]()[0][1])
     count, _ = case
     assert [(node.tag, "".join(node.itertext())) for node in pyquery.OPERATIONS["query-parents"][0](case)] == [
         ("main", "x" * count)
@@ -1078,8 +1089,8 @@ def test_pyquery_join_shared_benchmark_output() -> None:
 )
 @pytest.mark.oracle
 def test_pyquery_join_distinct_benchmark_output(operation: str) -> None:
-    pyquery: Final = pytest.importorskip("bench.competitors.pyquery", exc_type=ImportError)
-    case: Final = cast("tuple[int, bool]", INPUTS[operation]()[1][1])
+    pyquery: Final[ModuleType] = pytest.importorskip("bench.competitors.pyquery", exc_type=ImportError)
+    case: Final[tuple[int, bool]] = cast("tuple[int, bool]", INPUTS[operation]()[1][1])
     count, _ = case
     assert [(node.tag, "".join(node.itertext())) for node in pyquery.OPERATIONS[operation][0](case)] == [
         ("main", "x")
@@ -1088,7 +1099,7 @@ def test_pyquery_join_distinct_benchmark_output(operation: str) -> None:
 
 @pytest.mark.oracle
 def test_pyquery_closest_benchmark_rejects_duplicate_results() -> None:
-    pyquery: Final = pytest.importorskip("bench.competitors.pyquery", exc_type=ImportError)
+    pyquery: Final[ModuleType] = pytest.importorskip("bench.competitors.pyquery", exc_type=ImportError)
     with pytest.raises(NotImplementedError, match="duplicate ancestors"):
         pyquery.OPERATIONS["query-closest"][0](INPUTS["query-closest"]()[0][1])
 

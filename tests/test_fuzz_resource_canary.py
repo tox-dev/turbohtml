@@ -10,8 +10,8 @@ from fuzz.resource_canary import ESCAPES, Attempt, compare, generate, main
 
 @pytest.mark.parametrize("escape", sorted(ESCAPES))
 def test_resource_canary_escape_stays_contained(escape: str) -> None:
-    token: Final = f"canary{secrets.token_hex(8)}"
-    attempt: Final = Attempt(seed=0, escape=escape, token=token)
+    token: Final[str] = f"canary{secrets.token_hex(8)}"
+    attempt: Final[Attempt] = Attempt(seed=0, escape=escape, token=token)
     assert [(row.engine, row.leaked) for row in compare(attempt)] == [
         ("xslt", False),
         ("relaxng", False),
@@ -20,8 +20,8 @@ def test_resource_canary_escape_stays_contained(escape: str) -> None:
 
 @pytest.mark.parametrize("escape", ["parent", "symlink"])
 def test_resource_canary_inside_root_is_observed(escape: str) -> None:
-    token: Final = f"canary{secrets.token_hex(8)}"
-    attempt: Final = Attempt(seed=0, escape=escape, token=token)
+    token: Final[str] = f"canary{secrets.token_hex(8)}"
+    attempt: Final[Attempt] = Attempt(seed=0, escape=escape, token=token)
     assert [(row.engine, row.leaked) for row in compare(attempt, negative_control=True)] == [
         ("xslt", True),
         ("relaxng", True),
@@ -42,7 +42,7 @@ def test_resource_canary_generate_is_seeded() -> None:
 def test_resource_canary_cli(
     capsys: pytest.CaptureFixture[str], arguments: list[str], expected: tuple[int, dict[str, int]]
 ) -> None:
-    status: Final = main(arguments)
+    status: Final[int] = main(arguments)
     assert (status, json.loads(capsys.readouterr().out.splitlines()[-1])["summary"]) == expected
 
 

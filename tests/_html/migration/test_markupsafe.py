@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from turbohtml._html import collapse_whitespace as _collapse_whitespace
+from turbohtml._html import collapse_whitespace
 
 
 @pytest.mark.parametrize(
@@ -17,9 +17,9 @@ from turbohtml._html import collapse_whitespace as _collapse_whitespace
     ],
 )
 def test_collapse_whitespace(text: str, expected: str) -> None:
-    assert _collapse_whitespace(text) == expected
+    assert collapse_whitespace(text) == expected
 
 
 def test_collapse_needs_a_str() -> None:
     with pytest.raises(TypeError, match="must be a str"):
-        _collapse_whitespace(b"a b")  # ty: ignore[invalid-argument-type]  # tests the C argument guard
+        collapse_whitespace(b"a b")  # ty: ignore[invalid-argument-type]  # tests the C argument guard

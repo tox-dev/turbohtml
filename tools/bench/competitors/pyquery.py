@@ -83,8 +83,8 @@ def _select_scaling(case: tuple[str, str]) -> None:
 
 def text_content(text: str) -> None:
     # Collect visible text from the body or fragment root.
-    document: Final = _parsed(text)
-    body: Final = document("body")
+    document: Final[PyQuery] = _parsed(text)
+    body: Final[PyQuery] = document("body")
     (body or document).text()
 
 
@@ -225,7 +225,7 @@ def _encode_inner(text: str) -> bytes:
 
 def _query_closest(case: tuple[int, bool]) -> PyQuery:
     if case[1]:
-        unsupported: Final = "Pyquery closest retains duplicate ancestors for multiple roots"
+        unsupported: Final[str] = "Pyquery closest retains duplicate ancestors for multiple roots"
         raise NotImplementedError(unsupported)
     return _query_parents_case(case).closest("main")
 
@@ -237,7 +237,7 @@ def _query_parents(case: tuple[int, bool]) -> PyQuery:
 @functools.cache
 def _query_parents_case(case: tuple[int, bool]) -> PyQuery:
     count, shared = case
-    text: Final = f"<main>{'<p>x</p>' * count}</main>" if shared else "<main><p>x</p></main>" * count
+    text: Final[str] = f"<main>{'<p>x</p>' * count}</main>" if shared else "<main><p>x</p></main>" * count
     return PyQuery(text, parser="html")("p")
 
 
@@ -249,7 +249,9 @@ def _query_siblings(case: tuple[int, bool]) -> PyQuery:
 def _query_siblings_case(case: tuple[int, bool]) -> PyQuery:
     count, all_selected = case
     if all_selected:
-        unsupported: Final = "Pyquery siblings retains duplicates and uses a different result order for multiple roots"
+        unsupported: Final[str] = (
+            "Pyquery siblings retains duplicates and uses a different result order for multiple roots"
+        )
         raise NotImplementedError(unsupported)
     return PyQuery(f"<main>{'<p>x</p>' * count}</main>", parser="html")("p").eq(0)
 

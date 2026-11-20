@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Final, Protocol
 
 import pytest
 
-from turbohtml import Document, Element, Range, SelectorSyntaxError, Text, parse, parse_xml
+from turbohtml import Document, Element, Node, Range, SelectorSyntaxError, Text, parse, parse_xml
 from turbohtml.clean import linkify_node
 from turbohtml.convert import css_to_xpath
 from turbohtml.query import Query
@@ -139,15 +139,15 @@ def test_long_substring(value: str, needle: str, flag: str, tags: list[str]) -> 
 
 
 def test_long_substring_missing_attribute() -> None:
-    needle: Final = f"{'a' * 65}ba"
+    needle: Final[str] = f"{'a' * 65}ba"
     assert _sel(f'<div data-value="{needle}"></div><p></p>', f'[data-value*="{needle}"]') == ["div"]
     assert _sel("<div data-value></div>", f'[data-value*="{needle}"]') == []
     assert _sel("<div></div>", f'[missing*="{needle}"]') == []
 
 
 def test_long_substring_default_case_folding() -> None:
-    value: Final = f"{'a' * 65}ba"
-    needle: Final = f"{'A' * 65}BA"
+    value: Final[str] = f"{'a' * 65}ba"
+    needle: Final[str] = f"{'A' * 65}BA"
     assert _sel(f'<input type="{value}">', f'[type*="{needle}"]') == ["input"]
     assert _sel(f'<svg><g type="{value}"></g></svg>', f'[type*="{needle}"]') == []
 
@@ -367,10 +367,6 @@ def test_structural_pseudo_by_text(selector: str, texts: list[str]) -> None:
     assert [element.text for element in parse(_PSEUDO).select(selector)] == texts
 
 
-# a list whose items alternate a class, so An+B applies to the .x-matching subset
-_NTH_OF: Final[str] = "<ul><li class=x>1</li><li>2</li><li class=x>3</li><li>4</li><li class=x>5</li></ul>"
-
-
 @pytest.mark.parametrize(
     ("selector", "texts"),
     [
@@ -392,7 +388,9 @@ _NTH_OF: Final[str] = "<ul><li class=x>1</li><li>2</li><li class=x>3</li><li>4</
     ],
 )
 def test_nth_child_of_selector(selector: str, texts: list[str]) -> None:
-    assert [element.text for element in parse(_NTH_OF).select(selector)] == texts
+    # a list whose items alternate a class, so An+B applies to the .x-matching subset
+    nth_of: str = "<ul><li class=x>1</li><li>2</li><li class=x>3</li><li>4</li><li class=x>5</li></ul>"
+    assert [element.text for element in parse(nth_of).select(selector)] == texts
 
 
 def test_nth_child_of_skips_non_element_siblings() -> None:
@@ -813,7 +811,7 @@ def _deep_xml(depth: int) -> Document:
 # each element's attribute value sits next to it in the tree's arena, so the value's length sets how far apart the
 # elements lie in memory; a memo hashed by address put every element of a chain this far apart in one probe run
 def _deep_xml_spaced(depth: int) -> Document:
-    start: Final = f'<group pad="{"x" * 262}">'
+    start: Final[str] = f'<group pad="{"x" * 262}">'
     return parse_xml(f"{start * depth}<item/>{'</group>' * depth}")
 
 
@@ -830,7 +828,7 @@ def _deep_xml_sequence_clustered(depth: int) -> Document:
 
 
 def _deep_appended(depth: int) -> Element:
-    root: Final = Element("root")
+    root: Final[Element] = Element("root")
     innermost = root
     for _ in range(depth):
         child = Element("group")
@@ -841,9 +839,9 @@ def _deep_appended(depth: int) -> Element:
 
 
 def _deep_xml_in_parsed_html(depth: int) -> Document:
-    document: Final = parse("<p>shallow</p>")
-    body: Final = document.find("body")
-    root: Final = _deep_xml(depth).root
+    document: Final[Document] = parse("<p>shallow</p>")
+    body: Final[Element | None] = document.find("body")
+    root: Final[Element | None] = _deep_xml(depth).root
     assert body is not None
     assert root is not None
     body.append(root)
@@ -851,8 +849,8 @@ def _deep_xml_in_parsed_html(depth: int) -> Document:
 
 
 def _deep_xml_imported_into_parsed_html(depth: int) -> Element:
-    body: Final = parse("<p>shallow</p>").find("body")
-    root: Final = parse_xml(f"<root>{'<group>' * depth}<item/>{'</group>' * depth}</root>").root
+    body: Final[Element | None] = parse("<p>shallow</p>").find("body")
+    root: Final[Element | None] = parse_xml(f"<root>{'<group>' * depth}<item/>{'</group>' * depth}</root>").root
     assert body is not None
     assert root is not None
     with pytest.raises(TypeError):
@@ -880,7 +878,7 @@ _NESTED_DEPTH: Final[int] = 4_000
 def test_has_memo_deep_tree_not_from_html_parser(
     build: Callable[[int], Document | Element], work_steps: WorkSteps
 ) -> None:
-    tree: Final = build(_NESTED_DEPTH)
+    tree: Final[Document | Element] = build(_NESTED_DEPTH)
     assert len(tree.select("group:has(item)")) == _NESTED_DEPTH
     assert len(tree.select("group:has(> item)")) == 1
     assert tree.select("group:has(entry)") == []
@@ -895,11 +893,11 @@ def test_has_memo_deepening_mutation_after_query(work_steps: WorkSteps) -> None:
 
 
 def _chain_grown_after_query(depth: int) -> Element:
-    root: Final = Element("root")
+    root: Final[Element] = Element("root")
     assert root.select("group:has(item)") == []
     innermost = root
     for _ in range(depth):
-        child: Final = Element("group")
+        child: Final[Element] = Element("group")
         innermost.append(child)
         innermost = child
     innermost.append(Element("item"))
@@ -907,7 +905,7 @@ def _chain_grown_after_query(depth: int) -> Element:
 
 
 def test_has_memo_deep_chain_linkified(work_steps: WorkSteps) -> None:
-    document: Final = _deep_chain_linkified(_NESTED_DEPTH)
+    document: Final[Document] = _deep_chain_linkified(_NESTED_DEPTH)
     assert len(document.select("span:has(a)")) == _NESTED_DEPTH
     assert document.select("span:has(entry)") == []
     work_steps.assert_linear(
@@ -916,7 +914,7 @@ def test_has_memo_deep_chain_linkified(work_steps: WorkSteps) -> None:
 
 
 def _deep_chain_linkified(depth: int) -> Document:
-    document: Final = parse("<p>shallow</p>")
+    document: Final[Document] = parse("<p>shallow</p>")
     innermost = document.find("body")
     assert innermost is not None
     for _ in range(depth):
@@ -940,8 +938,8 @@ def test_scoped_has_after_each_mutation_scales_linearly(
     query: Callable[[Element], object], work_steps: WorkSteps
 ) -> None:
     def loop(size: int) -> Callable[[], None]:
-        markup: Final = "<div class=card><section><p>x</p><img></section></div>" * size
-        cards: Final = parse(f"<body>{markup}</body>").select(".card")
+        markup: Final[str] = "<div class=card><section><p>x</p><img></section></div>" * size
+        cards: Final[list[Element]] = parse(f"<body>{markup}</body>").select(".card")
 
         def run() -> None:
             for card in cards:
@@ -1814,7 +1812,7 @@ def test_dir_auto_text_is_scanned_once_per_query(work_steps: WorkSteps) -> None:
 
 @pytest.mark.parametrize("innermost", [pytest.param("", id="no-strong"), pytest.param("ש", id="strong-innermost")])
 def test_nested_dir_auto_text_is_scanned_once_per_query(work_steps: WorkSteps, innermost: str) -> None:
-    opening: Final = '<b dir="auto">2'
+    opening: Final[str] = '<b dir="auto">2'
     work_steps.assert_linear(
         lambda n: partial(parse_xml(f"<r>{opening * n}{innermost}{'</b>' * n}</r>").select, ":dir(ltr)"), (500, 2000)
     )
@@ -2375,7 +2373,7 @@ def test_nth_positions_in_individual_matches(selector: str, expected: list[bool]
     ],
 )
 def test_has_relative_axis_ignores_text_and_deeper_matches(relative: str, expected: list[str]) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         '<main><section id="anchor"><div><b class="hit"></b></div></section>'
         'text<!-- gap --><section id="middle"></section>more<!-- gap -->'
         '<section id="later" class="hit"><b class="hit"></b></section></main>'
@@ -2393,7 +2391,7 @@ def test_has_relative_axis_ignores_text_and_deeper_matches(relative: str, expect
     ],
 )
 def test_default_query_matches_each_form(selector: str, expected: list[str]) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         '<form id="first"><span>x</span><button id="a">a</button><button id="b">b</button></form>'
         '<form id="second"><button id="c">c</button><button id="d">d</button></form>'
     )
@@ -2405,7 +2403,7 @@ def test_default_query_matches_each_form(selector: str, expected: list[str]) -> 
     [pytest.param("remove", ["b", "d"], id="remove"), pytest.param("prune", ["a", "c"], id="prune")],
 )
 def test_default_query_mutation_uses_original_matches(operation: str, expected: list[str]) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         '<form><button id="a">a</button><button id="b">b</button></form>'
         '<form><button id="c">c</button><button id="d">d</button></form>'
     )
@@ -2414,18 +2412,18 @@ def test_default_query_mutation_uses_original_matches(operation: str, expected: 
 
 
 def test_default_query_rechecks_changed_type() -> None:
-    document: Final = parse('<form><button id="a">a</button><button id="b">b</button></form>')
-    first: Final = document.select(":default")[0]
+    document: Final[Document] = parse('<form><button id="a">a</button><button id="b">b</button></form>')
+    first: Final[Element] = document.select(":default")[0]
     first.attrs["type"] = "button"
     assert [node.attrs["id"] for node in document.select(":default")] == ["b"]
 
 
 def test_default_query_rechecks_nested_form_ownership() -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         '<form id="outer"><button id="a">a</button><button id="b">b</button></form>'
         '<form id="inner"><button id="c">c</button><button id="d">d</button></form>'
     )
-    forms: Final = document.select("form")
+    forms: Final[list[Element]] = document.select("form")
     assert [node.attrs["id"] for node in document.select(":default")] == ["a", "c"]
     forms[1].append(document.select("button")[0])
     forms[0].append(forms[1])
@@ -2433,7 +2431,7 @@ def test_default_query_rechecks_nested_form_ownership() -> None:
 
 
 def test_default_individual_matches_submit_controls() -> None:
-    document: Final = parse("<form><button>a</button><button>b</button></form>")
+    document: Final[Document] = parse("<form><button>a</button><button>b</button></form>")
     assert [node.matches(":default") for node in document.select("button")] == [True, False]
 
 
@@ -2461,11 +2459,11 @@ def test_default_individual_matches_submit_controls() -> None:
 def test_relative_type_selectors(
     selector: str, expected: list[str], *, make_document: Callable[[str], Document]
 ) -> None:
-    markup: Final = (
+    markup: Final[str] = (
         '<main><section id="parent"><a class="hit"></a><x-widget></x-widget><svg></svg></section>'
         'text<p id="next"></p><!--gap--><a></a></main>'
     )
-    document: Final = make_document(markup)
+    document: Final[Document] = make_document(markup)
     assert [element.attrs["id"] for element in document.select(selector)] == expected
 
 
@@ -2479,20 +2477,22 @@ def test_relative_type_selectors(
     ],
 )
 def test_relative_xml_type_case(selector: str, expected: list[str]) -> None:
-    document: Final = parse_xml('<main><section id="upper"><A/></section><section id="lower"><a/></section><A/></main>')
+    document: Final[Document] = parse_xml(
+        '<main><section id="upper"><A/></section><section id="lower"><a/></section><A/></main>'
+    )
     assert [element.attrs["id"] for element in document.select(selector)] == expected
 
 
 @pytest.mark.parametrize("tag", [pytest.param("a", id="lower"), pytest.param("A", id="upper")])
 def test_relative_type_after_xml_adoption(tag: str) -> None:
-    parent: Final = Element("section")
+    parent: Final[Element] = Element("section")
     parent.append(parse_xml(f"<{tag}/>").select("*")[0])
     assert parent.matches("section:has(> a)")
 
 
 def test_relative_type_after_rename() -> None:
-    parent: Final = Element("section")
-    child: Final = Element("x-widget")
+    parent: Final[Element] = Element("section")
+    child: Final[Element] = Element("x-widget")
     parent.append(child)
     child.tag = "A"
     assert parent.matches("section:has(> a)")
@@ -2512,7 +2512,7 @@ def test_relative_type_after_rename() -> None:
 )
 def test_detached_element_has_no_parent_to_match(selector: str, *, matched: bool) -> None:
     # the top of a detached subtree has no parent at all, not even a document
-    detached: Final = Element("div")
+    detached: Final[Element] = Element("div")
     assert detached.matches(selector) is matched
     assert (detached.closest(selector) == detached) is matched
 
@@ -2526,14 +2526,14 @@ def test_detached_option_has_no_optgroup(selector: str, *, matched: bool) -> Non
 
 
 def test_child_combinator_stops_at_top_of_extracted_subtree() -> None:
-    article: Final = parse("<article class=body><p>x</p></article>").select("article")[0].extract()
+    article: Final[Element] = parse("<article class=body><p>x</p></article>").select("article")[0].extract()
     assert article.select(".post > .body > p") == []
     assert [element.tag for element in article.select(".body > p")] == ["p"]
 
 
 def test_child_combinator_stops_at_top_of_extracted_xml_subtree() -> None:
     # an XML element carries no tag atom, so a bare type selector to the left of > also takes the general path
-    entry: Final = parse_xml("<feed><entry><title/></entry></feed>").select("entry")[0].extract()
+    entry: Final[Element] = parse_xml("<feed><entry><title/></entry></feed>").select("entry")[0].extract()
     assert entry.matches("feed > entry") is False
     assert entry.select("feed > entry > title") == []
     assert [element.tag for element in entry.select("entry > title")] == ["title"]
@@ -2541,7 +2541,7 @@ def test_child_combinator_stops_at_top_of_extracted_xml_subtree() -> None:
 
 def test_closest_scope_from_text_of_detached_element() -> None:
     # a Text node is no scope element, so :scope falls back to the document element, which a detached subtree lacks
-    detached: Final = parse("<div>text</div>").select("div")[0].extract()
+    detached: Final[Element] = parse("<div>text</div>").select("div")[0].extract()
     assert detached.children[0].closest(":scope") is None
     assert detached.children[0].closest(":not(:scope)") == detached
 
@@ -2551,7 +2551,7 @@ def test_closest_scope_from_text_of_detached_element() -> None:
     "offset", [pytest.param(2**31 - 4, id="fourth-child"), pytest.param(2**31 - 3, id="third-child")]
 )
 def test_nth_with_an_offset_near_int_min_matches_nothing(pseudo: str, offset: int) -> None:
-    document: Final = parse("<ul><li>1<li>2<li>3<li>4</ul>")
+    document: Final[Document] = parse("<ul><li>1<li>2<li>3<li>4</ul>")
     assert document.select(f"li:{pseudo}(-n-{offset})") == []
 
 
@@ -2565,7 +2565,7 @@ def test_nth_with_an_offset_near_int_min_matches_nothing(pseudo: str, offset: in
     ],
 )
 def test_nth_integer_beyond_int_range_matches_formula(selector: str, texts: list[str]) -> None:
-    document: Final = parse("<ul><li>1<li>2<li>3</ul>")
+    document: Final[Document] = parse("<ul><li>1<li>2<li>3</ul>")
     assert [element.text for element in document.select(selector)] == texts
 
 
@@ -2577,7 +2577,7 @@ def test_nth_integer_beyond_int_range_matches_formula(selector: str, texts: list
     ],
 )
 def test_nth_integer_beyond_int64_range_saturates(selector: str, texts: list[str]) -> None:
-    document: Final = parse("<ul><li>1<li>2<li>3</ul>")
+    document: Final[Document] = parse("<ul><li>1<li>2<li>3</ul>")
     assert [element.text for element in document.select(selector)] == texts
 
 
@@ -2622,8 +2622,8 @@ _CLAUSES: Final[list[pytest.ParameterSet]] = [
 @pytest.mark.parametrize("pseudo", ["nth-child", "nth-last-child", "nth-of-type", "nth-last-of-type"])
 @pytest.mark.parametrize(("step", "offset"), _WIDE_STEP_OFFSET)
 def test_an_plus_b_matches_the_formula_for_wide_coefficients(pseudo: str, step: int, offset: int) -> None:
-    expected: Final = _an_plus_b_selected(pseudo, step, offset, _TWELVE)
-    document: Final = parse(_MIXED)
+    expected: Final[list[int]] = _an_plus_b_selected(pseudo, step, offset, _TWELVE)
+    document: Final[Document] = parse(_MIXED)
     assert [int(element.text) for element in document.select(f"li:{pseudo}({step}n{offset:+d})")] == expected
 
 
@@ -2656,8 +2656,8 @@ def _clamp_int32(value: int) -> int:
     ],
 )
 def test_nth_beyond_int64_range_matches_the_clamped_positions(step: int, offset: int) -> None:
-    document: Final = parse(f"<ul>{''.join(f'<li>{index}' for index in _TWELVE)}</ul>")
-    expected: Final = [str(index) for index in _an_plus_b_selected("nth-child", step, offset, _TWELVE)]
+    document: Final[Document] = parse(f"<ul>{''.join(f'<li>{index}' for index in _TWELVE)}</ul>")
+    expected: Final[list[str]] = [str(index) for index in _an_plus_b_selected("nth-child", step, offset, _TWELVE)]
     assert [element.text for element in document.select(f"li:nth-child({step}n{offset:+d})")] == expected
 
 
@@ -2697,18 +2697,18 @@ _RESIDUE_EDGES: Final[list[pytest.ParameterSet]] = [
 @pytest.mark.parametrize("pseudo", ["nth-child", "nth-last-child"])
 @pytest.mark.parametrize(("step", "offset"), _RESIDUE_EDGES)
 def test_an_plus_b_residue_edges_match_the_exact_integers(pseudo: str, step: int, offset: int) -> None:
-    members: Final = list(range(1, 41))
-    expected: Final = [str(index) for index in _an_plus_b_selected(pseudo, step, offset, members)]
-    document: Final = parse(_FORTY)
+    members: Final[list[int]] = list(range(1, 41))
+    expected: Final[list[str]] = [str(index) for index in _an_plus_b_selected(pseudo, step, offset, members)]
+    document: Final[Document] = parse(_FORTY)
     assert [element.text for element in document.select(f"li:{pseudo}({step}n{offset:+d})")] == expected
 
 
 @pytest.mark.parametrize("pseudo", ["nth-child", "nth-last-child"])
 @pytest.mark.parametrize(("step", "offset"), _huge_pairs())
 def test_an_plus_b_with_huge_coefficients_matches_the_exact_integers(pseudo: str, step: int, offset: int) -> None:
-    members: Final = list(range(1, 41))
-    expected: Final = [str(index) for index in _an_plus_b_selected(pseudo, step, offset, members)]
-    document: Final = parse(_FORTY)
+    members: Final[list[int]] = list(range(1, 41))
+    expected: Final[list[str]] = [str(index) for index in _an_plus_b_selected(pseudo, step, offset, members)]
+    document: Final[Document] = parse(_FORTY)
     assert [element.text for element in document.select(f"li:{pseudo}({step}n{offset:+d})")] == expected
 
 
@@ -2718,8 +2718,8 @@ def test_an_plus_b_with_huge_coefficients_matches_the_exact_integers(pseudo: str
 def test_an_plus_b_of_clause_for_wide_coefficients(
     pseudo: str, clause: str, members: list[int], step: int, offset: int
 ) -> None:
-    expected: Final = _an_plus_b_selected(pseudo, step, offset, members)
-    document: Final = parse(_MIXED)
+    expected: Final[list[int]] = _an_plus_b_selected(pseudo, step, offset, members)
+    document: Final[Document] = parse(_MIXED)
     assert [int(element.text) for element in document.select(f"li:{pseudo}({step}n{offset:+d}{clause})")] == expected
 
 
@@ -2729,8 +2729,10 @@ def test_an_plus_b_of_clause_for_wide_coefficients(
 def test_css_to_xpath_an_plus_b_for_wide_coefficients(
     pseudo: str, clause: str, members: list[int], step: int, offset: int
 ) -> None:
-    expected: Final = _an_plus_b_selected(pseudo, step, offset, members)
-    nodes: Final = parse(_MIXED).xpath(css_to_xpath(f"li:{pseudo}({step}n{offset:+d}{clause})"))
+    expected: Final[list[int]] = _an_plus_b_selected(pseudo, step, offset, members)
+    nodes: Final[list[Node | str] | float | str] = parse(_MIXED).xpath(
+        css_to_xpath(f"li:{pseudo}({step}n{offset:+d}{clause})")
+    )
     assert isinstance(nodes, list)
     assert [node.text for node in nodes if isinstance(node, Element)] == [str(index) for index in expected]
 
@@ -2738,9 +2740,9 @@ def test_css_to_xpath_an_plus_b_for_wide_coefficients(
 @pytest.mark.parametrize("pseudo", ["nth-child", "nth-last-child"])
 @pytest.mark.parametrize(("step", "offset"), _WIDE_STEP_OFFSET)
 def test_an_plus_b_matches_and_closest_for_wide_coefficients(pseudo: str, step: int, offset: int) -> None:
-    selector: Final = f"li:{pseudo}({step}n{offset:+d})"
-    expected: Final = [str(index) for index in _an_plus_b_selected(pseudo, step, offset, _TWELVE)]
-    elements: Final = parse(_MIXED).select("li")
+    selector: Final[str] = f"li:{pseudo}({step}n{offset:+d})"
+    expected: Final[list[str]] = [str(index) for index in _an_plus_b_selected(pseudo, step, offset, _TWELVE)]
+    elements: Final[list[Element]] = parse(_MIXED).select("li")
     assert [element.text for element in elements if element.matches(selector)] == expected
     assert [element.text for element in elements if element.closest(selector) is not None] == expected
 
@@ -2748,14 +2750,14 @@ def test_an_plus_b_matches_and_closest_for_wide_coefficients(pseudo: str, step: 
 @pytest.mark.parametrize(("step", "offset"), _WIDE_STEP_OFFSET)
 def test_an_plus_b_of_scope_under_has_for_wide_coefficients(step: int, offset: int) -> None:
     # 48 siblings give the :has() anchors a run long enough for the sibling sweep to read the :scope clause
-    count: Final = 48
-    document: Final = parse(f"<ul>{''.join(f'<li>{index}' for index in range(1, count + 1))}</ul>")
-    expected: Final = [
+    count: Final[int] = 48
+    document: Final[Document] = parse(f"<ul>{''.join(f'<li>{index}' for index in range(1, count + 1))}</ul>")
+    expected: Final[list[str]] = [
         str(index)
         for index in range(1, count + 1)
         if any(_an_plus_b(step, offset, later - index) for later in range(index + 1, count + 1))
     ]
-    selector: Final = f"li:has(~ li:nth-child({step}n{offset:+d} of :scope ~ *))"
+    selector: Final[str] = f"li:has(~ li:nth-child({step}n{offset:+d} of :scope ~ *))"
     assert [element.text for element in document.select(selector)] == expected
 
 
@@ -2787,38 +2789,40 @@ _LONG_VALUES: Final[str] = (
     ],
 )
 def test_long_attribute_value_answers(selector: str, ids: list[str]) -> None:
-    document: Final = parse(_LONG_VALUES)
+    document: Final[Document] = parse(_LONG_VALUES)
     assert [element.attrs.get("id") for element in document.select(selector)] == ids
     assert [element.attrs.get("id") for element in document.select("[id]") if element.matches(selector)] == ids
 
 
 def test_long_class_value_folds_case_in_quirks_mode() -> None:
-    quirks: Final = parse(f'<ol class="{_PAD}hit"><li><li></ol>')
-    standard: Final = parse(f'<!doctype html><ol class="{_PAD}hit"><li><li></ol>')
-    counts: Final = [len(document.select(".HIT li")) for document in (quirks, standard)]
+    quirks: Final[Document] = parse(f'<ol class="{_PAD}hit"><li><li></ol>')
+    standard: Final[Document] = parse(f'<!doctype html><ol class="{_PAD}hit"><li><li></ol>')
+    counts: Final[list[int]] = [len(document.select(".HIT li")) for document in (quirks, standard)]
     assert (*counts, len(standard.select(".hit li"))) == (2, 0, 2)
 
 
 def test_long_class_value_shared_by_recreated_formatting_elements() -> None:
     # every <li> re-creates the open <u>, and each copy points at the class value of the original
-    document: Final = parse(f'<ul><li><u class="{_PAD}hit">{"<li>v" * 4}')
-    counts: Final = [len(document.select(selector)) for selector in ("u", ".hit", ".nope", "li > .hit", "[class~=hit]")]
+    document: Final[Document] = parse(f'<ul><li><u class="{_PAD}hit">{"<li>v" * 4}')
+    counts: Final[list[int]] = [
+        len(document.select(selector)) for selector in ("u", ".hit", ".nope", "li > .hit", "[class~=hit]")
+    ]
     assert counts == [5, 5, 0, 5, 5]
     assert len(copy.deepcopy(document).select(".hit")) == 5
 
 
 def test_long_class_value_shared_by_copies_in_the_same_tree() -> None:
-    document: Final = parse(f'<ul><li><u class="{_PAD}hit">{"<li>v" * 4}')
-    items: Final = document.select("ul")[0]
-    boundary: Final = Range(items, 0)
+    document: Final[Document] = parse(f'<ul><li><u class="{_PAD}hit">{"<li>v" * 4}')
+    items: Final[Element] = document.select("ul")[0]
+    boundary: Final[Range] = Range(items, 0)
     boundary.set_end(items, 5)
     document.select("body")[0].append(boundary.clone_contents())
     assert [len(document.select(selector)) for selector in (".hit", "li > .hit", ".nope")] == [10, 10, 0]
 
 
 def test_long_class_value_is_read_again_after_a_change() -> None:
-    document: Final = parse(f'<ol class="{_PAD}hit"><li></ol>')
-    before: Final = len(document.select(".hit li"))
+    document: Final[Document] = parse(f'<ol class="{_PAD}hit"><li></ol>')
+    before: Final[int] = len(document.select(".hit li"))
     document.select("ol")[0].attrs["class"] = _PAD
     assert (before, len(document.select(".hit li"))) == (1, 0)
 
@@ -3031,7 +3035,7 @@ def test_long_selector_chain_matches_when_the_stack_holds_it(selector: str, expe
 
 
 def test_select_long_values_nested_past_probe_run_limit() -> None:
-    document: Final = _long_values_nested(300)
+    document: Final[Document] = _long_values_nested(300)
     assert len(document.select(f'group[pad~="{"x" * 262}"] group')) == 299
     assert document.select('group[pad~="zz"] group') == []
 
@@ -3040,7 +3044,7 @@ def _long_values_nested(groups: int) -> Document:
     # nested groups with long attribute values, each memoized under its sequence, and the sequences hash into the lowest
     # eighth of the memo's home slots, so the entries form one probe run past the fast run limit; a group's ancestors
     # are tested again under each descendant, so later lookups hit entries deep in that run
-    pad: Final = "x" * 262
+    pad: Final[str] = "x" * 262
     parts: list[str] = []
     sequence = 1
     while sum(part.startswith("<group") for part in parts) < groups:

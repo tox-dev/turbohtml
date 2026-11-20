@@ -129,7 +129,7 @@ def test_annotation_surface_owns_generator_labels(count: int) -> None:
     "count", [pytest.param(1, id="one"), pytest.param(4, id="four"), pytest.param(32, id="thirty-two")]
 )
 def test_annotation_tags_owns_generator_labels(count: int) -> None:
-    expected: Final = "".join(f"<label-{index:04d}>a</label-{index:04d}>" for index in range(count))
+    expected: Final[str] = "".join(f"<label-{index:04d}>a</label-{index:04d}>" for index in range(count))
     assert (
         annotation_tags("a" * count, ((index, index + 1, f"label-{index:04d}") for index in range(count))) == expected
     )

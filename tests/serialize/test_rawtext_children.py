@@ -5,7 +5,7 @@ from typing import Final
 
 import pytest
 
-from turbohtml import CData, Comment, Element, Html, Indent, Minify, Text, parse, parse_fragment
+from turbohtml import CData, Comment, Document, Element, Html, Indent, Minify, ShadowRoot, Text, parse, parse_fragment
 from turbohtml.clean import CSSMinify, JSMinify
 
 _RAW_TEXT_TAGS: Final[tuple[str, ...]] = ("script", "style", "xmp", "iframe", "noembed", "noframes", "plaintext")
@@ -42,7 +42,7 @@ def test_rawtext_children_inner_minify(tag: str) -> None:
     ],
 )
 def test_rawtext_children_minify_comments(layout: Minify, expected: str) -> None:
-    script: Final = Element(
+    script: Final[Element] = Element(
         "script", children=[Text("a<"), Element("b", children=[Text("i<"), Comment("n")]), Comment("c")]
     )
     assert script.serialize(Html(layout=layout)) == expected
@@ -54,19 +54,19 @@ def test_rawtext_children_serialize_iter(layout: Indent | None) -> None:
 
 
 def test_rawtext_children_indent_inside_head() -> None:
-    head: Final = Element("head", children=[_mixed("style")])
+    head: Final[Element] = Element("head", children=[_mixed("style")])
     assert head.serialize(Html(layout=Indent(2))) == "<head>\n  <style>a<<b>i&lt;</b><!--c--></style>\n</head>"
 
 
 def test_rawtext_children_noscript_with_scripting() -> None:
-    noscript: Final = parse("<body><noscript>a<</noscript>", scripting=True).find("noscript")
+    noscript: Final[Element | None] = parse("<body><noscript>a<</noscript>", scripting=True).find("noscript")
     assert noscript is not None
     noscript.append(Element("b", children=[Element("noscript", children=[Element("i"), Text("t<")])]))
     assert noscript.html == "<noscript>a<<b><noscript><i></i>t<</noscript></b></noscript>"
 
 
 def test_rawtext_children_nested_rawtext() -> None:
-    style: Final = Element("style", children=[Text("x<"), Comment("d")])
+    style: Final[Element] = Element("style", children=[Text("x<"), Comment("d")])
     assert Element("script", children=[Element("b", children=[style])]).html == (
         "<script><b><style>x<<!--d--></style></b></script>"
     )
@@ -74,8 +74,8 @@ def test_rawtext_children_nested_rawtext() -> None:
 
 def test_rawtext_children_deep_nesting_stays_iterative() -> None:
     # under a 256 KiB stack a walk that recursed once per nested raw-text element would overflow at this depth
-    depth: Final = 2_000
-    script: Final = Element("script")
+    depth: Final[int] = 2_000
+    script: Final[Element] = Element("script")
     current = script
     for _ in range(depth):
         inner = Element("script")
@@ -89,14 +89,14 @@ def test_rawtext_children_deep_nesting_stays_iterative() -> None:
         captured["minify"] = script.serialize(Html(layout=Minify()))
         captured["lossless"] = script.to_source()
 
-    previous: Final = threading.stack_size(256 * 1024)
+    previous: Final[int] = threading.stack_size(256 * 1024)
     try:
-        worker: Final = threading.Thread(target=run)
+        worker: Final[threading.Thread] = threading.Thread(target=run)
         worker.start()
         worker.join()
     finally:
         threading.stack_size(previous)
-    expected: Final = f"{'<script><b>' * depth}<script>x<</script>{'</b></script>' * depth}"
+    expected: Final[str] = f"{'<script><b>' * depth}<script>x<</script>{'</b></script>' * depth}"
     assert captured == {"compact": expected, "minify": expected, "lossless": expected}
 
 
@@ -124,7 +124,7 @@ def test_rawtext_children_cdata(node: Element, expected: str) -> None:
 
 
 def test_rawtext_children_cdata_feeds_minifier() -> None:
-    script: Final = Element("script", children=[Text("var a = 1;"), CData("var b = 2;")])
+    script: Final[Element] = Element("script", children=[Text("var a = 1;"), CData("var b = 2;")])
     assert script.serialize(Html(layout=Minify(minify_js=JSMinify()))) == "<script>var a=1,b=2</script>"
 
 
@@ -150,7 +150,7 @@ def test_rawtext_children_skip_embedded_minifier(node: Element, layout: Minify, 
 
 
 def test_rawtext_children_lossless() -> None:
-    script: Final = parse("<script>a&amp;<</script>", source_locations=True).find("script")
+    script: Final[Element | None] = parse("<script>a&amp;<</script>", source_locations=True).find("script")
     assert script is not None
     script.append(CData("d<"))
     script.append(Element("b", children=[Text("i<")]))
@@ -162,9 +162,9 @@ def test_rawtext_children_lossless() -> None:
 
 def test_rawtext_children_lossless_keeps_moved_source() -> None:
     # to_source copies the span of every subtree a mutation left untouched, a moved one inside a raw-text element too
-    doc: Final = parse("<script>s&amp;<</script><P CLASS='x'>a&amp;b<I>i</I></P>", source_locations=True)
-    script: Final = doc.find("script")
-    paragraph: Final = doc.find("p")
+    doc: Final[Document] = parse("<script>s&amp;<</script><P CLASS='x'>a&amp;b<I>i</I></P>", source_locations=True)
+    script: Final[Element | None] = doc.find("script")
+    paragraph: Final[Element | None] = doc.find("p")
     assert script is not None
     assert paragraph is not None
     script.append(paragraph)
@@ -173,12 +173,12 @@ def test_rawtext_children_lossless_keeps_moved_source() -> None:
 
 def test_rawtext_children_lossless_shadow_root_text_escaped() -> None:
     # a clonable shadow root carries a flag bit that a raw-text check on a non-element would misread
-    doc: Final = parse(
+    doc: Final[Document] = parse(
         '<div><template shadowrootmode="open" shadowrootclonable>x</template></div>', source_locations=True
     )
     host = doc.find("div")
     assert host is not None
-    shadow: Final = host.shadow_root
+    shadow: Final[ShadowRoot | None] = host.shadow_root
     assert shadow is not None
     text = shadow.children[0]
     assert isinstance(text, Text)
@@ -188,6 +188,6 @@ def test_rawtext_children_lossless_shadow_root_text_escaped() -> None:
 
 def test_rawtext_children_reparse_as_text() -> None:
     # the spec lists this as output that does not round-trip: raw-text content reparses as one text node
-    script: Final = parse_fragment(_mixed("script").html).find("script")
+    script: Final[Element | None] = parse_fragment(_mixed("script").html).find("script")
     assert script is not None
     assert [(type(child), child.text) for child in script.children] == [(Text, "a<<b>i&lt;</b><!--c-->")]

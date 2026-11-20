@@ -30,7 +30,7 @@ class HtmlBoom:
 class HtmlLookupError:
     @property
     def __html__(self) -> Callable[[], str]:
-        msg: Final = "HTML lookup failed"
+        msg: Final[str] = "HTML lookup failed"
         raise ValueError(msg)
 
 
@@ -465,7 +465,7 @@ def test_jinja2_migrates_to_turbohtml_markup() -> None:
     ],
 )
 def test_escape_adjacent_byte_lanes(pair: str, escaped: str, offset: int) -> None:
-    prefix: Final = "x" * offset
+    prefix: Final[str] = "x" * offset
     assert str(escape(f"{prefix}{pair * 8}tail")) == f"{prefix}{escaped * 8}tail"
 
 

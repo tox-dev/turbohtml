@@ -13,12 +13,14 @@ from bench.ci import benchmarks
 from bench.core import OPERATIONS
 from bench.operations import INPUTS
 
-from turbohtml import parse, parse_xml
+from turbohtml import Node, parse, parse_xml
 from turbohtml.validate import RelaxNG, SchemaValidationError, ValidationResult, XMLSchema
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from types import ModuleType
 
+    import lxml.etree
     from traced_bytes import PeakBytes
     from work_steps import WorkSteps
 
@@ -940,7 +942,7 @@ def test_regex_patterns_of_different_sizes_share_the_match_buffers() -> None:
 
 
 def test_xsd_child_declares_its_own_namespace() -> None:
-    schema: Final = XMLSchema(
+    schema: Final[XMLSchema] = XMLSchema(
         f'<xs:schema {_XS} targetNamespace="urn:a" xmlns="urn:a" elementFormDefault="qualified">'
         '<xs:element name="root"><xs:complexType><xs:sequence>'
         '<xs:element name="c" type="xs:string"/></xs:sequence></xs:complexType></xs:element></xs:schema>'
@@ -950,16 +952,16 @@ def test_xsd_child_declares_its_own_namespace() -> None:
 
 
 def test_xsd_element_below_the_root_sees_declarations_above_it() -> None:
-    schema: Final = XMLSchema(
+    schema: Final[XMLSchema] = XMLSchema(
         f'<xs:schema {_XS} targetNamespace="urn:x" xmlns="urn:x"><xs:element name="b" type="xs:string"/></xs:schema>'
     )
-    element: Final = parse_xml('<a xmlns="urn:x"><b>v</b></a>').children[0].children[0]
+    element: Final[Node] = parse_xml('<a xmlns="urn:x"><b>v</b></a>').children[0].children[0]
     assert schema.validate(element).valid
 
 
 def test_xsd_prefix_skips_a_same_length_neighbor() -> None:
     # the type's prefix "tn" must find its own declaration past "ts", which is as long and binds another namespace
-    schema: Final = XMLSchema(
+    schema: Final[XMLSchema] = XMLSchema(
         f'<xs:schema {_XS} xmlns:ts="urn:s" xmlns:tn="urn:t" targetNamespace="urn:t" elementFormDefault="qualified">'
         '<xs:complexType name="T"><xs:sequence><xs:element name="c" type="xs:string"/></xs:sequence></xs:complexType>'
         '<xs:element name="root" type="tn:T"/></xs:schema>'
@@ -973,7 +975,7 @@ def test_xsd_many_attributes_and_children_scale_linearly(work_steps: WorkSteps) 
     # whatever that element's attribute count
     def build(count: int) -> Callable[[], ValidationResult]:
         attributes = "".join(f'<xs:attribute name="a{index}" type="xs:string"/>' for index in range(count))
-        schema: Final = XMLSchema(
+        schema: Final[XMLSchema] = XMLSchema(
             f'<xs:schema {_XS}><xs:element name="root"><xs:complexType><xs:sequence>'
             '<xs:element name="c" type="xs:string" minOccurs="0" maxOccurs="unbounded"/>'
             f"</xs:sequence>{attributes}</xs:complexType></xs:element></xs:schema>"
@@ -1052,13 +1054,13 @@ def test_schema_children_are_not_searched_per_element(
     # measured call as well, so the count still grows on a path whose validation counts no steps.
     def build(count: int) -> Callable[[], None]:
         children = "<ignored/>" * count
-        source: Final = (
+        source: Final[str] = (
             f'<xs:schema {_XS}>{definitions.format(children=children)}<xs:element name="r">'
             "<xs:complexType><xs:sequence>"
             f'<xs:element name="g" maxOccurs="unbounded">{declaration.format(children=children)}</xs:element>'
             "</xs:sequence></xs:complexType></xs:element></xs:schema>"
         )
-        document: Final = parse_xml(f"<r>{item * count}</r>")
+        document: Final[Document] = parse_xml(f"<r>{item * count}</r>")
 
         def validate() -> None:
             assert XMLSchema(source).validate(document).valid
@@ -1106,7 +1108,7 @@ def test_schema_children_are_not_searched_per_element(
     ],
 )
 def test_schema_children_found_as_the_schema_orders_them(content: str, xml: str, messages: list[str]) -> None:
-    result: Final = check(
+    result: Final[ValidationResult] = check(
         f'<xs:schema {_XS}><xs:group name="late"><ignored/><xs:choice><xs:element name="b"/></xs:choice>'
         '<xs:sequence><xs:element name="c"/></xs:sequence></xs:group>'
         '<xs:group name="unused"><xs:sequence><xs:element name="c"/></xs:sequence></xs:group>'
@@ -1153,7 +1155,7 @@ def _pattern_facets(patterns: tuple[str, ...]) -> str:
 
 
 def test_pattern_facets_of_one_step_match_any_in_a_repeated_element() -> None:
-    schema: Final = XMLSchema(
+    schema: Final[XMLSchema] = XMLSchema(
         f'<xs:schema {_XS}><xs:simpleType name="item"><xs:restriction base="xs:string">'
         f"{_pattern_facets(('[a-z]+0[0-9]+', '[a-z]+1[0-9]+'))}</xs:restriction></xs:simpleType>"
         '<xs:element name="root"><xs:complexType><xs:sequence>'
@@ -1176,7 +1178,7 @@ def test_pattern_facets_of_one_step_match_any_in_a_repeated_element() -> None:
 def test_pattern_facets_of_each_derivation_step_all_apply(
     base: tuple[str, ...], restriction: tuple[str, ...], value: str, *, valid: bool
 ) -> None:
-    schema: Final = XMLSchema(
+    schema: Final[XMLSchema] = XMLSchema(
         f'<xs:schema {_XS}><xs:simpleType name="base"><xs:restriction base="xs:string">'
         f"{_pattern_facets(base)}</xs:restriction></xs:simpleType>"
         '<xs:element name="v"><xs:simpleType><xs:restriction base="base">'
@@ -1191,14 +1193,14 @@ def test_regex_many_patterns_compile_in_linear_steps(work_steps: WorkSteps) -> N
 
 def test_regex_many_patterns_validate_in_linear_steps(work_steps: WorkSteps) -> None:
     def build(count: int) -> Callable[[], object]:
-        schema: Final = XMLSchema(
+        schema: Final[XMLSchema] = XMLSchema(
             f'<xs:schema {_XS}><xs:simpleType name="t"><xs:restriction base="xs:string">'
             f"{_many_pattern_facets(count)}</xs:restriction></xs:simpleType>"
             '<xs:element name="r"><xs:complexType><xs:sequence>'
             '<xs:element name="v" type="t" maxOccurs="unbounded"/></xs:sequence></xs:complexType></xs:element>'
             "</xs:schema>"
         )
-        document: Final = parse_xml(f"<r>{'<v/>' * 20}</r>")
+        document: Final[Document] = parse_xml(f"<r>{'<v/>' * 20}</r>")
 
         def validate() -> None:
             assert schema.is_valid(document)
@@ -1219,9 +1221,9 @@ def test_regex_many_patterns_validate_in_linear_steps(work_steps: WorkSteps) -> 
 )
 def test_regex_class_of_many_ranges_matches_in_linear_steps(template: str, value: str, work_steps: WorkSteps) -> None:
     def build(members: int) -> Callable[[], object]:
-        pattern: Final = template.format("a-c" * members)
-        schema: Final = XMLSchema(restricted(f'<xs:pattern value="{pattern}"/>'))
-        document: Final = parse_xml(f"<v>{value * members}</v>")
+        pattern: Final[str] = template.format("a-c" * members)
+        schema: Final[XMLSchema] = XMLSchema(restricted(f'<xs:pattern value="{pattern}"/>'))
+        document: Final[Document] = parse_xml(f"<v>{value * members}</v>")
         return partial(schema.is_valid, document)
 
     work_steps.assert_linear(build, (500, 2000))
@@ -1237,13 +1239,15 @@ def test_regex_class_of_many_ranges_matches_in_linear_steps(template: str, value
 )
 def test_regex_repeated_patterns_on_one_type(value: str, *, valid: bool) -> None:
     # equal texts compile once, and every facet that repeats one finds that compiled form
-    patterns: Final = ("(ab)+", "c", "(ab)+", "d", "c")
-    facets: Final = "".join(f'<xs:pattern value="{pattern}"/>' for pattern in patterns)
+    patterns: Final[tuple[str, ...]] = ("(ab)+", "c", "(ab)+", "d", "c")
+    facets: Final[str] = "".join(f'<xs:pattern value="{pattern}"/>' for pattern in patterns)
     assert check(restricted(facets), f"<v>{value}</v>").valid is valid
 
 
 def test_regex_empty_pattern_matches_only_the_empty_string() -> None:
-    schema: Final = XMLSchema(restricted('<xs:pattern value=""/><xs:pattern value="b"/><xs:pattern value=""/>'))
+    schema: Final[XMLSchema] = XMLSchema(
+        restricted('<xs:pattern value=""/><xs:pattern value="b"/><xs:pattern value=""/>')
+    )
     assert [schema.is_valid(parse_xml(f"<v>{value}</v>")) for value in ("", "b", "a")] == [True, True, False]
 
 
@@ -1256,7 +1260,7 @@ def test_regex_empty_pattern_matches_only_the_empty_string() -> None:
     ],
 )
 def test_regex_first_invalid_pattern_in_document_order_is_reported(patterns: tuple[str, ...], message: str) -> None:
-    facets: Final = "".join(f'<xs:pattern value="{pattern}"/>' for pattern in patterns)
+    facets: Final[str] = "".join(f'<xs:pattern value="{pattern}"/>' for pattern in patterns)
     with pytest.raises(ValueError, match=f"^{re.escape(message)}"):
         XMLSchema(restricted(facets))
 
@@ -1828,7 +1832,7 @@ _REPEATED_MODELS: Final[list[pytest.ParameterSet]] = [
 @pytest.mark.parametrize("model", _REPEATED_MODELS)
 def test_repeated_particle_scales_linearly(model: str, work_steps: WorkSteps) -> None:
     def build(count: int) -> Callable[[], ValidationResult]:
-        schema: Final = XMLSchema(_repeated_schema(model))
+        schema: Final[XMLSchema] = XMLSchema(_repeated_schema(model))
         return partial(schema.validate, parse_xml(f"<r>{'<a/>' * count}</r>"))
 
     work_steps.assert_linear(build, (300, 1200))
@@ -1841,12 +1845,12 @@ def _repeated_schema(model: str) -> str:
 @pytest.mark.parametrize("model", _REPEATED_MODELS)
 def test_repeated_particle_peak_memory_is_linear(model: str, peak_bytes: PeakBytes) -> None:
     # the position sets of every repetition are reused, so the peak must not grow with the number of children
-    script: Final = (
+    script: Final[str] = (
         "import sys, tracemalloc\nfrom turbohtml import parse_xml\nfrom turbohtml.validate import XMLSchema\n"
         "schema = XMLSchema(sys.argv[1])\ndocument = parse_xml(sys.argv[2])\n"
         "tracemalloc.start()\nschema.validate(document)\nprint(tracemalloc.get_traced_memory()[1])\n"
     )
-    document: Final = f"<r>{'<a/>' * 3000}</r>"
+    document: Final[str] = f"<r>{'<a/>' * 3000}</r>"
     assert peak_bytes(script, (_repeated_schema(model), document)) < 64 * len(document)
 
 
@@ -1870,7 +1874,7 @@ _AMBIGUOUS_REPEATS: Final[list[pytest.ParameterSet]] = [
 @pytest.mark.parametrize("model", _AMBIGUOUS_REPEATS)
 def test_ambiguous_repeated_particle_scales_linearly(model: str, work_steps: WorkSteps) -> None:
     def build(count: int) -> Callable[[], ValidationResult]:
-        schema: Final = XMLSchema(_repeated_schema(model))
+        schema: Final[XMLSchema] = XMLSchema(_repeated_schema(model))
         return partial(schema.validate, parse_xml(f"<r>{'<a/>' * count}</r>"))
 
     work_steps.assert_linear(build, (300, 1200))
@@ -1948,15 +1952,15 @@ def test_wide_type_costs_no_memory_per_instance(content: str, instance: str) -> 
     # The arena keeps every allocation until validate() returns, so a per-instance copy of the type's declarations
     # grows with the instance count. maxOccurs="0" keeps the content-model matcher, which allocates for itself, out of
     # the wide choice. PyPy has no tracemalloc; the lists are C and the CPython run covers them.
-    tracing: Final = pytest.importorskip("tracemalloc")
-    schema: Final = XMLSchema(
+    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
+    schema: Final[XMLSchema] = XMLSchema(
         f'<xs:schema {_XS}><xs:element name="root"><xs:complexType><xs:sequence>'
         '<xs:element name="section" maxOccurs="unbounded"><xs:complexType><xs:sequence>'
         f'<xs:element name="v" maxOccurs="unbounded"><xs:complexType>{content}</xs:complexType></xs:element>'
         "</xs:sequence></xs:complexType></xs:element>"
         "</xs:sequence></xs:complexType></xs:element></xs:schema>"
     )
-    document: Final = parse_xml(f"<root>{f'<section>{instance * 50}</section>' * 30}</root>")
+    document: Final[Document] = parse_xml(f"<root>{f'<section>{instance * 50}</section>' * 30}</root>")
     tracing.start()
     try:
         assert schema.validate(document).valid
@@ -1968,7 +1972,7 @@ def test_wide_type_costs_no_memory_per_instance(content: str, instance: str) -> 
 
 def test_child_declarations_outlive_a_sibling_subtree() -> None:
     # validating <a> refills the one lookup list with the declarations of its own children before <b> is reached
-    schema: Final = (
+    schema: Final[str] = (
         f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
         '<xs:element name="a"><xs:complexType><xs:sequence><xs:element name="x"/><xs:element name="y"/>'
         '</xs:sequence></xs:complexType></xs:element><xs:element name="b" type="xs:int"/>'
@@ -1982,17 +1986,17 @@ def test_child_declarations_outlive_a_sibling_subtree() -> None:
 
 def test_attribute_name_index_is_rebuilt_for_each_element() -> None:
     # <b> reuses the buffers <a> indexed its 200 declarations in, and must not find a0 there
-    narrow: Final = "".join(f'<xs:attribute name="b{index}"/>' for index in range(32))
-    schema: Final = (
+    narrow: Final[str] = "".join(f'<xs:attribute name="b{index}"/>' for index in range(32))
+    schema: Final[str] = (
         f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
         f'<xs:element name="a"><xs:complexType>{_WIDE_ATTRIBUTES}</xs:complexType></xs:element>'
         f'<xs:element name="b"><xs:complexType>{narrow}</xs:complexType></xs:element>'
         "</xs:sequence></xs:complexType></xs:element></xs:schema>"
     )
-    attributes_a: Final = " ".join(f'a{index}=""' for index in range(64))
-    attributes_b: Final = " ".join(f'b{index}=""' for index in range(32))
+    attributes_a: Final[str] = " ".join(f'a{index}=""' for index in range(64))
+    attributes_b: Final[str] = " ".join(f'b{index}=""' for index in range(32))
     assert check(schema, f"<r><a {attributes_a}/><b {attributes_b}/></r>").valid
-    undeclared: Final = check(schema, f'<r><a {attributes_a}/><b {attributes_b} a0=""/></r>')
+    undeclared: Final[ValidationResult] = check(schema, f'<r><a {attributes_a}/><b {attributes_b} a0=""/></r>')
     assert [error.message for error in undeclared.errors] == ["attribute 'a0' is not declared"]
 
 
@@ -2125,7 +2129,7 @@ def test_all_matches_members_by_name(children: str, messages: list[str]) -> None
 
 
 def test_all_without_members_allows_no_child() -> None:
-    schema: Final = (
+    schema: Final[str] = (
         f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:all/></xs:complexType></xs:element></xs:schema>'
     )
     assert check(schema, "<r/>").valid
@@ -2637,17 +2641,17 @@ def test_repeated_sequence_group_compiles() -> None:
     "count", [pytest.param(1, id="one"), pytest.param(2, id="two"), pytest.param(12, id="grown-table")]
 )
 def test_all_group_of_each_type_keeps_its_members(count: int) -> None:
-    types: Final = "".join(
+    types: Final[str] = "".join(
         f'<xs:complexType name="t{index}"><xs:all><xs:element name="m{index}"/></xs:all></xs:complexType>'
         for index in range(count)
     )
-    elements: Final = "".join(f'<xs:element name="e{index}" type="t{index}"/>' for index in range(count))
-    schema: Final = XMLSchema(
+    elements: Final[str] = "".join(f'<xs:element name="e{index}" type="t{index}"/>' for index in range(count))
+    schema: Final[XMLSchema] = XMLSchema(
         f'<xs:schema {_XS}>{types}<xs:element name="r"><xs:complexType><xs:sequence>{elements}</xs:sequence>'
         "</xs:complexType></xs:element></xs:schema>"
     )
-    own: Final = "".join(f"<e{index}><m{index}/></e{index}>" for index in range(count))
-    other: Final = "".join(f"<e{index}><m{index + 1}/></e{index}>" for index in range(count))
+    own: Final[str] = "".join(f"<e{index}><m{index}/></e{index}>" for index in range(count))
+    other: Final[str] = "".join(f"<e{index}><m{index + 1}/></e{index}>" for index in range(count))
     assert schema.validate(parse_xml(f"<r>{own}</r>")).valid
     assert [error.message for error in schema.validate(parse_xml(f"<r>{other}</r>")).errors] == [
         message
@@ -2766,15 +2770,15 @@ def test_attribute_group_and_ref() -> None:
 @pytest.mark.parametrize("namespaces", [pytest.param(False, id="attributes"), pytest.param(True, id="namespaces")])
 @pytest.mark.parametrize("count", [pytest.param(0, id="none"), pytest.param(3, id="few"), pytest.param(40, id="many")])
 def test_declaration_is_read_among_ignored_attributes(count: int, *, namespaces: bool) -> None:
-    extra: Final = _ignored_attributes(count, namespaces=namespaces)
-    schema: Final = XMLSchema(
+    extra: Final[str] = _ignored_attributes(count, namespaces=namespaces)
+    schema: Final[XMLSchema] = XMLSchema(
         f'<xs:schema {_XS} xmlns:t="http://www.w3.org/2001/XMLSchema"{extra}>'
         f'<xs:element{extra} name="r"><xs:complexType{extra}><xs:sequence{extra}>'
         f'<xs:element{extra} name="item" type="t:int" minOccurs="0" maxOccurs="unbounded"/>'
         f'</xs:sequence><xs:attribute{extra} name="a" type="t:int" use="required" fixed="7"/>'
         "</xs:complexType></xs:element></xs:schema>"
     )
-    documents: Final = [
+    documents: Final[list[str]] = [
         '<r a="7"/>',
         '<r a="7"><item>1</item></r>',
         "<r><item>1</item></r>",
@@ -2787,7 +2791,7 @@ def test_declaration_is_read_among_ignored_attributes(count: int, *, namespaces:
 
 def _ignored_attributes(count: int, *, namespaces: bool = False) -> str:
     # names that share a prefix with the properties XSD reads, so a sorted list must order them apart from those
-    near_misses: Final = (
+    near_misses: Final[tuple[str, ...]] = (
         "name2",
         "names",
         "ref2",
@@ -2801,7 +2805,7 @@ def _ignored_attributes(count: int, *, namespaces: bool = False) -> str:
         "values",
         "a",
     )
-    names: Final = [*near_misses, *(f"z{index}" for index in range(count))][:count]
+    names: Final[list[str]] = [*near_misses, *(f"z{index}" for index in range(count))][:count]
     if namespaces:
         return "".join(f' xmlns:{name}="urn:{name}"' for name in names)
     return "".join(f' {name}="0"' for name in names)
@@ -2822,7 +2826,7 @@ def _ignored_attributes(count: int, *, namespaces: bool = False) -> str:
     ],
 )
 def test_qname_prefix_resolves_in_its_scope(schema: str) -> None:
-    checked: Final = XMLSchema(schema)
+    checked: Final[XMLSchema] = XMLSchema(schema)
     assert checked.is_valid(parse_xml("<v>1</v>"))
     assert not checked.is_valid(parse_xml("<v>x</v>"))
 
@@ -2845,7 +2849,7 @@ def test_qname_prefix_out_of_scope_does_not_resolve(schema: str) -> None:
 
 def test_declaration_properties_scale_linearly(work_steps: WorkSteps) -> None:
     def validation(count: int) -> Callable[[], object]:
-        schema: Final = XMLSchema(_declaration_schema(count))
+        schema: Final[XMLSchema] = XMLSchema(_declaration_schema(count))
         return partial(schema.is_valid, parse_xml(f"<r>{'<g/>' * count}</r>"))
 
     work_steps.assert_linear(validation, (250, 1000))
@@ -2862,8 +2866,8 @@ def _declaration_schema(count: int) -> str:
 
 def test_namespace_declarations_scale_linearly(work_steps: WorkSteps) -> None:
     def validation(count: int) -> Callable[[], object]:
-        declarations: Final = _ignored_attributes(count, namespaces=True)
-        schema: Final = XMLSchema(
+        declarations: Final[str] = _ignored_attributes(count, namespaces=True)
+        schema: Final[XMLSchema] = XMLSchema(
             f'<xs:schema {_XS} xmlns:t="http://www.w3.org/2001/XMLSchema"><xs:element name="r"><xs:complexType>'
             '<xs:sequence><xs:element name="g" minOccurs="0" maxOccurs="unbounded"><xs:complexType>'
             f'<xs:attribute{declarations} name="x" type="t:int"/>'
@@ -2876,7 +2880,7 @@ def test_namespace_declarations_scale_linearly(work_steps: WorkSteps) -> None:
 
 def test_facet_names_compile_linearly(work_steps: WorkSteps) -> None:
     def compilation(count: int) -> Callable[[], object]:
-        facets: Final = "".join(f'<xs:enumeration value="v{index}"/>' for index in range(count))
+        facets: Final[str] = "".join(f'<xs:enumeration value="v{index}"/>' for index in range(count))
         return partial(
             XMLSchema,
             f'<xs:schema {_XS}><xs:simpleType name="t"><xs:restriction{_ignored_attributes(count)} base="xs:string">'
@@ -2888,8 +2892,8 @@ def test_facet_names_compile_linearly(work_steps: WorkSteps) -> None:
 
 def test_schema_namespace_scope_compiles_linearly(work_steps: WorkSteps) -> None:
     def compilation(count: int) -> Callable[[], object]:
-        declarations: Final = _ignored_attributes(count, namespaces=True)
-        elements: Final = "".join(f'<xs:element name="e{index}"/>' for index in range(count))
+        declarations: Final[str] = _ignored_attributes(count, namespaces=True)
+        elements: Final[str] = "".join(f'<xs:element name="e{index}"/>' for index in range(count))
         return partial(XMLSchema, f"<xs:schema {_XS}{declarations}>{elements}</xs:schema>")
 
     work_steps.assert_linear(compilation, (250, 1000))
@@ -4268,18 +4272,18 @@ def facet_schema() -> Callable[[str], XMLSchema]:
     "count", [pytest.param(1, id="single"), pytest.param(9, id="growth"), pytest.param(32, id="many-types")]
 )
 def test_compiled_facet_type_lookup(facet_schema: Callable[[str], XMLSchema], count: int) -> None:
-    types: Final = "".join(
+    types: Final[str] = "".join(
         f'<xs:simpleType name="type{index}"><xs:restriction base="xs:int">'
         f'<xs:minInclusive value="{index}"/><xs:maxInclusive value="{index}"/>'
         "</xs:restriction></xs:simpleType>"
         for index in range(count)
     )
-    elements: Final = "".join(f'<xs:element name="value{index}" type="type{index}"/>' for index in range(count))
-    schema: Final = facet_schema(
+    elements: Final[str] = "".join(f'<xs:element name="value{index}" type="type{index}"/>' for index in range(count))
+    schema: Final[XMLSchema] = facet_schema(
         f'{types}<xs:element name="root"><xs:complexType><xs:sequence>{elements}'
         "</xs:sequence></xs:complexType></xs:element>"
     )
-    documents: Final = [
+    documents: Final[list[Document]] = [
         parse_xml(f"<root>{''.join(f'<value{index}>{index + offset}</value{index}>' for index in range(count))}</root>")
         for offset in (0, 1, 0)
     ]
@@ -4305,12 +4309,12 @@ def test_compiled_facet_type_lookup(facet_schema: Callable[[str], XMLSchema], co
 def test_compiled_facet_inheritance_cutoff(
     facet_schema: Callable[[str], XMLSchema], count: int, declaration: str, markup: str
 ) -> None:
-    bases: Final = [f"type{index + 1}" for index in range(count - 1)] + ["xs:int"]
-    types: Final = "".join(
+    bases: Final[list[str]] = [f"type{index + 1}" for index in range(count - 1)] + ["xs:int"]
+    types: Final[str] = "".join(
         f'<xs:simpleType name="type{index}"><xs:restriction base="{base}"/></xs:simpleType>'
         for index, base in enumerate(bases)
     )
-    schema: Final = facet_schema(types + declaration)
+    schema: Final[XMLSchema] = facet_schema(types + declaration)
     assert schema.validate(parse_xml(markup)).valid is (count == 42)
 
 
@@ -4335,19 +4339,21 @@ def test_compiled_facet_enumeration_reuse(
     facet_schema: Callable[[str], XMLSchema],
     run: Callable[[Callable[[Document], ValidationResult], list[Document]], list[ValidationResult]],
 ) -> None:
-    schema: Final = facet_schema(
+    schema: Final[XMLSchema] = facet_schema(
         '<xs:simpleType name="base"><xs:restriction base="xs:token">'
         '<xs:enumeration value="abc"/></xs:restriction></xs:simpleType>'
         '<xs:simpleType name="derived"><xs:restriction base="base">'
         '<xs:enumeration value="def"/><xs:minLength value="3"/></xs:restriction></xs:simpleType>'
         '<xs:element name="value" type="derived"/>'
     )
-    documents: Final = [parse_xml(f"<value>{value}</value>") for value in (" abc ", "def", "ghi", "ab") * 8]
+    documents: Final[list[Document]] = [
+        parse_xml(f"<value>{value}</value>") for value in (" abc ", "def", "ghi", "ab") * 8
+    ]
     assert [result.valid for result in run(schema.validate, documents)] == [True, True, False, False] * 8
 
 
 def test_compiled_facet_cyclic_inheritance(facet_schema: Callable[[str], XMLSchema]) -> None:
-    schema: Final = facet_schema(
+    schema: Final[XMLSchema] = facet_schema(
         '<xs:simpleType name="first"><xs:restriction base="second">'
         '<xs:pattern value="[a-z]+"/></xs:restriction></xs:simpleType>'
         '<xs:simpleType name="second"><xs:restriction base="first">'
@@ -4493,9 +4499,11 @@ _SIX_MEMBERS: Final[str] = '<xs:union memberTypes="xs:int xs:boolean xs:date xs:
     ],
 )
 def test_list_and_union_types(derivation: str, declarations: str, value: str, *, expected: bool) -> None:
-    int_or_bool: Final = '<xs:simpleType name="intOrBool"><xs:union memberTypes="xs:int xs:boolean"/></xs:simpleType>'
-    schema: Final = _variety(derivation, declarations + int_or_bool)
-    body: Final = value.replace("<", "&lt;")
+    int_or_bool: Final[str] = (
+        '<xs:simpleType name="intOrBool"><xs:union memberTypes="xs:int xs:boolean"/></xs:simpleType>'
+    )
+    schema: Final[XMLSchema] = _variety(derivation, declarations + int_or_bool)
+    body: Final[str] = value.replace("<", "&lt;")
     assert schema.is_valid(parse_xml(f"<v>{body}</v>")) is expected
 
 
@@ -4539,7 +4547,7 @@ def test_compiled_facet_scalar_inheritance(
     facet_schema: Callable[[str], XMLSchema], base: str, facet: str, restated: str, value: str
 ) -> None:
     # a derived type keeps each facet its base states until it states that facet itself
-    schema: Final = facet_schema(
+    schema: Final[XMLSchema] = facet_schema(
         f'<xs:simpleType name="root"><xs:restriction base="{base}">{facet}</xs:restriction></xs:simpleType>'
         '<xs:simpleType name="middle"><xs:restriction base="root"/></xs:simpleType>'
         '<xs:simpleType name="kept"><xs:restriction base="middle"/></xs:simpleType>'
@@ -4553,7 +4561,7 @@ def test_compiled_facet_scalar_inheritance(
 
 
 def test_compiled_facets_of_every_chain_level_apply(facet_schema: Callable[[str], XMLSchema]) -> None:
-    schema: Final = facet_schema(f'{_enumerated_chain(24)}<xs:element name="value" type="t23"/>')
+    schema: Final[XMLSchema] = facet_schema(f'{_enumerated_chain(24)}<xs:element name="value" type="t23"/>')
     assert [
         [error.message for error in schema.validate(parse_xml(f"<value>{value}</value>")).errors]
         for value in ("v0", "v23", "v24", "w0")
@@ -4604,7 +4612,7 @@ def test_types_derived_from_one_base_compile_in_linear_steps(work_steps: WorkSte
         )
 
     work_steps.assert_linear(lambda count: partial(XMLSchema, text(count)), (150, 600))
-    schema: Final = XMLSchema(text(150))
+    schema: Final[XMLSchema] = XMLSchema(text(150))
     assert [schema.validate(parse_xml(f"<last>{value}</last>")).valid for value in (" code149 ", "code150")] == [
         True,
         False,
@@ -4633,7 +4641,7 @@ def test_long_derivation_chain_validates_in_linear_steps(work_steps: WorkSteps) 
     ],
 )
 def test_list_and_union_types_by_name(facet_schema: Callable[[str], XMLSchema], derivation: str) -> None:
-    schema: Final = facet_schema(
+    schema: Final[XMLSchema] = facet_schema(
         f'<xs:simpleType name="item">{derivation}</xs:simpleType>'
         '<xs:complexType name="holder"><xs:simpleContent><xs:extension base="item"/></xs:simpleContent>'
         '</xs:complexType><xs:element name="root"><xs:complexType><xs:sequence><xs:element name="value" type="item"/>'
@@ -4652,28 +4660,28 @@ def test_list_and_union_types_by_name(facet_schema: Callable[[str], XMLSchema], 
 
 
 def test_union_reports_one_error_for_a_value_no_member_accepts() -> None:
-    schema: Final = XMLSchema(
+    schema: Final[XMLSchema] = XMLSchema(
         f'<xs:schema {_XS}><xs:simpleType name="u"><xs:union memberTypes="xs:int xs:boolean xs:date"/></xs:simpleType>'
         '<xs:element name="r"><xs:complexType><xs:sequence>'
         '<xs:element name="a" type="u"/><xs:element name="b" type="xs:int"/><xs:element name="c" type="u"/>'
         "</xs:sequence></xs:complexType></xs:element></xs:schema>"
     )
-    rejected: Final = schema.validate(parse_xml("<r><a>nope</a><b>x</b><c>true</c></r>"))
+    rejected: Final[ValidationResult] = schema.validate(parse_xml("<r><a>nope</a><b>x</b><c>true</c></r>"))
     assert [(error.path, error.message) for error in rejected.errors] == [
         ("/r/a", "value 'nope' is not valid for any member type of the union"),
         ("/r/b", "value 'x' is not a valid int"),
     ]
-    accepted: Final = schema.validate(parse_xml("<r><a>2020-01-01</a><b>1</b><c>true</c></r>"))
+    accepted: Final[ValidationResult] = schema.validate(parse_xml("<r><a>2020-01-01</a><b>1</b><c>true</c></r>"))
     assert (accepted.valid, list(accepted.errors)) == (True, [])
 
 
 def test_list_reports_each_invalid_item() -> None:
-    result: Final = _variety('<xs:list itemType="xs:int"/>').validate(parse_xml("<v>1 x 2 y</v>"))
+    result: Final[ValidationResult] = _variety('<xs:list itemType="xs:int"/>').validate(parse_xml("<v>1 x 2 y</v>"))
     assert [error.message for error in result.errors] == [f"value '{item}' is not a valid int" for item in "xy"]
 
 
 def _union_chain(count: int, *, reverse: bool = False) -> str:
-    types: Final = [
+    types: Final[list[str]] = [
         f'<xs:simpleType name="u{index}"><xs:union memberTypes="u{index + 1}"/></xs:simpleType>'
         for index in range(count - 1)
     ]
@@ -4700,7 +4708,7 @@ def _union_ladder(rungs: int) -> str:
 def test_union_within_the_compile_limits(
     facet_schema: Callable[[str], XMLSchema], declarations: str, type_name: str
 ) -> None:
-    schema: Final = facet_schema(f'{declarations}<xs:element name="v" type="{type_name}"/>')
+    schema: Final[XMLSchema] = facet_schema(f'{declarations}<xs:element name="v" type="{type_name}"/>')
     assert [schema.is_valid(parse_xml(f"<v>{value}</v>")) for value in ("7", "x")] == [True, False]
 
 
@@ -4810,7 +4818,9 @@ _PRESERVED_NMTOKENS: Final[str] = (
     ],
 )
 def test_builtin_list_types(declarations: str, type_name: str, value: str, *, expected: bool) -> None:
-    schema: Final = XMLSchema(f'<xs:schema {_XS}>{declarations}<xs:element name="v" type="{type_name}"/></xs:schema>')
+    schema: Final[XMLSchema] = XMLSchema(
+        f'<xs:schema {_XS}>{declarations}<xs:element name="v" type="{type_name}"/></xs:schema>'
+    )
     assert schema.is_valid(parse_xml(f"<v>{value}</v>")) is expected
 
 
@@ -4826,7 +4836,7 @@ def test_restriction_chain_of_a_list_checks_items(facet_schema: Callable[[str], 
         f'<xs:simpleType name="r{index}"><xs:restriction base="r{index - 1}"/></xs:simpleType>'
         for index in range(1, count + 1)
     )
-    schema: Final = facet_schema(
+    schema: Final[XMLSchema] = facet_schema(
         f'<xs:simpleType name="r0"><xs:list itemType="xs:int"/></xs:simpleType>{links}'
         f'<xs:element name="v" type="r{count}"/>'
     )
@@ -4834,7 +4844,7 @@ def test_restriction_chain_of_a_list_checks_items(facet_schema: Callable[[str], 
 
 
 def test_compiled_facets_with_schema_comments(facet_schema: Callable[[str], XMLSchema]) -> None:
-    schema: Final = facet_schema(
+    schema: Final[XMLSchema] = facet_schema(
         '<!--declaration--><xs:element name="value"><xs:simpleType><!--restriction-->'
         '<xs:restriction base="xs:int"><xs:minInclusive value="3"/>'
         "</xs:restriction></xs:simpleType></xs:element>"
@@ -4851,7 +4861,7 @@ def pattern_schema() -> Callable[[str, str], XMLSchema | RelaxNG]:
                 'datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes"><data type="token">'
                 f"{facets}</data></element>"
             )
-        restriction: Final = f'<xs:restriction base="xs:token">{facets}</xs:restriction>'
+        restriction: Final[str] = f'<xs:restriction base="xs:token">{facets}</xs:restriction>'
         if kind == "inherited":
             return XMLSchema(
                 '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">'
@@ -4893,8 +4903,10 @@ def test_compiled_patterns_reuse(
     run: Callable[[Callable[[Document], ValidationResult], list[Document]], list[ValidationResult]],
 ) -> None:
     kind, facets = form
-    schema: Final = pattern_schema(kind, facets)
-    documents: Final = [parse_xml(f"<value>{value}</value>") for value in (" abc123 ", "abc", "def123", "abc0") * 8]
+    schema: Final[XMLSchema | RelaxNG] = pattern_schema(kind, facets)
+    documents: Final[list[Document]] = [
+        parse_xml(f"<value>{value}</value>") for value in (" abc123 ", "abc", "def123", "abc0") * 8
+    ]
     assert [result.valid for result in run(schema.validate, documents)] == [True, False, False, True] * 8
 
 
@@ -4950,12 +4962,12 @@ def test_compiled_pattern_outputs(
     expected: list[bool],
 ) -> None:
     kind, template = form
-    schema: Final = pattern_schema(kind, template.format(pattern))
+    schema: Final[XMLSchema | RelaxNG] = pattern_schema(kind, template.format(pattern))
     assert [schema.validate(parse_xml(f"<value>{value}</value>")).valid for value in values] == expected
 
 
 def test_compiled_pattern_diagnostic(pattern_schema: Callable[[str, str], XMLSchema | RelaxNG]) -> None:
-    schema: Final = pattern_schema("inline", '<xs:pattern value="[a-z]+"/>')
+    schema: Final[XMLSchema | RelaxNG] = pattern_schema("inline", '<xs:pattern value="[a-z]+"/>')
     assert [
         [(error.type, error.message) for error in schema.validate(parse_xml(f"<value>{value}</value>")).errors]
         for value in ("123", "abc", "123")
@@ -4976,7 +4988,7 @@ def test_compiled_pattern_diagnostic(pattern_schema: Callable[[str, str], XMLSch
 def test_compiled_pattern_ignores_inapplicable_facets(
     pattern_schema: Callable[[str, str], XMLSchema | RelaxNG], extra: str
 ) -> None:
-    schema: Final = pattern_schema("inline", f'{extra}<xs:pattern value="[a-z]+"/>')
+    schema: Final[XMLSchema | RelaxNG] = pattern_schema("inline", f'{extra}<xs:pattern value="[a-z]+"/>')
     assert [schema.validate(parse_xml(f"<value>{value}</value>")).valid for value in ("abc", "123")] == [True, False]
 
 
@@ -5016,7 +5028,7 @@ def test_growing_pattern_class(
     make_schema: Callable[[str], XMLSchema | RelaxNG], *, prefix: str, codepoint: int, valid: bool
 ) -> None:
     pattern: Final[str] = f"[{prefix}{''.join(chr(index) for index in range(0x400, 0x480))}]"
-    schema: Final = make_schema(pattern)
+    schema: Final[XMLSchema | RelaxNG] = make_schema(pattern)
     assert schema.validate(parse_xml(f"<value>{chr(codepoint)}</value>")).valid is valid
 
 
@@ -5029,7 +5041,7 @@ def test_growing_pattern_class(
 )
 def test_facet_benchmark_output(index: int, expected: list[bool]) -> None:
     source, document = cast("tuple[str, str]", INPUTS["validate-facets"]()[index][1])
-    schema: Final = XMLSchema(source)
+    schema: Final[XMLSchema] = XMLSchema(source)
     assert [
         schema.validate(parse_xml(text)).valid
         for text in (document, document.replace("abc123", "ab"), "<root><other/></root>")
@@ -5037,8 +5049,10 @@ def test_facet_benchmark_output(index: int, expected: list[bool]) -> None:
 
 
 def test_facet_compile_benchmark_output() -> None:
-    compile_schema: Final = cast("Callable[[str], XMLSchema]", OPERATIONS["compile-facets"][0])
-    schema: Final = compile_schema(cast("str", INPUTS["compile-facets"]()[0][1]))
+    compile_schema: Final[Callable[[str], XMLSchema]] = cast(
+        "Callable[[str], XMLSchema]", OPERATIONS["compile-facets"][0]
+    )
+    schema: Final[XMLSchema] = compile_schema(cast("str", INPUTS["compile-facets"]()[0][1]))
     assert [schema.validate(parse_xml(f"<root><value>{value}</value></root>")).valid for value in ("abc123", "ab")] == [
         True,
         False,
@@ -5055,7 +5069,7 @@ def test_facet_compile_benchmark_output() -> None:
 def test_pattern_benchmark_output(name: str, expected: list[bool]) -> None:
     _, _, load = next(benchmark for benchmark in benchmarks() if benchmark[0] == name)
     source, document = cast("tuple[str, str]", load())
-    schema: Final = XMLSchema(source)
+    schema: Final[XMLSchema] = XMLSchema(source)
     assert [
         schema.validate(parse_xml(text)).valid for text in (document, document.replace("abc123", "abc"))
     ] == expected
@@ -5063,8 +5077,10 @@ def test_pattern_benchmark_output(name: str, expected: list[bool]) -> None:
 
 def test_pattern_compile_benchmark_output() -> None:
     _, _, load = next(benchmark for benchmark in benchmarks() if benchmark[0] == "compile-pattern")
-    compile_schema: Final = cast("Callable[[str], XMLSchema]", OPERATIONS["compile-pattern"][0])
-    schema: Final = compile_schema(cast("str", load()))
+    compile_schema: Final[Callable[[str], XMLSchema]] = cast(
+        "Callable[[str], XMLSchema]", OPERATIONS["compile-pattern"][0]
+    )
+    schema: Final[XMLSchema] = compile_schema(cast("str", load()))
     assert [
         schema.validate(parse_xml(f"<root><value>{value}</value></root>")).valid for value in ("abc123", "abc")
     ] == [
@@ -5108,19 +5124,19 @@ def test_declaration_benchmark_output(name: str) -> None:
     ],
 )
 def test_wide_attribute_declaration_order(declarations: str, attributes: str, expected: list[str]) -> None:
-    schema: Final = XMLSchema(
+    schema: Final[XMLSchema] = XMLSchema(
         f"""<xs:schema {_XS}><xs:element name="root"><xs:complexType>"""
         f"""{"".join(f'<xs:attribute name="item{index}" type="xs:string"/>' for index in range(32))}{declarations}"""
         "</xs:complexType></xs:element></xs:schema>"
     )
-    document: Final = parse_xml(
+    document: Final[Document] = parse_xml(
         f"""<root {" ".join(f'item{index}="text"' for index in reversed(range(32)))} {attributes}/>"""
     )
     assert [error.message for error in schema.validate(document).errors] == expected
 
 
 def test_wide_attribute_declarations_with_sparse_instance() -> None:
-    schema: Final = XMLSchema(
+    schema: Final[XMLSchema] = XMLSchema(
         f"""<xs:schema {_XS}><xs:element name="root"><xs:complexType>"""
         f"""{"".join(f'<xs:attribute name="item{index}" type="xs:string"/>' for index in range(32))}"""
         """<xs:attribute name="required" use="required"/></xs:complexType></xs:element></xs:schema>"""
@@ -5203,8 +5219,8 @@ def test_numeric_facet_benchmark_output(index: int) -> None:
     ],
 )
 def test_xsd_matches_lxml(schema: str, doc: str) -> None:
-    etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
-    validator: Final = etree.XMLSchema(etree.fromstring(schema.encode()))
+    etree: Final[ModuleType] = pytest.importorskip("lxml.etree", exc_type=ImportError)
+    validator: Final[lxml.etree.XMLSchema] = etree.XMLSchema(etree.fromstring(schema.encode()))
     assert XMLSchema(schema).validate(parse_xml(doc)).valid == validator.validate(etree.fromstring(doc.encode()))
 
 
@@ -5219,10 +5235,10 @@ def test_xsd_matches_lxml(schema: str, doc: str) -> None:
     ],
 )
 def test_lxml_facet_validate_benchmark_output(index: int, expected: list[bool]) -> None:
-    module: Final = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
-    etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
+    module: Final[ModuleType] = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
+    etree: Final[ModuleType] = pytest.importorskip("lxml.etree", exc_type=ImportError)
     source, document = cast("tuple[str, str]", INPUTS["validate-facets"]()[index][1])
-    schema: Final = module.OPERATIONS["compile-facets"][0](source)
+    schema: Final[lxml.etree.XMLSchema] = module.OPERATIONS["compile-facets"][0](source)
     assert [
         schema.validate(etree.fromstring(text.encode())) for text in (document, document.replace("abc123", "ab"))
     ] == expected
@@ -5230,9 +5246,11 @@ def test_lxml_facet_validate_benchmark_output(index: int, expected: list[bool]) 
 
 @pytest.mark.oracle
 def test_lxml_facet_compile_benchmark_output() -> None:
-    module: Final = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
-    etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
-    schema: Final = module.OPERATIONS["compile-facets"][0](cast("str", INPUTS["compile-facets"]()[0][1]))
+    module: Final[ModuleType] = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
+    etree: Final[ModuleType] = pytest.importorskip("lxml.etree", exc_type=ImportError)
+    schema: Final[lxml.etree.XMLSchema] = module.OPERATIONS["compile-facets"][0](
+        cast("str", INPUTS["compile-facets"]()[0][1])
+    )
     assert [
         schema.validate(etree.fromstring(text.encode()))
         for text in ("<root><value>abc123</value></root>", "<root><value>ab</value></root>")
@@ -5248,11 +5266,11 @@ def test_lxml_facet_compile_benchmark_output() -> None:
     ],
 )
 def test_lxml_pattern_benchmark_output(name: str, expected: list[bool]) -> None:
-    module: Final = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
-    etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
+    module: Final[ModuleType] = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
+    etree: Final[ModuleType] = pytest.importorskip("lxml.etree", exc_type=ImportError)
     _, _, load = next(benchmark for benchmark in benchmarks() if benchmark[0] == name)
     source, document = cast("tuple[str, str]", load())
-    schema: Final = module.OPERATIONS["compile-pattern"][0](source)
+    schema: Final[lxml.etree.XMLSchema] = module.OPERATIONS["compile-pattern"][0](source)
     assert [
         schema.validate(etree.fromstring(text.encode())) for text in (document, document.replace("abc123", "abc"))
     ] == expected
@@ -5260,10 +5278,10 @@ def test_lxml_pattern_benchmark_output(name: str, expected: list[bool]) -> None:
 
 @pytest.mark.oracle
 def test_lxml_pattern_compile_benchmark_output() -> None:
-    module: Final = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
-    etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
+    module: Final[ModuleType] = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
+    etree: Final[ModuleType] = pytest.importorskip("lxml.etree", exc_type=ImportError)
     _, _, load = next(benchmark for benchmark in benchmarks() if benchmark[0] == "compile-pattern")
-    schema: Final = module.OPERATIONS["compile-pattern"][0](cast("str", load()))
+    schema: Final[lxml.etree.XMLSchema] = module.OPERATIONS["compile-pattern"][0](cast("str", load()))
     assert [
         schema.validate(etree.fromstring(text.encode()))
         for text in ("<root><value>abc123</value></root>", "<root><value>abc</value></root>")
@@ -5281,9 +5299,9 @@ def test_lxml_pattern_compile_benchmark_output() -> None:
     ],
 )
 def test_lxml_attribute_benchmark_output(index: int) -> None:
-    etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
+    etree: Final[ModuleType] = pytest.importorskip("lxml.etree", exc_type=ImportError)
     source, document = cast("tuple[str, str]", INPUTS["validate-attributes"]()[index][1])
-    schema: Final = etree.XMLSchema(etree.fromstring(source.encode()))
+    schema: Final[lxml.etree.XMLSchema] = etree.XMLSchema(etree.fromstring(source.encode()))
     assert [
         schema.validate(etree.fromstring(text.encode()))
         for text in (document, document.replace("<root ", '<root unknown="x" '))
@@ -5301,9 +5319,9 @@ def test_lxml_attribute_benchmark_output(index: int) -> None:
     ],
 )
 def test_lxml_numeric_facet_benchmark_output(index: int) -> None:
-    etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
+    etree: Final[ModuleType] = pytest.importorskip("lxml.etree", exc_type=ImportError)
     source, document = cast("tuple[str, str]", INPUTS["validate-numeric-facets"]()[index][1])
-    schema: Final = etree.XMLSchema(etree.fromstring(source.encode()))
+    schema: Final[lxml.etree.XMLSchema] = etree.XMLSchema(etree.fromstring(source.encode()))
     assert [
         schema.validate(etree.fromstring(text.encode()))
         for text in (document, document.replace("</root>", "<unexpected/></root>"))
@@ -5335,7 +5353,7 @@ def test_instance_attribute_index_benchmark_output(index: int, errors: int) -> N
 )
 def test_named_facet_probe_benchmark_output(index: int) -> None:
     source, document = cast("tuple[str, str]", INPUTS["validate-facets"]()[index][1])
-    schema: Final = XMLSchema(source)
+    schema: Final[XMLSchema] = XMLSchema(source)
     assert [schema.validate(parse_xml(value)).valid for value in (document, document.replace("abc123", "ab"))] == [
         True,
         index == 1,
@@ -5481,7 +5499,7 @@ def test_xsd_exact_decimal_range(base: str, facets: str, value: str, *, ok: bool
     ],
 )
 def test_xsd_list_item_range(base: str, facets: str, value: str, *, ok: bool) -> None:
-    schema: Final = (
+    schema: Final[str] = (
         f'<xs:schema {_XS}><xs:simpleType name="item"><xs:restriction base="{base}">{facets}</xs:restriction>'
         '</xs:simpleType><xs:simpleType name="items"><xs:list itemType="item"/></xs:simpleType>'
         '<xs:element name="v" type="items"/></xs:schema>'
@@ -5490,34 +5508,34 @@ def test_xsd_list_item_range(base: str, facets: str, value: str, *, ok: bool) ->
 
 
 def test_xsd_long_range_facet_value() -> None:
-    schema: Final = restricted(f'<xs:maxInclusive value="{"0" * 80}3"/>', "xs:integer")
+    schema: Final[str] = restricted(f'<xs:maxInclusive value="{"0" * 80}3"/>', "xs:integer")
     assert [check(schema, f"<v>{value}</v>").valid for value in ("3", "4")] == [True, False]
 
 
 def test_xsd_long_number_buffer_grows_per_value() -> None:
     # one validate() call grows its buffer for each longer value and reuses it for shorter ones
-    schema: Final = (
+    schema: Final[str] = (
         f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
         '<xs:element name="v" maxOccurs="unbounded"><xs:simpleType><xs:restriction base="xs:integer">'
         '<xs:maxInclusive value="100"/></xs:restriction></xs:simpleType></xs:element>'
         "</xs:sequence></xs:complexType></xs:element></xs:schema>"
     )
-    in_bound: Final = "".join(f"<v>{'0' * (length - 2)}50</v>" for length in (3, 64, 100, 300, 200))
-    out_of_bound: Final = f"{in_bound}<v>{'0' * 199}101</v>"
+    in_bound: Final[str] = "".join(f"<v>{'0' * (length - 2)}50</v>" for length in (3, 64, 100, 300, 200))
+    out_of_bound: Final[str] = f"{in_bound}<v>{'0' * 199}101</v>"
     assert [check(schema, f"<r>{document}</r>").valid for document in (in_bound, out_of_bound)] == [True, False]
 
 
 def test_xsd_long_double_buffer_grows_per_value() -> None:
     # a double converts through the buffer one validate() call grows: to just past the value, then to double its
     # capacity once a value outgrows that, and a value that fits the grown buffer keeps it
-    schema: Final = (
+    schema: Final[str] = (
         f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
         '<xs:element name="v" maxOccurs="unbounded"><xs:simpleType><xs:restriction base="xs:double">'
         '<xs:maxInclusive value="100"/></xs:restriction></xs:simpleType></xs:element>'
         "</xs:sequence></xs:complexType></xs:element></xs:schema>"
     )
-    in_bound: Final = "".join(f"<v>{'0' * (length - 1)}5</v>" for length in (71, 100, 80))
-    out_of_bound: Final = f"{in_bound}<v>{'0' * 149}150</v>"
+    in_bound: Final[str] = "".join(f"<v>{'0' * (length - 1)}5</v>" for length in (71, 100, 80))
+    out_of_bound: Final[str] = f"{in_bound}<v>{'0' * 149}150</v>"
     assert [check(schema, f"<r>{document}</r>").valid for document in (in_bound, out_of_bound)] == [True, False]
 
 
@@ -5549,7 +5567,7 @@ def test_validation_verdict_benchmark(index: int, *, expected: bool) -> None:
 def _group_chain(count: int, *, reverse: bool, nesting: int = 0, wrapper: str = "xs:sequence") -> str:
     # each group holds its ref to the next one under `nesting` more particles
     opened, closed = f"<{wrapper}>" * nesting, f"</{wrapper}>" * nesting
-    defs: Final = [
+    defs: Final[list[str]] = [
         f'<xs:group name="g{n}"><xs:sequence>{opened}<xs:group ref="g{n + 1}"/>{closed}</xs:sequence></xs:group>'
         for n in range(count)
     ]
@@ -5564,16 +5582,16 @@ def _group_chain(count: int, *, reverse: bool, nesting: int = 0, wrapper: str = 
 
 def _reference_ladder(kind: str, levels: int, *, refs: int = 1, hidden: bool = False) -> str:
     opening, closing = ("<xs:sequence>", "</xs:sequence>") if kind == "group" else ("", "")
-    leaf: Final = '<xs:element name="x" minOccurs="0"/>' if kind == "group" else '<xs:attribute name="x"/>'
+    leaf: Final[str] = '<xs:element name="x" minOccurs="0"/>' if kind == "group" else '<xs:attribute name="x"/>'
     # hidden: the references sit under an annotation, where validation does not follow them
-    wrap: Final = ("<xs:annotation>", "</xs:annotation>") if hidden else ("", "")
-    defs: Final = [
+    wrap: Final[tuple[str, str]] = ("<xs:annotation>", "</xs:annotation>") if hidden else ("", "")
+    defs: Final[list[str]] = [
         f'<xs:{kind} name="g{n}">{opening}{wrap[0]}<xs:{kind} ref="g{n + 1}"/><xs:{kind} ref="g{n + 1}"/>{wrap[1]}'
         f"{closing}</xs:{kind}>"
         for n in range(levels)
     ]
     defs.append(f'<xs:{kind} name="g{levels}">{opening}{leaf}{closing}</xs:{kind}>')
-    uses: Final = f'<xs:{kind} ref="g0"/>' * refs
+    uses: Final[str] = f'<xs:{kind} ref="g0"/>' * refs
     return (
         f"<xs:schema {_XS}>{''.join(defs)}"
         f'<xs:element name="r"><xs:complexType>{opening}{uses}{closing}</xs:complexType></xs:element></xs:schema>'
@@ -5585,7 +5603,7 @@ def _measured_hub_chain() -> str:
     def link(name: str, target: str) -> str:
         return f'<xs:group name="{name}"><xs:sequence><xs:group ref="{target}"/></xs:sequence></xs:group>'
 
-    leaf: Final = '<xs:sequence><xs:element name="x" minOccurs="0"/></xs:sequence>'
+    leaf: Final[str] = '<xs:sequence><xs:element name="x" minOccurs="0"/></xs:sequence>'
     return (
         f'<xs:schema {_XS}><xs:group name="hub"><xs:sequence><xs:group ref="l0"/><xs:group ref="short"/>'
         f"</xs:sequence></xs:group>{''.join(link(f'l{n}', f'l{n + 1}') for n in range(70))}"
@@ -5596,7 +5614,7 @@ def _measured_hub_chain() -> str:
 
 
 def _hidden_group_chain(count: int, *, cycle: bool) -> str:
-    defs: Final = [
+    defs: Final[list[str]] = [
         f'<xs:group name="g{n}"><xs:sequence><xs:annotation><xs:group ref="g{(n + 1) % count if cycle else n + 1}"/>'
         "</xs:annotation></xs:sequence></xs:group>"
         for n in range(count)
@@ -6117,7 +6135,9 @@ def test_xsd_compile_rejects_unresolved_type_and_nameless_global(declarations: s
     ],
 )
 def test_xsd_compile_preserves_known_builtin_names(type_name: str, value: str) -> None:
-    validator: Final = XMLSchema(f'<xs:schema {_XS}><xs:element name="v" type="xs:{type_name}"/></xs:schema>')
+    validator: Final[XMLSchema] = XMLSchema(
+        f'<xs:schema {_XS}><xs:element name="v" type="xs:{type_name}"/></xs:schema>'
+    )
     assert [validator.is_valid(parse_xml(f"<v>{value}</v>")), validator.is_valid(parse_xml("<other/>"))] == [
         True,
         False,
@@ -6164,7 +6184,7 @@ def test_xsd_compile_preserves_known_builtin_names(type_name: str, value: str) -
     ],
 )
 def test_xsd_compile_preserves_declarations(declarations: str, document: str, *, expected: bool) -> None:
-    validator: Final = XMLSchema(f"<xs:schema {_XS}>{declarations}</xs:schema>")
+    validator: Final[XMLSchema] = XMLSchema(f"<xs:schema {_XS}>{declarations}</xs:schema>")
     assert [validator.is_valid(parse_xml(document)) for _ in range(2)] == [expected, expected]
 
 
@@ -6188,9 +6208,9 @@ _COUNTED_REPEAT_SCHEMA: Final[str] = (
 def test_pattern_matching_past_the_step_budget_raises(pattern: str, value: str, *, method: str) -> None:
     # a counted repeat keeps many automaton states live for every character; the call stops with an error instead of
     # stepping all of them, and a cheap document validates afterwards
-    schema: Final = XMLSchema(_COUNTED_REPEAT_SCHEMA.replace("{pattern}", pattern))
+    schema: Final[XMLSchema] = XMLSchema(_COUNTED_REPEAT_SCHEMA.replace("{pattern}", pattern))
     check_document = getattr(schema, method)
-    element: Final = f"<v>{value}</v>"
+    element: Final[str] = f"<v>{value}</v>"
     with pytest.raises(ValueError, match="schema patterns need more than 100000000 NFA steps"):
         check_document(parse_xml(f"<r>{element}<v>b</v></r>"))
     assert bool(check_document(parse_xml("<r><v>b</v></r>")))
@@ -6207,17 +6227,17 @@ def test_pattern_matching_past_the_step_budget_raises(pattern: str, value: str, 
     ],
 )
 def test_ordinary_patterns_fit_the_step_budget(pattern: str, value: str, *, valid: bool) -> None:
-    schema: Final = XMLSchema(_COUNTED_REPEAT_SCHEMA.replace("{pattern}", pattern))
-    element: Final = f"<v>{value}</v>"
+    schema: Final[XMLSchema] = XMLSchema(_COUNTED_REPEAT_SCHEMA.replace("{pattern}", pattern))
+    element: Final[str] = f"<v>{value}</v>"
     assert schema.is_valid(parse_xml(f"<r>{element}{element}</r>")) is valid
 
 
 @pytest.mark.parametrize("padding", [pytest.param(0, id="few-attributes"), pytest.param(40, id="many-attributes")])
 def test_xsd_type_prefixes_resolve_below_many_attributes(padding: int) -> None:
     # b is the XSD namespace only where an element redeclares it; elsewhere b:int names the string type declared here
-    pad: Final = _padding(padding)
-    xsd: Final = 'xmlns:b="http://www.w3.org/2001/XMLSchema"'
-    schema: Final = XMLSchema(
+    pad: Final[str] = _padding(padding)
+    xsd: Final[str] = 'xmlns:b="http://www.w3.org/2001/XMLSchema"'
+    schema: Final[XMLSchema] = XMLSchema(
         f'<xs:schema {pad} {_XS} xmlns:b="urn:t">'
         '<xs:simpleType name="int"><xs:restriction base="xs:string"/></xs:simpleType>'
         f'<xs:simpleType name="small"><xs:restriction base="b:int" {pad} {xsd}>'
@@ -6229,7 +6249,7 @@ def test_xsd_type_prefixes_resolve_below_many_attributes(padding: int) -> None:
         "</xs:complexType></xs:element></xs:schema>"
     )
     assert schema.validate(parse_xml('<r e="1" f="x"><c>1</c><d>x</d><s>3</s></r>')).valid
-    result: Final = schema.validate(parse_xml('<r e="x" f="x"><c>x</c><d>x</d><s>7</s></r>'))
+    result: Final[ValidationResult] = schema.validate(parse_xml('<r e="x" f="x"><c>x</c><d>x</d><s>7</s></r>'))
     assert len(result.errors) == 3
 
 
@@ -6240,7 +6260,7 @@ def _padding(count: int) -> str:
 def test_xsd_type_prefixes_below_many_attributes_compile_linearly(work_steps: WorkSteps) -> None:
     # each type reference resolves its prefix through the attributes of xs:schema, which must not cost their count
     def build(count: int) -> Callable[[], XMLSchema]:
-        body: Final = "".join(f'<xs:element name="e{index}" type="xs:int"/>' for index in range(count))
+        body: Final[str] = "".join(f'<xs:element name="e{index}" type="xs:int"/>' for index in range(count))
         return partial(XMLSchema, f"<xs:schema {_padding(count)} {_XS}>{body}</xs:schema>")
 
     work_steps.assert_linear(build, (70, 280))
@@ -6249,14 +6269,14 @@ def test_xsd_type_prefixes_below_many_attributes_compile_linearly(work_steps: Wo
 def test_xsd_type_prefixes_below_many_attributes_validate_linearly(work_steps: WorkSteps) -> None:
     # every instance element and attribute looks its declared type up again
     def build(count: int) -> Callable[[], ValidationResult]:
-        schema: Final = XMLSchema(
+        schema: Final[XMLSchema] = XMLSchema(
             f'<xs:schema {_padding(count)} {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
             '<xs:element name="v" maxOccurs="unbounded"><xs:complexType><xs:simpleContent>'
             '<xs:extension base="xs:int"><xs:attribute name="a" type="xs:int"/></xs:extension>'
             "</xs:simpleContent></xs:complexType></xs:element>"
             "</xs:sequence></xs:complexType></xs:element></xs:schema>"
         )
-        item: Final = '<v a="1">2</v>'
+        item: Final[str] = '<v a="1">2</v>'
         return partial(schema.validate, parse_xml(f"<r>{item * count}</r>"))
 
     work_steps.assert_linear(build, (70, 280))

@@ -836,7 +836,7 @@ def parse_unicode(unicode_data: str, blocks: str) -> _UnicodeTables:
     if set(_LATIN_BLOCKS) - set(block_ranges):
         msg = "a Latin block named by isLatinLetter is missing from Blocks.txt"
         raise RuntimeError(msg)
-    latin_ranges: Final = tuple(block_ranges[name] for name in _LATIN_BLOCKS)
+    latin_ranges: Final[tuple[tuple[int, int], ...]] = tuple(block_ranges[name] for name in _LATIN_BLOCKS)
     return _UnicodeTables(
         nd_ranges=nd_ranges,
         nd_pages=pages,

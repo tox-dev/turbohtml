@@ -6,7 +6,7 @@ from typing import Final, cast
 import pytest
 
 from turbohtml import CData
-from turbohtml.etree import Element, fragment_fromstring, fromstring, tostring
+from turbohtml.etree import Element, ElementView, fragment_fromstring, fromstring, tostring
 
 
 @pytest.mark.parametrize(
@@ -21,23 +21,23 @@ from turbohtml.etree import Element, fragment_fromstring, fromstring, tostring
 def test_element_tree_serialization_encoding(
     encoding: str | type[str] | None, expected: str | bytes, *, with_tail: bool
 ) -> None:
-    tree: Final = fragment_fromstring("<p>café</p>tail")
+    tree: Final[ElementView] = fragment_fromstring("<p>café</p>tail")
     assert tostring(tree, encoding=encoding, with_tail=with_tail) == expected
 
 
 def test_element_tree_iso_2022_text_writes_shift_codes_as_references() -> None:
     # as bytes they would switch the reader's decoder state; "xmlcharrefreplace" spells what the codec cannot encode
-    tree: Final = fragment_fromstring("<p>\x0e\x0f\x1b</p>")
+    tree: Final[ElementView] = fragment_fromstring("<p>\x0e\x0f\x1b</p>")
     assert tostring(tree, encoding="iso-2022-jp", method="text") == b"&#14;&#15;&#27;"
     assert tostring(tree, encoding="shift_jis", method="text") == b"\x0e\x0f\x1b"
 
 
 def test_element_tree_writes_shift_codes_as_references_under_a_renamed_iso_2022_codec() -> None:
-    info: Final = codecs.lookup("iso2022_jp")
-    search: Final = {"turbohtml_renamed_iso_etree": codecs.CodecInfo(info.encode, info.decode, name="renamed")}.get
+    info: Final[codecs.CodecInfo] = codecs.lookup("iso2022_jp")
+    search = {"turbohtml_renamed_iso_etree": codecs.CodecInfo(info.encode, info.decode, name="renamed")}.get
     codecs.register(search)
     try:
-        tree: Final = fragment_fromstring("<p>\x0e\x0f\x1b</p>")
+        tree: Final[ElementView] = fragment_fromstring("<p>\x0e\x0f\x1b</p>")
         assert tostring(tree, encoding="turbohtml_renamed_iso_etree", method="text") == b"&#14;&#15;&#27;"
     finally:
         codecs.unregister(search)
@@ -49,11 +49,11 @@ def test_element_tree_rejects_non_string_encoding() -> None:
 
 
 def test_element_tree_own_text_excludes_descendant_text() -> None:
-    tree: Final = fromstring("<div><p>child</p></div>")
+    tree: Final[ElementView] = fromstring("<div><p>child</p></div>")
     assert (tree.text, tree[0].text) == (None, "child")
 
 
 def test_element_tree_xml_serialization_drops_characters_xml_cannot_hold_in_cdata() -> None:
-    tree: Final = fromstring("<p>x</p>")
+    tree: Final[ElementView] = fromstring("<p>x</p>")
     tree.node.append(CData("a\x01b\ud800c"))
     assert tostring(tree) == b"<p>x<![CDATA[abc]]></p>"

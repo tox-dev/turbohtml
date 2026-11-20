@@ -82,7 +82,7 @@ from turbohtml.extract import (
     normalize_url,
     opengraph,
 )
-from turbohtml.extract import feed as _feed
+from turbohtml.extract import feed as parse_feed
 from turbohtml.migration import bleach, markupsafe, stdlib
 from turbohtml.migration.bleach import ALLOWED_ATTRIBUTES, ALLOWED_PROTOCOLS, ALLOWED_TAGS, attribute_policy
 from turbohtml.migration.markupsafe import EscapeFormatter, Markup
@@ -266,12 +266,12 @@ def content_targets() -> tuple[Target, ...]:
 
 def _sanitize(data: bytes) -> None:
     sanitizer_check(data)
-    text: Final = _text(data)
+    text: Final[str] = _text(data)
     _equal(Policy.strict().tags, frozenset())
     _equal(Policy.basic().tags, DEFAULT_TAGS)
     _equal("h1" in Policy.relaxed().tags, expected=True)
-    markup: Final = f'<b title="{text}" onclick="ignored">{text}</b><!--comment--><unknown>{text}</unknown>'
-    options: Final = Policy(
+    markup: Final[str] = f'<b title="{text}" onclick="ignored">{text}</b><!--comment--><unknown>{text}</unknown>'
+    options: Final[Policy] = Policy(
         tags=DEFAULT_TAGS,
         attributes=DEFAULT_ATTRIBUTES,
         url_schemes=DEFAULT_SCHEMES,
@@ -279,10 +279,10 @@ def _sanitize(data: bytes) -> None:
         on_disallowed_tag=OnDisallowed.STRIP,
         transform_tags={"unknown": Transform("b")},
     )
-    expected: Final = f"<b>{text}</b><b>{text}</b>"
+    expected: Final[str] = f"<b>{text}</b><b>{text}</b>"
     _equal(sanitizer_observation(data), (expected, [Removed("b", "title"), Removed("b", "onclick")]))
     _equal(sanitize(markup, options), expected)
-    sanitizer: Final = Sanitizer(options)
+    sanitizer: Final[Sanitizer] = Sanitizer(options)
     _equal(sanitizer.sanitize(markup), expected)
     rendered, removed = sanitize_report(markup, options)
     _equal(rendered, expected)
@@ -309,34 +309,34 @@ def _equal(actual: _T, expected: _T) -> None:
 
 
 def _links(data: bytes) -> None:
-    text: Final = _text(data)
-    url: Final = f"https://example.com/{text}"
-    candidate: Final = LinkCandidate(url, text)
+    text: Final[str] = _text(data)
+    url: Final[str] = f"https://example.com/{text}"
+    candidate: Final[LinkCandidate] = LinkCandidate(url, text)
     callback: Final[Callback] = target_blank
     _equal(callback(nofollow(candidate)).attrs, {"rel": "nofollow", "target": "_blank"})
-    options: Final = Linkify(callbacks=(*DEFAULT_CALLBACKS, callback))
-    linked: Final = f'<a href="{url}" rel="nofollow" target="_blank">{url}</a>'
+    options: Final[Linkify] = Linkify(callbacks=(*DEFAULT_CALLBACKS, callback))
+    linked: Final[str] = f'<a href="{url}" rel="nofollow" target="_blank">{url}</a>'
     _equal(linkify(url, options), linked)
     _equal(Linker(options).linkify(url), linked)
     _equal(linkify_node(parse_fragment(url), options).inner_html, linked)
     _equal(Linker(options).linkify_node(parse_fragment(url)).inner_html, linked)
     _equal(LinkDetector().find(url), [LinkSpan(0, len(url), url, url, is_email=False)])
-    phones: Final = PhoneNumbers(
+    phones: Final[PhoneNumbers] = PhoneNumbers(
         regions=("US",),
         grouping=PhoneGrouping.EXACT,
         types=(PhoneType.FIXED_LINE_OR_MOBILE,),
         ignore_numbers_after=DEFAULT_PHONE_LABELS,
     )
-    number: Final = PhoneNumber.parse("650-253-0000", regions=("US",))
+    number: Final[PhoneNumber] = PhoneNumber.parse("650-253-0000", regions=("US",))
     _equal(number, PhoneNumber(1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE))
     _equal(number.format(PhoneFormat.E164), "+16502530000")
-    spans: Final = LinkDetector(phones=phones).find(f"{text} 650-253-0000")
+    spans: Final[list[LinkSpan]] = LinkDetector(phones=phones).find(f"{text} 650-253-0000")
     _equal([span.phone for span in spans], [number])
 
 
 def _minify(data: bytes) -> None:
     minifier_check(data)
-    text: Final = _text(data)
+    text: Final[str] = _text(data)
     _equal(
         minifier_observation(data),
         (
@@ -354,8 +354,8 @@ def minifier_check(
     js: Callable[[str], str] | None = None,
 ) -> None:
     # Stable minifier output must also preserve the stylesheet meaning.
-    text: Final = _text(data)
-    sheet: Final = f".{text} {{ color: #ff0000; margin: 0px 0px }}"
+    text: Final[str] = _text(data)
+    sheet: Final[str] = f".{text} {{ color: #ff0000; margin: 0px 0px }}"
     _equal(fixpoint_check(sheet, css, numeric=True), None)
     _equal(css_semantics_check(f'<style>{sheet}</style><p class="{text}">x</p>', css), None)
     _equal(
@@ -370,7 +370,7 @@ def minifier_check(
 
 def minifier_observation(data: bytes) -> _MinifierObservation:
     # Keep printer results available for independent behavioral controls.
-    text: Final = _text(data)
+    text: Final[str] = _text(data)
     return _MinifierObservation(
         minify(f"<p><!--comment-->{text}</p>", Minify(omit_optional_tags=False)),
         clean.minify_css(f".{text} {{ color: red; }}", CSSMinify()),
@@ -387,26 +387,26 @@ class _MinifierObservation(NamedTuple):
 
 
 def _detect(data: bytes) -> None:
-    text: Final = _text(data)
+    text: Final[str] = _text(data)
     _equal(encoding_stream_check(f"utf-8-bom\n{text}"), None)
     _equal(encoding_decode_check(f"utf-8-bom\n{text}"), None)
-    encoded: Final = b"\xef\xbb\xbf" + text.encode()
-    options: Final = Detection()
-    match: Final = detect.detect(encoded, options)
+    encoded: Final[bytes] = b"\xef\xbb\xbf" + text.encode()
+    options: Final[Detection] = Detection()
+    match: Final[EncodingMatch] = detect.detect(encoded, options)
     _equal(
         match,
         EncodingMatch(encoding="UTF-8-SIG", confidence=1.0, language=None, bom=True, codec="whatwg-utf-8-sig"),
     )
     _equal(detect_all(encoded, options)[0], match)
-    stream: Final = EncodingDetector(options)
+    stream: Final[EncodingDetector] = EncodingDetector(options)
     stream.feed(b"")
     for chunk in encoded:
         stream.feed(bytes((chunk,)))
     _equal(stream.close(), match)
-    language: Final = detect_language(str(len(data)), LanguageDetection(allowed=frozenset({"eng"})))
+    language: Final[LanguageMatch] = detect_language(str(len(data)), LanguageDetection(allowed=frozenset({"eng"})))
     _equal(language, LanguageMatch(language=None, confidence=0.0, script=None))
     for form in cast("tuple[detect.NormalizationForm, ...]", ("NFC", "NFD", "NFKC", "NFKD")):
-        normalized: Final = normalize(form, f"{text}e\u0301")
+        normalized: Final[str] = normalize(form, f"{text}e\u0301")
         _equal(normalized, unicodedata.normalize(form, f"{text}e\u0301"))
         _equal(is_normalized(form, normalized), expected=True)
 
@@ -418,17 +418,17 @@ def _detect_chunks(data: bytes, header: Header) -> None:
 
 def detector_check(data: bytes, header: Header = BYTEWISE) -> None:
     # Require the fuzz bytes fed in chunks, empty ones included, to reach the answer one ``detect`` call gives.
-    options: Final = Detection()
-    stream: Final = EncodingDetector(options)
+    options: Final[Detection] = Detection()
+    stream: Final[EncodingDetector] = EncodingDetector(options)
     feed_chunks(stream.feed, data, header.max_chunk)
     _equal(stream.close(), detect.detect(data, options))
 
 
 def _extract(data: bytes) -> None:
     url_check(data)
-    text: Final = _text(data)
-    url: Final = f"https://example.com/{text}"
-    markup: Final = (
+    text: Final[str] = _text(data)
+    url: Final[str] = f"https://example.com/{text}"
+    markup: Final[str] = (
         f'<title>{text}</title><meta property="og:title" content="{text}">'
         f'<meta property="og:type" content="article"><meta property="og:image" content="{url}">'
         f'<meta property="og:url" content="{url}"><meta name="date" content="2020-01-02">'
@@ -436,37 +436,39 @@ def _extract(data: bytes) -> None:
         f'<div itemscope itemtype="https://schema.org/Thing"><span itemprop="name">{text}</span></div>'
         f'<div vocab="https://schema.org/" typeof="Thing"><span property="name">{text}</span></div>'
     )
-    document: Final = turbohtml.parse(markup)
-    article: Final = document.article()
+    document: Final[turbohtml.Document] = turbohtml.parse(markup)
+    article: Final[Article] = document.article()
     _equal(isinstance(article, (Article, turbohtml.Article)), expected=True)
     _equal(article.title, text)
-    links: Final = document.links()
+    links: Final[list[Link]] = document.links()
     _equal(isinstance(links[0], (Link, turbohtml.Link)), expected=True)
     _equal(links[0].url, url)
     _equal(extract_links(markup), {url})
     _equal(normalize_url(url, UrlCleaning()), url)
     _equal(clean_url(url, UrlCleaning()), url)
-    paragraphs: Final = boilerplate(f"<article><p>{text}</p></article>", Extraction(min_length=0))
+    paragraphs: Final[list[Paragraph]] = boilerplate(f"<article><p>{text}</p></article>", Extraction(min_length=0))
     _equal(isinstance(paragraphs[0], Paragraph), expected=True)
     _equal(paragraphs[0].text, text)
     _equal(isinstance(document.select_one("article"), Element), expected=True)
-    items: Final = microdata(markup)
+    items: Final[list[MicrodataItem]] = microdata(markup)
     _equal(isinstance(items[0], (MicrodataItem, turbohtml.MicrodataItem)), expected=True)
     _equal(items[0].get_all("name"), [text])
     _equal(json.loads(items[0].json())["properties"]["name"], [text])
-    graph: Final = opengraph(markup)
+    graph: Final[OpenGraph] = opengraph(markup)
     _equal(isinstance(graph, (OpenGraph, turbohtml.OpenGraph)), expected=True)
     _equal((graph["title"], graph.is_valid()), (text, True))
-    structured: Final = document.structured_data()
+    structured: Final[StructuredData] = document.structured_data()
     _equal(isinstance(structured, (StructuredData, turbohtml.StructuredData)), expected=True)
     _equal(isinstance(structured.rdfa[0], (RdfaItem, turbohtml.RdfaItem)), expected=True)
     _equal(structured.rdfa[0].get("https://schema.org/name"), text)
-    publication: Final = cast("extract.PublicationDate", dates(markup, DateExtraction()))
+    publication: Final[extract.PublicationDate] = cast("extract.PublicationDate", dates(markup, DateExtraction()))
     _equal(isinstance(publication, extract.PublicationDate), expected=True)
     _equal(str(publication.date), "2020-01-02")
-    feed: Final = cast(
+    feed: Final[extract.Feed] = cast(
         "extract.Feed",
-        _feed(f"<rss version='2.0'><channel><title>{text}</title><item><title>{text}</title></item></channel></rss>"),
+        parse_feed(
+            f"<rss version='2.0'><channel><title>{text}</title><item><title>{text}</title></item></channel></rss>"
+        ),
     )
     _equal(isinstance(feed, (extract.Feed, turbohtml.Feed)), expected=True)
     _equal((feed.title, feed.entries[0].title), (text, text))
@@ -475,9 +477,9 @@ def _extract(data: bytes) -> None:
 
 def url_check(data: bytes, normalize: Callable[[str], str] = normalize_url) -> None:
     # Known-valid Unicode families distinguish stable wrong hosts from valid normalization.
-    url: Final = f"https://example.com/{_text(data)}"
+    url: Final[str] = f"https://example.com/{_text(data)}"
     _equal(url_reparse_check(url, normalize), None)
-    affix: Final = data[:4].hex()
+    affix: Final[str] = data[:4].hex()
     _equal(idna_host_check(f"acute-decomposed\n{affix}", normalize), None)
     _equal(idna_nfc_check(f"reorder:{affix}", normalize), None)
     _equal(normalize_url_check(url, normalize), None)
@@ -485,7 +487,7 @@ def url_check(data: bytes, normalize: Callable[[str], str] = normalize_url) -> N
 
 
 def _migration(data: bytes) -> None:
-    text: Final = _text(data)
+    text: Final[str] = _text(data)
     _equal(
         bleach.clean(
             f"<b>{text}</b><!--comment-->",
@@ -497,9 +499,9 @@ def _migration(data: bytes) -> None:
     )
     names, predicate = attribute_policy({"b": ("title",)})
     _equal((names, predicate), ({"b": frozenset({"title"})}, None))
-    raw: Final = f"<{text}>&\"'"
-    expected: Final = html.escape(raw).replace("&#x27;", "&#39;").replace("&quot;", "&#34;")
-    escaped: Final = markupsafe.escape(raw)
+    raw: Final[str] = f"<{text}>&\"'"
+    expected: Final[str] = html.escape(raw).replace("&#x27;", "&#39;").replace("&quot;", "&#34;")
+    escaped: Final[str] = markupsafe.escape(raw)
     _equal((isinstance(escaped, Markup), str(escaped)), (True, expected))
     _equal(str(markupsafe.escape_silent(raw)), expected)
     _equal(str(markupsafe.escape_silent(None)), "")
@@ -509,9 +511,9 @@ def _migration(data: bytes) -> None:
 
 
 def _stdlib(data: bytes) -> None:
-    text: Final = _text(data)
-    parser: Final = _TextParser()
-    markup: Final = f"<b>{text}&amp;</b>"
+    text: Final[str] = _text(data)
+    parser: Final[_TextParser] = _TextParser()
+    markup: Final[str] = f"<b>{text}&amp;</b>"
     parser.feed("")
     for char in markup:
         parser.feed(char)
@@ -533,7 +535,7 @@ class _TextParser(stdlib.HTMLParser):
 
 def stdlib_observation(data: bytes) -> str:
     # Chunked callbacks must retain decoded text rather than just complete parsing.
-    parser: Final = _TextParser()
+    parser: Final[_TextParser] = _TextParser()
     for char in f"<b>{_text(data)}&amp;</b>":
         parser.feed(char)
     parser.close()
@@ -547,11 +549,11 @@ def _stdlib_chunks(data: bytes, header: Header) -> None:
 
 def stdlib_check(data: bytes, header: Header = BYTEWISE) -> None:
     # Require the decoded fuzz text fed in chunks to reach the handlers as one ``feed`` call does.
-    source: Final = data.decode("utf-8")
-    chunked: Final = _TextParser()
+    source: Final[str] = data.decode("utf-8")
+    chunked: Final[_TextParser] = _TextParser()
     feed_chunks(chunked.feed, source, header.max_chunk)
     chunked.close()
-    whole: Final = _TextParser()
+    whole: Final[_TextParser] = _TextParser()
     whole.feed(source)
     whole.close()
     _equal("".join(chunked.text), "".join(whole.text))
@@ -559,7 +561,7 @@ def stdlib_check(data: bytes, header: Header = BYTEWISE) -> None:
 
 def sanitizer_observation(data: bytes) -> tuple[str, list[Removed]]:
     # Distinguish stripping from a no-op sanitizer with an explicit envelope.
-    text: Final = _text(data)
+    text: Final[str] = _text(data)
     return sanitize_report(
         f'<b title="{text}" onclick="ignored">{text}</b><!--comment--><unknown>{text}</unknown>',
         Policy(on_disallowed_tag=OnDisallowed.STRIP, transform_tags={"unknown": Transform("b")}),
@@ -571,7 +573,7 @@ def sanitizer_check(
     render: Callable[[bytes], tuple[str, list[Removed]]] = sanitizer_observation,
 ) -> None:
     # Reject wrong renderer results before treating an input as a valid oracle case.
-    text: Final = _text(data)
+    text: Final[str] = _text(data)
     _equal(render(data), (f"<b>{text}</b><b>{text}</b>", [Removed("b", "title"), Removed("b", "onclick")]))
 
 

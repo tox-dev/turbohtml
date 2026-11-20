@@ -28,9 +28,9 @@ if TYPE_CHECKING:
     ],
 )
 def test_dispatch_benchmark(count: int) -> None:
-    operation: Final = OPERATIONS["transform-dispatch"][0]
+    operation = OPERATIONS["transform-dispatch"][0]
     assert _is_dispatch_operation(operation)
-    root: Final = operation(count)
+    root: Final[Node] = operation(count)
     assert (root.inner_html, operation(count) is root) == ("<p>x</p>", True)
 
 
@@ -48,7 +48,7 @@ def dispatch(request: pytest.FixtureRequest) -> _Dispatch:
 
 
 def test_dispatch_empty(dispatch: _Dispatch) -> None:
-    root: Final = Text("value")
+    root: Final[Text] = Text("value")
     assert dispatch(root) is root
 
 
@@ -61,11 +61,9 @@ def test_dispatch_stages(dispatch: _Dispatch, kind: str) -> None:
     def replace(node: Node) -> Node:
         return Text(f"{node.text}  end  ")
 
-    stage: Final = {"function": uppercase, "partial": partial(uppercase), "bound-method": partial(uppercase).__call__}[
-        kind
-    ]
-    root: Final = Text(" a   b ")
-    result: Final = dispatch(root, stage, replace, collapse_whitespace_node)
+    stage = {"function": uppercase, "partial": partial(uppercase), "bound-method": partial(uppercase).__call__}[kind]
+    root: Final[Text] = Text(" a   b ")
+    result: Final[Node] = dispatch(root, stage, replace, collapse_whitespace_node)
     assert (root.text, result.text, result is root) == (" A   B ", " A B end ", False)
 
 
@@ -78,19 +76,19 @@ def test_dispatch_invalid_result(dispatch: _Dispatch) -> None:
     def invalid(_node: Node) -> str:
         return "text"
 
-    root: Final = Text("a   b")
+    root: Final[Text] = Text("a   b")
     with pytest.raises(TypeError, match="stage 2 returned str; expected Node or None"):
         dispatch(root, collapse_whitespace_node, invalid)
     assert root.text == "a b"
 
 
 def test_dispatch_exception(dispatch: _Dispatch) -> None:
-    failure: Final = ValueError("stage failure")
+    failure: Final[ValueError] = ValueError("stage failure")
 
     def fail(_node: Node) -> Node:
         raise failure
 
-    root: Final = Text("a   b")
+    root: Final[Text] = Text("a   b")
     with pytest.raises(ValueError, match="stage failure") as caught:
         dispatch(root, collapse_whitespace_node, fail)
     assert (root.text, caught.value is failure) == ("a b", True)
@@ -106,7 +104,7 @@ def test_dispatch_noncallable(dispatch: _Dispatch) -> None:
     [pytest.param(Text, id="text"), pytest.param(Comment, id="comment"), pytest.param(Element, id="element")],
 )
 def test_dispatch_replacement_type(dispatch: _Dispatch, replacement_type: Callable[[str], Node]) -> None:
-    replacement: Final = replacement_type("p")
+    replacement: Final[Node] = replacement_type("p")
 
     def replace(_node: Node) -> Node:
         return replacement

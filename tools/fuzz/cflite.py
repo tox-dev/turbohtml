@@ -40,14 +40,14 @@ BUILD_IMAGE: Final[str] = (
 )
 RUN_IMAGE: Final[str] = f"{_IMAGES}run-fuzzers@sha256:35b5e685193f1f920f6627dd8f0bd9009fbb338eab795254d48bd073b45235cf"
 _BUILD_CHECK_VERDICT: Final[re.Pattern[str]] = re.compile(r"BAD BUILD: |\d{4}-\d\d-\d\d [\d:,]+ - \S+ - [A-Z]+ - ")
-# a CIFuzz run uploads the corpus and its report after its own deadline, so it gets this much less than the time left
-_UPLOAD_SECONDS: Final[int] = 120
 _TIMED_OUT: Final[int] = 124
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     # Return the run's exit code: nonzero when the build breaks or a fuzzer crashes.
-    parser: Final = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser: Final[argparse.ArgumentParser] = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--mode", choices=("code-change", "batch", "prune", "coverage"), required=True)
     parser.add_argument("--sanitizer", choices=("address", "undefined", "coverage"), required=True)
     parser.add_argument("--seconds", type=int, required=True)
@@ -56,7 +56,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--base-commit", help="the commit a code-change run diffs against and finds its base build at")
     parser.add_argument("--upload-build", action="store_true", help="keep this build as the next run's base build")
     parser.add_argument("--jobs", type=int, default=os.cpu_count() or 1, help="targets pruned or measured at once")
-    arguments: Final = parser.parse_args(argv)
+    arguments: Final[argparse.Namespace] = parser.parse_args(argv)
     return _run(
         _Job(
             mode=arguments.mode,
@@ -73,12 +73,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _run(job: _Job) -> int:
     # Build, then fuzz, prune or measure; the filestore under workspace/storage keeps what the run produced.
-    workspace: Final = job.workspace
-    storage: Final = workspace / "storage"
+    workspace: Final[Path] = job.workspace
+    storage: Final[Path] = workspace / "storage"
     storage.mkdir(parents=True, exist_ok=True)
-    logs: Final = workspace / "logs"
+    logs: Final[Path] = workspace / "logs"
     logs.mkdir(exist_ok=True)
-    environment: Final = {
+    environment: Final[dict[str, str]] = {
         "CFL_PLATFORM": "standalone",
         "WORKSPACE": str(workspace),
         "PROJECT_SRC_PATH": str(job.source),
@@ -91,7 +91,7 @@ def _run(job: _Job) -> int:
         **({} if job.base_commit is None else {"GIT_BASE_COMMIT": job.base_commit}),
         **({"UPLOAD_BUILD": "True"} if job.upload_build else {}),
     }
-    status: Final = {
+    status: Final[dict[str, int]] = {
         "build": _docker(
             BUILD_IMAGE, environment, (workspace, job.source), build_log := logs / f"build-{job.sanitizer}.log"
         )
@@ -105,7 +105,7 @@ def _run(job: _Job) -> int:
                 workspace / "coverage-corpus" if job.mode == "coverage" else storage / "corpus",
                 coverage=job.mode == "coverage",
             )
-        run_environment: Final = {**environment, "MODE": job.mode, "OUTPUT_SARIF": "True"}
+        run_environment: Final[dict[str, str]] = {**environment, "MODE": job.mode, "OUTPUT_SARIF": "True"}
         if job.mode in {"prune", "coverage"}:
             status.update(_run_targets(job, run_environment))
         else:
@@ -119,7 +119,7 @@ def _run(job: _Job) -> int:
     # input as out/artifacts/<target>/<sanitizer>/<input> next to an <input>.summary stack trace (_target_artifact_path
     # and _save_crash in infra/cifuzz/fuzz_target.py, google/oss-fuzz@868bfcbd1db0c8eb4dc6029598c90705d6c88e74)
     # and the per-target runs of pruning and coverage keep theirs under targets/<target>/
-    crashes: Final = [
+    crashes: Final[list[dict[str, str | int]]] = [
         {
             "fuzzer": path.relative_to(artifacts).parts[0],
             "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
@@ -135,13 +135,13 @@ def _run(job: _Job) -> int:
 
 def _extract_seeds(build: Path, corpus: Path, *, coverage: bool) -> None:
     for archive_path in sorted(build.glob("fuzz_*_seed_corpus.zip")):
-        target: Final = corpus / archive_path.name.removesuffix("_seed_corpus.zip")
+        target: Final[Path] = corpus / archive_path.name.removesuffix("_seed_corpus.zip")
         target.mkdir(parents=True, exist_ok=True)
         with ZipFile(archive_path) as archive:
             names = archive.namelist()
             if coverage:
                 # These seeds reach every target function; replaying all 39 misses the coverage deadline.
-                reachability_seeds: Final = {
+                reachability_seeds: Final[set[str]] = {
                     "tools_fuzz_corpus_css_translate_simple.css",
                     "tools_fuzz_corpus_xml_schema_mismatch.xml",
                 }
@@ -155,18 +155,18 @@ def _run_targets(job: _Job, environment: dict[str, str]) -> dict[str, int]:
     # first merge to time out raises out of the loop and leaves every later target unpruned. Its coverage mode never
     # reads FUZZ_SECONDS, and base-runner's coverage script replays each Python target's whole corpus in series. So
     # each target gets a run of its own, the largest corpus first, and all of them stop at the same deadline
-    deadline: Final = monotonic() + job.seconds
-    build: Final = job.workspace / "build-out"
-    corpus: Final = (
+    deadline: Final[float] = monotonic() + job.seconds
+    build: Final[Path] = job.workspace / "build-out"
+    corpus: Final[Path] = (
         job.workspace / "coverage-corpus" if job.mode == "coverage" else job.workspace / "storage" / "corpus"
     )
-    targets: Final = sorted(
+    targets: Final[list[Path]] = sorted(
         (path for path in build.iterdir() if _is_fuzz_target(path)),
         key=lambda path: (-len(list((corpus / path.name).glob("*"))), path.name),
     )
-    names: Final = frozenset(target.name for target in targets)
+    names: Final[frozenset[str]] = frozenset(target.name for target in targets)
     with ThreadPoolExecutor(max_workers=job.jobs) as pool:
-        codes: Final = list(
+        codes: Final[list[int]] = list(
             pool.map(lambda target: _run_target(job, environment, target, names - {target.name}, deadline), targets)
         )
     return {f"{job.mode} {target.name}": code for target, code in zip(targets, codes, strict=True)}
@@ -184,11 +184,14 @@ def _is_fuzz_target(path: Path) -> bool:
 
 
 def _run_target(job: _Job, environment: dict[str, str], target: Path, others: frozenset[str], deadline: float) -> int:
-    seconds: Final = int(deadline - monotonic()) - _UPLOAD_SECONDS
+    # a CIFuzz run uploads the corpus and its report after its own deadline, so it gets this much less than the time
+    # left
+    upload_seconds = 120
+    seconds: Final[int] = int(deadline - monotonic()) - upload_seconds
     if seconds < 1:
         return _TIMED_OUT
-    workspace: Final = job.workspace / "targets" / target.name
-    build: Final = workspace / "build-out"
+    workspace: Final[Path] = job.workspace / "targets" / target.name
+    build: Final[Path] = workspace / "build-out"
     build.mkdir(parents=True, exist_ok=True)
     # CIFuzz runs every fuzz target it finds in build-out, and base-runner's coverage script finds them with
     # find -type f, which skips links: the target is copied, everything else it needs is linked, and the files of
@@ -202,7 +205,7 @@ def _run_target(job: _Job, environment: dict[str, str], target: Path, others: fr
                 (build / path.name).symlink_to(path)
     # The build seeds reach every public function; replaying the full fuzz corpus exceeds the coverage deadline.
     # Crashes stay in the shared filestore, while each coverage report stays in its own workspace.
-    storage: Final = workspace / "storage"
+    storage: Final[Path] = workspace / "storage"
     storage.mkdir(exist_ok=True)
     for name in ("corpus", "crashes"):
         shared = (
@@ -213,9 +216,9 @@ def _run_target(job: _Job, environment: dict[str, str], target: Path, others: fr
         shared.mkdir(exist_ok=True)
         (storage / name).unlink(missing_ok=True)
         (storage / name).symlink_to(shared)
-    logs: Final = job.workspace / "logs" / f"{job.mode}-{job.sanitizer}"
+    logs: Final[Path] = job.workspace / "logs" / f"{job.mode}-{job.sanitizer}"
     logs.mkdir(exist_ok=True)
-    code: Final = _docker(
+    code: Final[int] = _docker(
         RUN_IMAGE,
         {
             **environment,
@@ -225,7 +228,7 @@ def _run_target(job: _Job, environment: dict[str, str], target: Path, others: fr
         },
         (job.workspace, job.source),
         logs / f"{target.name}.log",
-        seconds + _UPLOAD_SECONDS,
+        seconds + upload_seconds,
     )
     # the reachability check reads every target's coverage data from one directory
     if (data := build / f"coverage_d_{target.name}").is_file():
@@ -240,8 +243,8 @@ def _docker(
 ) -> int:
     # CFLite starts the builder and runner as sibling containers through the socket and hands them its own volumes, so
     # each mount keeps its host path; SELinux labels on the outer container block the nested builder's writes
-    name: Final = f"cflite-{uuid.uuid4().hex}"
-    command: Final = [
+    name: Final[str] = f"cflite-{uuid.uuid4().hex}"
+    command: Final[list[str]] = [
         "docker",
         "run",
         "--rm",
@@ -270,7 +273,9 @@ def _public_build_log(log: Path) -> str:
     # its log on the public console; the bad build check then runs each fuzzer on its first inputs and prints the run
     # of one that dies, so from there on only the verdict lines and CIFuzz's own log lines stay
     build, _, check = log.read_text(encoding="utf-8", errors="replace").partition("Build check: stdout:")
-    lines: Final = build.splitlines() + [line for line in check.splitlines() if _BUILD_CHECK_VERDICT.match(line)]
+    lines: Final[list[str]] = build.splitlines() + [
+        line for line in check.splitlines() if _BUILD_CHECK_VERDICT.match(line)
+    ]
     return "\n".join(lines[-200:])
 
 

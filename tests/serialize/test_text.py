@@ -155,7 +155,7 @@ def test_lists(html: str, opts: PlainText, expected: str) -> None:
 @pytest.mark.parametrize("depth", [6, 11])
 def test_nested_lists_without_items_add_no_indent(depth: int) -> None:
     # no marker accounts for an indent here, so each bare level would stack two columns on the item below it
-    html: Final = f"<ol>{'<ul>' * depth}<li>a</li>{'</ul>' * depth}</ol>"
+    html: Final[str] = f"<ol>{'<ul>' * depth}<li>a</li>{'</ul>' * depth}</ol>"
     assert to_text(html, PlainText()) == "* a"
 
 
@@ -656,8 +656,8 @@ def test_rules_are_required() -> None:
 def test_annotation_rule_grouping_preserves_order(
     count: int, html: str, rules: dict[str, list[str]], expected: tuple[str, list[tuple[int, int, str]]]
 ) -> None:
-    unrelated: Final = ("h1", "h2", "h3", "h4", "h5", "h6", "aside", "nav")
-    padded: Final = {**rules, **{tag: [tag] for tag in unrelated[: count - len(rules)]}}
+    unrelated: Final[tuple[str, ...]] = ("h1", "h2", "h3", "h4", "h5", "h6", "aside", "nav")
+    padded: Final[dict[str, list[str]]] = {**rules, **{tag: [tag] for tag in unrelated[: count - len(rules)]}}
     assert annotate(html, padded) == expected
 
 

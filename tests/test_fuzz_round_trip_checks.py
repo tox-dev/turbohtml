@@ -98,6 +98,7 @@ from fuzz.reference_targets import (
 from fuzz.round_trip_oracles import (
     ORACLES,
     Floor,
+    Oracle,
     OutOfScopeError,
     clean_url_check,
     css_semantics_check,
@@ -132,7 +133,15 @@ from fuzz.round_trip_oracles import (
 from fuzz.round_trip_oracles import main as fuzz_url_reparse_main
 from fuzz.round_trip_oracles import main as fuzz_xml_island_invariants_main
 from fuzz.round_trip_oracles import main as fuzz_xml_literal_invariants_main
-from fuzz.structure_generators import GenerationBudget, Grammar, Identifier, Production, compile_grammar, generate
+from fuzz.structure_generators import (
+    Generated,
+    GenerationBudget,
+    Grammar,
+    Identifier,
+    Production,
+    compile_grammar,
+    generate,
+)
 from fuzz.stylesheet_targets import stylesheet_observation, stylesheet_targets
 from fuzz.xml_grammar_oracles import (
     UnsupportedXmlLiteralCaseError,
@@ -152,6 +161,7 @@ from fuzz.xml_island_oracles import (
 from turbohtml import (
     CData,
     Comment,
+    Document,
     Element,
     Html,
     HTMLParseError,
@@ -173,7 +183,27 @@ from turbohtml.extract import clean_url, normalize_url
 from turbohtml.migration.stdlib import HTMLParser
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
+    from typing import TypedDict
+
+    import lxml.etree
+    from fuzz.atheris_corpora import CorpusEntry, CorpusManifest
+    from fuzz.rng_inline import Case as SchemaCase
+    from fuzz.rng_labels import Verdict as RngVerdict
+    from fuzz.xpath_anchored import Case as AnchoredCase
+    from fuzz.xpath_anchored import Verdict as AnchoredVerdict
+    from fuzz.xslt_inline import Case as XsltCase
+    from fuzz.xslt_inline import Verdict as XsltVerdict
+    from pytest_mock import MockType, SpyType
+
+    class _ManifestEntry(TypedDict):
+        target: str
+        file: str
+        productions: list[list[str]]
+
+    class _Manifest(TypedDict):
+        entries: list[_ManifestEntry]
+        rejected: list[dict[str, str]]
 
 
 def _xml(node: Node) -> str:
@@ -502,9 +532,9 @@ def test_css_semantics_check_keeps_supported_shorthand_keywords() -> None:
 
 
 def test_css_semantics_generator_meets_comparison_floor() -> None:
-    oracle: Final = ORACLES["css-semantics"]
-    rng: Final = random.Random(3456)  # ruff: ignore[suspicious-non-cryptographic-random-usage] - Reproducible samples.
-    cases: Final = [oracle.generate(rng) for _ in range(1000)]
+    oracle: Final[Oracle] = ORACLES["css-semantics"]
+    rng: Final[random.Random] = random.Random(3456)  # ruff: ignore[suspicious-non-cryptographic-random-usage] - Reproducible samples.
+    cases: Final[list[str]] = [oracle.generate(rng) for _ in range(1000)]
     assert sum(oracle.check(case) is None for case in cases) >= 950
 
 
@@ -696,7 +726,7 @@ if TYPE_CHECKING:
     ],
 )
 def test_generation_public_consumers_accept_domain_bytes(name: str, data: bytes) -> None:
-    target: Final = next(target for target in public_targets() if target.name == name)
+    target: Final[Target] = next(target for target in public_targets() if target.name == name)
     target.callback(data)
     assert (target.name, target.exports) == (name, ())
 
@@ -724,7 +754,7 @@ def test_markdown_source_omits_hidden_title_in_pre() -> None:
 
 @pytest.mark.parametrize("name", ["markdown-source", "markdown-html"])
 def test_generation_public_consumers_reject_non_utf8(name: str) -> None:
-    target: Final = next(target for target in public_targets() if target.name == name)
+    target: Final[Target] = next(target for target in public_targets() if target.name == name)
     with pytest.raises(UnicodeDecodeError):
         target.callback(b"\xff")
 
@@ -737,7 +767,7 @@ def test_generation_public_consumers_reject_non_utf8(name: str) -> None:
     ],
 )
 def test_generation_public_consumers_reject_undeclared_profile(name: str, source: bytes) -> None:
-    target: Final = next(target for target in public_targets() if target.name == name)
+    target: Final[Target] = next(target for target in public_targets() if target.name == name)
     with pytest.raises(MarkdownProfileError, match="no declared Markdown meaning"):
         target.callback(source)
 
@@ -798,9 +828,11 @@ def test_generation_unknown_execution_codec() -> None:
 def test_generation_corpus_preserves_context(
     tmp_path: Path, profile: CorpusProfile, grammar: Grammar, production: str, context: tuple[str | None, bool]
 ) -> None:
-    case: Final = generate(grammar, random.SystemRandom(), GenerationBudget(nodes=64, steps=256), force=production)
-    manifest: Final = write_corpora((case, case), grammar, tmp_path, profile)
-    entry: Final = manifest.entries[0]
+    case: Final[Generated] = generate(
+        grammar, random.SystemRandom(), GenerationBudget(nodes=64, steps=256), force=production
+    )
+    manifest: Final[CorpusManifest] = write_corpora((case, case), grammar, tmp_path, profile)
+    entry: Final[CorpusEntry] = manifest.entries[0]
     assert (
         (tmp_path / entry.file).read_bytes(),
         entry.encoding,
@@ -813,8 +845,8 @@ def test_generation_corpus_preserves_context(
 
 
 def test_generation_corpus_rejects_changed_encoding_literal(tmp_path: Path) -> None:
-    grammar: Final = encoding_grammar()
-    case: Final = generate(
+    grammar: Final[Grammar] = encoding_grammar()
+    case: Final[Generated] = generate(
         grammar, random.SystemRandom(), GenerationBudget(nodes=64, steps=256), force="encoding:codec:utf-8"
     )
     with pytest.raises(AssertionError, match="production literals"):
@@ -823,7 +855,7 @@ def test_generation_corpus_rejects_changed_encoding_literal(tmp_path: Path) -> N
 
 @pytest.mark.parametrize("profile", ["markdown-source", "markdown-html", "encoding"])
 def test_generation_cli_sweeps_domain_productions(tmp_path: Path, profile: str) -> None:
-    grammars: Final = {
+    grammars: Final[dict[str, Grammar]] = {
         "encoding": encoding_grammar(),
         "markdown-source": markdown_grammar(html=False),
         "markdown-html": markdown_grammar(html=True),
@@ -831,7 +863,7 @@ def test_generation_cli_sweeps_domain_productions(tmp_path: Path, profile: str) 
     assert (
         corpus_main(("--output", str(tmp_path), "--profile", profile, "--count", "0", "--sweep", "--budget", "64")) == 0
     )
-    manifest: Final = json.loads((tmp_path / "manifest.json").read_text())
+    manifest: Final[_Manifest] = json.loads((tmp_path / "manifest.json").read_text())
     assert (len(manifest["entries"]), manifest["rejected"]) == (
         len(grammars[profile].productions),
         [],
@@ -839,8 +871,8 @@ def test_generation_cli_sweeps_domain_productions(tmp_path: Path, profile: str) 
 
 
 def test_generation_cli_execution_context(tmp_path: Path, mocker: MockerFixture) -> None:
-    run: Final = mocker.patch("fuzz.atheris_targets.fuzz", autospec=True)
-    corpus: Final = tmp_path / "encoding"
+    run: Final[MockType] = mocker.patch("fuzz.atheris_targets.fuzz", autospec=True)
+    corpus: Final[Path] = tmp_path / "encoding"
     assert (
         main((
             "--target",
@@ -872,7 +904,7 @@ def test_generation_preserves_qualified_owners() -> None:
     ],
 )
 def test_generation_first_conversion_loss(name: str, data: bytes) -> None:
-    target: Final = next(
+    target: Final[Target] = next(
         target
         for target in generation_targets(render=lambda node: node.to_markdown().replace("kept", "changed"))
         if target.name == name
@@ -923,14 +955,14 @@ def test_generation_foreign_unmatched_p_null(markup: str, expected: str) -> None
 def test_encoding_oracle_compares_deep_markup_up_to_the_nesting_limit(
     nesting: int, oracle_calls: int, mocker: MockerFixture
 ) -> None:
-    parse_reference: Final = mocker.spy(html5lib.HTMLParser, "parse")
+    parse_reference: Final[SpyType] = mocker.spy(html5lib.HTMLParser, "parse")
     assert encoding_observation((f"{'<div>' * nesting}kept").encode()) == "kept"
     assert parse_reference.call_count == oracle_calls
 
 
 def test_encoding_oracle_matches_the_reference_past_the_tree_depth_cap(mocker: MockerFixture) -> None:
-    parse_reference: Final = mocker.spy(html5lib.HTMLParser, "parse")
-    data: Final = (f">{'<div>' * 509}\x01\x00<table><tr><ud>a<=d>c<td>d").encode()
+    parse_reference: Final[SpyType] = mocker.spy(html5lib.HTMLParser, "parse")
+    data: Final[bytes] = (f">{'<div>' * 509}\x01\x00<table><tr><ud>a<=d>c<td>d").encode()
     assert encoding_observation(data) == ">\x01a<=d>cd"
     assert parse_reference.call_count == 1
 
@@ -941,7 +973,7 @@ def test_encoding_oracle_matches_the_reference_past_the_tree_depth_cap(mocker: M
 )
 def test_generation_cli_existing_domain_consumers(tmp_path: Path, profile: str, target: str) -> None:
     assert corpus_main(("--output", str(tmp_path), "--profile", profile, "--count", "1", "--budget", "512")) == 0
-    manifest: Final = json.loads((tmp_path / "manifest.json").read_text())
+    manifest: Final[_Manifest] = json.loads((tmp_path / "manifest.json").read_text())
     assert ({entry["target"] for entry in manifest["entries"]}, manifest["rejected"]) == ({target}, [])
 
 
@@ -1031,8 +1063,8 @@ def test_javascript_owns_public_minifier() -> None:
 @_JS_READER_REQUIRED
 @pytest.mark.oracle
 def test_javascript_cli_initializes_reader_and_routes_corpus(tmp_path: Path, mocker: MockerFixture) -> None:
-    run: Final = mocker.patch("fuzz.atheris_targets.fuzz", autospec=True)
-    corpus: Final = tmp_path / "javascript"
+    run: Final[MockType] = mocker.patch("fuzz.atheris_targets.fuzz", autospec=True)
+    corpus: Final[Path] = tmp_path / "javascript"
     assert main(("--target", "javascript", "--corpus", str(corpus), "-atheris_runs=8")) == 0
     assert (json.loads(corpus.with_suffix(".json").read_text()), run.call_args.args[2]) == (
         {"target": "javascript", "exports": ["turbohtml.clean.minify_js"], "corpus": str(corpus)},
@@ -1050,21 +1082,25 @@ def test_javascript_cli_initializes_reader_and_routes_corpus(tmp_path: Path, moc
     ],
 )
 def test_javascript_corpus_rejects(tmp_path: Path, source: bytes, error: str) -> None:
-    grammar: Final = compile_grammar(
+    grammar: Final[Grammar] = compile_grammar(
         (Production(name="script", symbol="root", parts=(source,), nodes=1, origin="fixture:1"),), "root"
     )
-    manifest: Final = write_corpora((generate(grammar, random.SystemRandom()),), grammar, tmp_path, "javascript")
+    manifest: Final[CorpusManifest] = write_corpora(
+        (generate(grammar, random.SystemRandom()),), grammar, tmp_path, "javascript"
+    )
     assert (manifest.entries, tuple(entry.exception for entry in manifest.rejected)) == ((), (error,))
 
 
 @_JS_READER_REQUIRED
 @pytest.mark.oracle
 def test_javascript_corpus_admits_valid_source(tmp_path: Path) -> None:
-    source: Final = b'consume("kept",external);'
-    grammar: Final = compile_grammar(
+    source: Final[bytes] = b'consume("kept",external);'
+    grammar: Final[Grammar] = compile_grammar(
         (Production(name="script", symbol="root", parts=(source,), nodes=1, origin="fixture:1"),), "root"
     )
-    manifest: Final = write_corpora((generate(grammar, random.SystemRandom()),), grammar, tmp_path, "javascript")
+    manifest: Final[CorpusManifest] = write_corpora(
+        (generate(grammar, random.SystemRandom()),), grammar, tmp_path, "javascript"
+    )
     assert (
         tuple(entry.target for entry in manifest.entries),
         tuple((tmp_path / entry.file).read_bytes() for entry in manifest.entries),
@@ -1076,8 +1112,8 @@ def test_javascript_corpus_admits_valid_source(tmp_path: Path) -> None:
 @_JS_READER_REQUIRED
 @pytest.mark.oracle
 def test_javascript_cli_dependency_failure_precedes_corpus_creation(tmp_path: Path) -> None:
-    corpus: Final = tmp_path / "javascript"
-    result: Final = run(  # ruff: ignore[subprocess-without-shell-equals-true] - fixed interpreter and owned CLI.
+    corpus: Final[Path] = tmp_path / "javascript"
+    result: Final[CompletedProcess[str]] = run(  # ruff: ignore[subprocess-without-shell-equals-true] - fixed interpreter and owned CLI.
         [sys.executable, "-m", "fuzz.atheris_targets", "--target", "javascript", "--corpus", str(corpus)],
         env={
             **os.environ,
@@ -1112,11 +1148,11 @@ def test_javascript_cli_dependency_failure_precedes_corpus_creation(tmp_path: Pa
 def test_corpus_routes_exact_bytes(
     tmp_path: Path, profile: CorpusProfile, production: str, source: bytes, targets: tuple[str, ...]
 ) -> None:
-    grammar: Final = compile_grammar(
+    grammar: Final[Grammar] = compile_grammar(
         (Production(name=production, symbol="root", parts=(source,), nodes=1, origin="fixture:1"),), "root"
     )
-    case: Final = generate(grammar, random.SystemRandom())
-    manifest: Final = write_corpora((case,), grammar, tmp_path, profile)
+    case: Final[Generated] = generate(grammar, random.SystemRandom())
+    manifest: Final[CorpusManifest] = write_corpora((case,), grammar, tmp_path, profile)
     assert (
         tuple(entry.target for entry in manifest.entries),
         tuple((tmp_path / entry.file).read_bytes() for entry in manifest.entries),
@@ -1130,15 +1166,17 @@ def test_corpus_routes_exact_bytes(
 
 
 def test_corpus_deduplicates_bytes_preserves_traces(tmp_path: Path) -> None:
-    grammar: Final = compile_grammar(
+    grammar: Final[Grammar] = compile_grammar(
         (
             Production(name="first", symbol="root", parts=(b"<p>x</p>",), nodes=1, origin="fixture:1"),
             Production(name="second", symbol="root", parts=(b"<p>x</p>",), nodes=1, origin="fixture:2"),
         ),
         "root",
     )
-    cases: Final = tuple(generate(grammar, random.SystemRandom(), force=name) for name in ("first", "second"))
-    manifest: Final = write_corpora(cases, grammar, tmp_path, "html")
+    cases: Final[tuple[Generated, ...]] = tuple(
+        generate(grammar, random.SystemRandom(), force=name) for name in ("first", "second")
+    )
+    manifest: Final[CorpusManifest] = write_corpora(cases, grammar, tmp_path, "html")
     assert (
         len(tuple((tmp_path / "html-fragment").iterdir())),
         tuple(entry.productions for entry in manifest.entries if entry.target == "html-fragment"),
@@ -1146,10 +1184,12 @@ def test_corpus_deduplicates_bytes_preserves_traces(tmp_path: Path) -> None:
 
 
 def test_corpus_rejects_invalid_input_before_writing(tmp_path: Path) -> None:
-    grammar: Final = compile_grammar(
+    grammar: Final[Grammar] = compile_grammar(
         (Production(name="invalid", symbol="root", parts=(b"\xff",), nodes=1, origin="fixture:1"),), "root"
     )
-    manifest: Final = write_corpora((generate(grammar, random.SystemRandom()),), grammar, tmp_path, "css-stylesheet")
+    manifest: Final[CorpusManifest] = write_corpora(
+        (generate(grammar, random.SystemRandom()),), grammar, tmp_path, "css-stylesheet"
+    )
     assert (
         manifest.entries,
         tuple(entry.exception for entry in manifest.rejected),
@@ -1159,7 +1199,7 @@ def test_corpus_rejects_invalid_input_before_writing(tmp_path: Path) -> None:
 
 def test_corpus_cli_creates_target_files(tmp_path: Path) -> None:
     assert fuzz_atheris_corpora_main(("--output", str(tmp_path), "--count", "1", "--seed", "1")) == 0
-    manifest: Final = json.loads((tmp_path / "manifest.json").read_text())
+    manifest: Final[_Manifest] = json.loads((tmp_path / "manifest.json").read_text())
     assert manifest["entries"]
     assert all((tmp_path / entry["file"]).is_file() for entry in manifest["entries"])
 
@@ -1171,14 +1211,14 @@ def test_corpus_cli_empty_count(tmp_path: Path) -> None:
 
 def test_corpus_cli_sweep_preserves_productions(tmp_path: Path) -> None:
     assert fuzz_atheris_corpora_main(("--output", str(tmp_path), "--count", "0", "--sweep")) == 0
-    manifest: Final = json.loads((tmp_path / "manifest.json").read_text())
+    manifest: Final[_Manifest] = json.loads((tmp_path / "manifest.json").read_text())
     assert {production.name for production in html_grammar_complete().productions} <= {
         production[0] for entry in manifest["entries"] for production in entry["productions"]
     }
 
 
 def test_corpus_preserves_generated_bindings(tmp_path: Path) -> None:
-    grammar: Final = compile_grammar(
+    grammar: Final[Grammar] = compile_grammar(
         (
             Production(
                 name="bound",
@@ -1190,8 +1230,8 @@ def test_corpus_preserves_generated_bindings(tmp_path: Path) -> None:
         ),
         "root",
     )
-    case: Final = generate(grammar, random.SystemRandom())
-    manifest: Final = write_corpora((case,), grammar, tmp_path, "html")
+    case: Final[Generated] = generate(grammar, random.SystemRandom())
+    manifest: Final[CorpusManifest] = write_corpora((case,), grammar, tmp_path, "html")
     assert tuple(entry.bindings for entry in manifest.entries) == (case.bindings, case.bindings)
     assert json.loads((tmp_path / "manifest.json").read_text())["entries"][0]["bindings"] == [["element", "x"]]
 
@@ -1271,7 +1311,7 @@ def engine() -> ModuleType:
 @pytest.mark.oracle
 @pytest.mark.parametrize("seed", range(8))
 def test_rng_inline_generated_labels(engine: ModuleType, seed: int) -> None:
-    case: Final = engine.generate(seed)
+    case: Final[SchemaCase] = engine.generate(seed)
     assert [(row.engine, row.phase, row.expected, row.actual) for row in engine.compare(case)] == [
         ("turbohtml", "compilation", case.compiles, case.compiles),
         ("libxml2", "compilation", case.compiles, case.compiles),
@@ -1286,8 +1326,8 @@ def test_rng_inline_generated_labels(engine: ModuleType, seed: int) -> None:
 @pytest.mark.oracle
 @pytest.mark.parametrize("schema", ["<", '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"/>'])
 def test_rng_inline_compile_verdicts(engine: ModuleType, schema: str) -> None:
-    expected: Final = False
-    case: Final = engine.Case(seed=0, schema=schema, compiles=expected, documents=())
+    expected: Final[bool] = False
+    case: Final[SchemaCase] = engine.Case(seed=0, schema=schema, compiles=expected, documents=())
     assert [(row.engine, row.phase, row.expected, row.actual) for row in engine.compare(case)] == [
         ("turbohtml", "compilation", expected, expected),
         ("libxml2", "compilation", expected, expected),
@@ -1296,7 +1336,7 @@ def test_rng_inline_compile_verdicts(engine: ModuleType, schema: str) -> None:
 
 @pytest.mark.oracle
 def test_rng_inline_unavailable_documents_remain_findings(engine: ModuleType) -> None:
-    case: Final = engine.Case(seed=0, schema="<", compiles=False, documents=(("<v/>", True),))
+    case: Final[SchemaCase] = engine.Case(seed=0, schema="<", compiles=False, documents=(("<v/>", True),))
     assert [(row.engine, row.phase, row.expected, row.actual) for row in engine.compare(case)] == [
         ("turbohtml", "compilation", False, False),
         ("libxml2", "compilation", False, False),
@@ -1307,7 +1347,7 @@ def test_rng_inline_unavailable_documents_remain_findings(engine: ModuleType) ->
 
 @pytest.mark.oracle
 def test_rng_inline_negative_control_changes_public_verdict(engine: ModuleType) -> None:
-    case: Final = engine.generate(0)
+    case: Final[SchemaCase] = engine.generate(0)
     assert [
         (row.engine, row.phase, row.expected, row.actual) for row in engine.compare(case, negative_control=True)
     ] == [
@@ -1338,7 +1378,7 @@ def test_rng_inline_cli(
     findings: int,
 ) -> None:
     assert engine.main(arguments) == exit_status
-    rows: Final = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert rows[-1] == {"summary": {"cases": 8, "rows": 52, "findings": findings}}
     assert {(row["engine"], row["phase"]) for row in rows[:-1]} == {
         ("turbohtml", "compilation"),
@@ -1382,13 +1422,13 @@ def test_rng_inline_foreign_annotations_preserve_pattern_verdicts(
     pattern: str,
     documents: tuple[tuple[str, bool], ...],
 ) -> None:
-    annotation: Final = '<doc:annotation><ref name="missing"/></doc:annotation>'
-    body: Final = pattern.replace("{annotation}", annotation)
-    schema: Final = (
+    annotation: Final[str] = '<doc:annotation><ref name="missing"/></doc:annotation>'
+    body: Final[str] = pattern.replace("{annotation}", annotation)
+    schema: Final[str] = (
         '<grammar xmlns="http://relaxng.org/ns/structure/1.0" xmlns:doc="urn:documentation">'
         f'<start><element name="v">{body}{annotation}</element></start></grammar>'
     )
-    case: Final = engine.Case(seed=0, schema=schema, compiles=True, documents=documents)
+    case: Final[SchemaCase] = engine.Case(seed=0, schema=schema, compiles=True, documents=documents)
     assert [(row.engine, row.phase, row.expected, row.actual) for row in engine.compare(case)] == [
         ("turbohtml", "compilation", True, True),
         ("libxml2", "compilation", True, True),
@@ -1398,11 +1438,13 @@ def test_rng_inline_foreign_annotations_preserve_pattern_verdicts(
 
 @pytest.mark.oracle
 def test_rng_inline_foreign_annotation_preserves_explicit_name_class(engine: ModuleType) -> None:
-    schema: Final = (
+    schema: Final[str] = (
         '<element xmlns="http://relaxng.org/ns/structure/1.0" xmlns:doc="urn:documentation">'
         '<doc:annotation><ref name="missing"/></doc:annotation><name>v</name><empty/></element>'
     )
-    case: Final = engine.Case(seed=0, schema=schema, compiles=True, documents=(("<v/>", True), ("<wrong/>", False)))
+    case: Final[SchemaCase] = engine.Case(
+        seed=0, schema=schema, compiles=True, documents=(("<v/>", True), ("<wrong/>", False))
+    )
     assert [row.actual == row.expected for row in engine.compare(case)] == [True] * 6
 
 
@@ -1453,19 +1495,19 @@ def test_schema_mutation_registered_cli(
 def test_schema_mutation_xpath_literals_and_declarations(
     engines: tuple[ModuleType, ModuleType, ModuleType, ModuleType, ModuleType],
 ) -> None:
-    root: Final = (
+    root: Final[str] = (
         '<x:stylesheet xmlns:x="http://www.w3.org/1999/XSL/Transform" version="1.0">'
         '<x:output method="text"/><x:variable name="recipient" select="&apos;kept&apos;"/>'
         '<x:key name="recipient-key" match="item" use="@id"/>'
         '<x:template name="recipient-template">template</x:template>'
         '<x:template match="/"/></x:stylesheet>'
     )
-    donor: Final = root.replace("recipient", "donor").replace(
+    donor: Final[str] = root.replace("recipient", "donor").replace(
         '<x:template match="/"/>',
         """<x:template match="/"><x:value-of select="concat('$literal', $donor, key('donor-key', 'one'))"/>
         <x:call-template name="donor-template"/></x:template>""",
     )
-    mutated: Final = engines[0].mutate(root, (donor,), 0, broken=False)
+    mutated: Final[str] = engines[0].mutate(root, (donor,), 0, broken=False)
     assert str(engines[4].XSLT(engines[4].fromstring(mutated.encode()))(engines[4].fromstring(b"<root/>"))) == (
         "$literalkepttemplate"
     )
@@ -1516,12 +1558,12 @@ def test_schema_mutation_cli_requires_mutation_for_broken_references(
 def test_schema_mutation_rng_missing_recipient_definition_is_not_invented(
     engines: tuple[ModuleType, ModuleType, ModuleType, ModuleType, ModuleType],
 ) -> None:
-    source: Final = (
+    source: Final[str] = (
         '<rng:grammar xmlns:rng="http://relaxng.org/ns/structure/1.0">'
         '<rng:start><rng:element name="v"><rng:empty/></rng:element></rng:start></rng:grammar>'
     )
-    mutated: Final = engines[0].mutate(source, (engines[3].generate(0).schema,), 0, broken=False)
-    case: Final = engines[3].Case(seed=0, schema=mutated, compiles=False, documents=())
+    mutated: Final[str] = engines[0].mutate(source, (engines[3].generate(0).schema,), 0, broken=False)
+    case: Final[SchemaCase] = engines[3].Case(seed=0, schema=mutated, compiles=False, documents=())
     assert [(row.engine, row.expected, row.actual) for row in engines[3].compare(case)] == [
         ("turbohtml", False, False),
         ("libxml2", False, False),
@@ -1551,9 +1593,9 @@ def test_schema_mutation_binds_dictionary_prefixes(
     index: int,
     source: str,
 ) -> None:
-    mutated: Final = engines[0].mutate(source, (source,), 0, broken=False)
-    reference: Final = engines[4].fromstring(mutated.encode())
-    checks: Final = {
+    mutated: Final[str] = engines[0].mutate(source, (source,), 0, broken=False)
+    reference: Final[lxml.etree._Element] = engines[4].fromstring(mutated.encode())
+    checks: Final[dict[int, Callable[[], bool]]] = {
         1: lambda: str(engines[4].XSLT(reference)(engines[4].fromstring(b"<root/>"))) == "word",
         2: lambda: engines[4].XMLSchema(reference).validate(engines[4].fromstring(b"<v/>")),
         3: lambda: engines[4].RelaxNG(reference).validate(engines[4].fromstring(b"<v/>")),
@@ -1586,9 +1628,9 @@ def fuzz_xslt_inline_engines() -> tuple[ModuleType, ModuleType]:
 @pytest.mark.oracle
 @pytest.mark.parametrize("seed", range(12))
 def test_xslt_inline_generated_phase_labels(fuzz_xslt_inline_engines: tuple[ModuleType, ModuleType], seed: int) -> None:
-    engine: Final = fuzz_xslt_inline_engines[0]
-    case: Final = engine.generate(seed)
-    rows: Final = list(engine.compare(case))
+    engine: Final[ModuleType] = fuzz_xslt_inline_engines[0]
+    case: Final[XsltCase] = engine.generate(seed)
+    rows: Final[list[XsltVerdict]] = list(engine.compare(case))
     assert [(row.engine, row.phase, row.actual == row.expected) for row in rows] == [
         (name, phase, True)
         for name in ("turbohtml", "libxslt")
@@ -1601,7 +1643,7 @@ def test_xslt_inline_generated_phase_labels(fuzz_xslt_inline_engines: tuple[Modu
 def test_xslt_inline_wrong_result_is_a_finding(
     fuzz_xslt_inline_engines: tuple[ModuleType, ModuleType], seed: int
 ) -> None:
-    engine: Final = fuzz_xslt_inline_engines[0]
+    engine: Final[ModuleType] = fuzz_xslt_inline_engines[0]
     assert [
         (row.engine, row.phase)
         for row in engine.compare(engine.generate(seed), negative_control=True)
@@ -1630,12 +1672,12 @@ def test_xslt_inline_wrong_result_is_a_finding(
 def test_xslt_inline_xml_content_is_preserved(
     fuzz_xslt_inline_engines: tuple[ModuleType, ModuleType], body: str, output: str
 ) -> None:
-    engine: Final = fuzz_xslt_inline_engines[0]
-    stylesheet: Final = (
+    engine: Final[ModuleType] = fuzz_xslt_inline_engines[0]
+    stylesheet: Final[str] = (
         '<x:stylesheet xmlns:x="http://www.w3.org/1999/XSL/Transform" version="1.0"><x:output '
         f'method="xml"/><x:template match="/">{body}</x:template></x:stylesheet>'
     )
-    case: Final = engine.Case(
+    case: Final[XsltCase] = engine.Case(
         seed=0, stylesheet=stylesheet, document="<root/>", method="xml", compiles=True, applies=True, output=output
     )
     assert [(row.engine, row.phase, row.actual == row.expected) for row in engine.compare(case)] == [
@@ -1647,8 +1689,8 @@ def test_xslt_inline_xml_content_is_preserved(
 def test_xslt_inline_malformed_stylesheet_retains_unavailable_application(
     fuzz_xslt_inline_engines: tuple[ModuleType, ModuleType],
 ) -> None:
-    engine: Final = fuzz_xslt_inline_engines[0]
-    case: Final = engine.Case(
+    engine: Final[ModuleType] = fuzz_xslt_inline_engines[0]
+    case: Final[XsltCase] = engine.Case(
         seed=0, stylesheet="<", document="<root/>", method="text", compiles=False, applies=False, output=None
     )
     assert [(row.engine, row.phase, row.expected, row.actual) for row in engine.compare(case)] == [
@@ -1693,7 +1735,7 @@ def test_xslt_inline_cli_outcome_counts(
 ) -> None:
     exit_status, findings, phases = expected
     assert fuzz_xslt_inline_engines[0].main(arguments) == exit_status
-    rows: Final = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert rows[-1] == {
         "summary": {
             "cases": 12,
@@ -1744,7 +1786,7 @@ def test_content_target_behaviors(  # simplint: ignore[test-without-assertion]  
 
 
 def test_content_targets_have_unique_owners() -> None:
-    exports: Final = [export for target in _TARGETS for export in target.exports]
+    exports: Final[list[str]] = [export for target in _TARGETS for export in target.exports]
     assert len(exports) == len(set(exports)) == 90
 
 
@@ -1867,13 +1909,13 @@ _DOMAINS: Final[tuple[str, ...]] = (
     ],
 )
 def test_dom_independent_contract(domain: str, data: bytes) -> None:
-    observation: Final = dom_observation(data, domain)
+    observation: Final[DomObservation] = dom_observation(data, domain)
     assert observation.actual == observation.expected
 
 
 @pytest.mark.parametrize("domain", _DOMAINS)
 def test_dom_registered_callback(domain: str) -> None:
-    target: Final = next(target for target in dom_targets() if target.name == domain)
+    target: Final[Target] = next(target for target in dom_targets() if target.name == domain)
     assert target.exceptions == (UnicodeDecodeError,)
     target.callback(b"text")
     with pytest.raises(UnicodeDecodeError):
@@ -1881,8 +1923,8 @@ def test_dom_registered_callback(domain: str) -> None:
 
 
 def test_dom_ownership() -> None:
-    targets: Final = dom_targets()
-    exports: Final = [export for target in targets for export in target.exports]
+    targets: Final[tuple[Target, ...]] = dom_targets()
+    exports: Final[list[str]] = [export for target in targets for export in target.exports]
     assert (tuple(target.name for target in targets), len(exports), len(set(exports))) == (_DOMAINS, 80, 80)
 
 
@@ -2180,7 +2222,7 @@ def test_atheris_reference_computed_cascade(source: bytes, expected: str) -> Non
 
 
 def test_atheris_reference_xml_rejection_is_documented() -> None:
-    target: Final = next(target for target in reference_targets() if target.name == "xml-schema")
+    target: Final[Target] = next(target for target in reference_targets() if target.name == "xml-schema")
     assert target.exceptions == (UnicodeDecodeError, HTMLParseError)
     with pytest.raises(HTMLParseError):
         target.callback(b"<root>")
@@ -2210,7 +2252,7 @@ if TYPE_CHECKING:
 
 
 def test_atheris_targets_complete_qualified_inventory() -> None:
-    owners: Final = owner_inventory()
+    owners: Final[dict[str, str]] = owner_inventory()
     assert (
         len(owners),
         len(MODULES),
@@ -2227,7 +2269,7 @@ def test_atheris_targets_complete_qualified_inventory() -> None:
 
 
 def test_atheris_targets_discover_public_modules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    package: Final = tmp_path / "discovered"
+    package: Final[Path] = tmp_path / "discovered"
     (package / "nested").mkdir(parents=True)
     (package / "_private").mkdir()
     for name in ("__init__", "__main__", "public", "nested/__init__", "nested/leaf", "_private/__init__", "_hidden"):
@@ -2250,14 +2292,14 @@ def test_atheris_targets_missing_group_is_rejected() -> None:
 
 
 def test_atheris_targets_duplicate_group_is_rejected() -> None:
-    targets: Final = public_targets()
+    targets: Final[tuple[Target, ...]] = public_targets()
     with pytest.raises(ValueError, match="Duplicate export owners"):
         validate_owners((*targets, targets[0]), MODULES)
 
 
 def test_atheris_targets_cli_manifest_and_flags(tmp_path: Path, mocker: MockerFixture) -> None:
-    run: Final = mocker.patch("fuzz.atheris_targets.fuzz", autospec=True)
-    corpus: Final = tmp_path / "html-tokenizer"
+    run: Final[MockType] = mocker.patch("fuzz.atheris_targets.fuzz", autospec=True)
+    corpus: Final[Path] = tmp_path / "html-tokenizer"
     assert main(("--target", "html-tokenizer", "--corpus", str(corpus), "-atheris_runs=64", "-max_len=128")) == 0
     assert (json.loads(corpus.with_suffix(".json").read_text()), run.call_args.args[2:]) == (
         {
@@ -2749,7 +2791,7 @@ def fuzz_xsd_inline_engine() -> ModuleType:
 @pytest.mark.oracle
 @pytest.mark.parametrize("seed", range(9))
 def test_xsd_inline_generated_labels(fuzz_xsd_inline_engine: ModuleType, seed: int) -> None:
-    case: Final = fuzz_xsd_inline_engine.generate(seed)
+    case: Final[SchemaCase] = fuzz_xsd_inline_engine.generate(seed)
     assert [(row.engine, row.phase, row.expected, row.actual) for row in fuzz_xsd_inline_engine.compare(case)] == [
         ("turbohtml", "compilation", case.compiles, case.compiles),
         ("libxml2", "compilation", case.compiles, case.compiles),
@@ -2764,8 +2806,8 @@ def test_xsd_inline_generated_labels(fuzz_xsd_inline_engine: ModuleType, seed: i
 @pytest.mark.oracle
 @pytest.mark.parametrize("schema", ["<", '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"/>'])
 def test_xsd_inline_compile_verdicts(fuzz_xsd_inline_engine: ModuleType, schema: str) -> None:
-    expected: Final = schema != "<"
-    case: Final = fuzz_xsd_inline_engine.Case(seed=0, schema=schema, compiles=expected, documents=())
+    expected: Final[bool] = schema != "<"
+    case: Final[SchemaCase] = fuzz_xsd_inline_engine.Case(seed=0, schema=schema, compiles=expected, documents=())
     assert [(row.engine, row.phase, row.expected, row.actual) for row in fuzz_xsd_inline_engine.compare(case)] == [
         ("turbohtml", "compilation", expected, expected),
         ("libxml2", "compilation", expected, expected),
@@ -2774,7 +2816,9 @@ def test_xsd_inline_compile_verdicts(fuzz_xsd_inline_engine: ModuleType, schema:
 
 @pytest.mark.oracle
 def test_xsd_inline_unavailable_documents_remain_findings(fuzz_xsd_inline_engine: ModuleType) -> None:
-    case: Final = fuzz_xsd_inline_engine.Case(seed=0, schema="<", compiles=False, documents=(("<v/>", True),))
+    case: Final[SchemaCase] = fuzz_xsd_inline_engine.Case(
+        seed=0, schema="<", compiles=False, documents=(("<v/>", True),)
+    )
     assert [(row.engine, row.phase, row.expected, row.actual) for row in fuzz_xsd_inline_engine.compare(case)] == [
         ("turbohtml", "compilation", False, False),
         ("libxml2", "compilation", False, False),
@@ -2785,7 +2829,7 @@ def test_xsd_inline_unavailable_documents_remain_findings(fuzz_xsd_inline_engine
 
 @pytest.mark.oracle
 def test_xsd_inline_negative_control_changes_public_verdict(fuzz_xsd_inline_engine: ModuleType) -> None:
-    case: Final = fuzz_xsd_inline_engine.generate(0)
+    case: Final[SchemaCase] = fuzz_xsd_inline_engine.generate(0)
     assert [
         (row.engine, row.phase, row.expected, row.actual)
         for row in fuzz_xsd_inline_engine.compare(case, negative_control=True)
@@ -2817,7 +2861,7 @@ def test_xsd_inline_cli(
     findings: int,
 ) -> None:
     assert fuzz_xsd_inline_engine.main(arguments) == exit_status
-    rows: Final = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert rows[-1] == {"summary": {"cases": 8, "rows": 52, "findings": findings}}
     assert {(row["engine"], row["phase"]) for row in rows[:-1]} == {
         ("turbohtml", "compilation"),
@@ -2840,11 +2884,11 @@ if TYPE_CHECKING:
 
 @pytest.mark.parametrize("declared", ["latin1", "iso-8859-1", "us-ascii"])
 def test_encoding_aliases_preserve_public_text(declared: str) -> None:
-    text: Final = "café €"
-    markup: Final = f"<meta charset={declared}><p>{text}</p>"
-    data: Final = markup.encode("cp1252")
-    case: Final = f"{declared}-meta-alias\n{text}"
-    match: Final = detect(data)
+    text: Final[str] = "café €"
+    markup: Final[str] = f"<meta charset={declared}><p>{text}</p>"
+    data: Final[bytes] = markup.encode("cp1252")
+    case: Final[str] = f"{declared}-meta-alias\n{text}"
+    match: Final[EncodingMatch] = detect(data)
     assert match.codec is not None
     assert (
         data,
@@ -2922,11 +2966,11 @@ if TYPE_CHECKING:
 
 @pytest.mark.parametrize("declared", ["utf-16", "utf-16le", "utf-16be"])
 def test_encoding_meta_remap_preserves_public_text(declared: str) -> None:
-    text: Final = "café €中文𐐀"
-    markup: Final = f"<meta charset={declared}><p>{text}</p>"
-    data: Final = markup.encode("utf-8")
-    case: Final = f"{declared}-meta-remap\n{text}"
-    match: Final = detect(data)
+    text: Final[str] = "café €中文𐐀"
+    markup: Final[str] = f"<meta charset={declared}><p>{text}</p>"
+    data: Final[bytes] = markup.encode("utf-8")
+    case: Final[str] = f"{declared}-meta-remap\n{text}"
+    match: Final[EncodingMatch] = detect(data)
     assert match.codec is not None
     assert (
         match.encoding,
@@ -3057,7 +3101,7 @@ def _fuzz_idna_nfc_invariants_reject() -> str:
 
 
 def test_idna_nfc_registry_controls_and_seed_floor() -> None:
-    seeds: Final = idna_nfc_seeds()
+    seeds: Final[list[str]] = idna_nfc_seeds()
     assert (
         all(idna_nfc_controls().values()),
         len(seeds),
@@ -3067,7 +3111,7 @@ def test_idna_nfc_registry_controls_and_seed_floor() -> None:
 
 
 def test_idna_nfc_generated_cases_compare() -> None:
-    rng: Final = random.Random(1010)  # ruff: ignore[suspicious-non-cryptographic-random-usage]  # reproduce oracle cases
+    rng: Final[random.Random] = random.Random(1010)  # ruff: ignore[suspicious-non-cryptographic-random-usage]  # reproduce oracle cases
     assert [idna_nfc_check(idna_nfc_generate(rng)) for _ in range(100)] == [None] * 100
 
 
@@ -3077,7 +3121,7 @@ def test_idna_nfc_registry_counts_unsupported_case() -> None:
 
 
 def test_idna_nfc_cli_detects_stable_wrong_mapping(mocker: MockerFixture, tmp_path: Path) -> None:
-    oracle: Final = replace(
+    oracle: Final[Oracle] = replace(
         ORACLES["idna-nfc"],
         check=partial(idna_nfc_check, normalize=lambda _text: "https://wrong.example/"),
         seeds=lambda: ["reorder:"],
@@ -3134,8 +3178,8 @@ if TYPE_CHECKING:
 def test_parser_byte_oracle_pins_text_and_canonical_label(
     variant: str, raw: bytes, label: str, expected: str, encoding: str
 ) -> None:
-    document: Final = parse(raw, encoding=label)
-    outcomes: Final = [(document.text, document.encoding)]
+    document: Final[Document] = parse(raw, encoding=label)
+    outcomes: Final[list[tuple[str, str | None]]] = [(document.text, document.encoding)]
     for width in (1, 2, 3, 4, 5, len(raw)):
         parser = IncrementalParser(encoding=label)
         parser.feed(b"")
@@ -3209,9 +3253,9 @@ def test_parser_byte_oracle_discriminates_wrong_results(
 
 
 def test_parser_byte_registry_generated_cases_and_controls() -> None:
-    rng: Final = random.SystemRandom()
-    generated: Final = [parser_bytes_generate(rng) for _ in range(100)]
-    seeds: Final = parser_bytes_seeds()
+    rng: Final[random.SystemRandom] = random.SystemRandom()
+    generated: Final[list[str]] = [parser_bytes_generate(rng) for _ in range(100)]
+    seeds: Final[list[str]] = parser_bytes_seeds()
     assert (
         len(seeds),
         all(parser_bytes_check(case) is None for case in [*seeds, *generated]),
@@ -3230,7 +3274,7 @@ def test_parser_byte_registry_generated_cases_and_controls() -> None:
 
 
 def test_parser_byte_cli_compares_seed_floor(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    status: Final = fuzz_parser_byte_invariants_main([
+    status: Final[int] = fuzz_parser_byte_invariants_main([
         "--oracle",
         "parser-bytes",
         "--minutes",
@@ -3242,14 +3286,14 @@ def test_parser_byte_cli_compares_seed_floor(tmp_path: Path, capsys: pytest.Capt
 
 
 def test_parser_byte_cli_reports_valid_fixture_rejection(mocker: MockerFixture, tmp_path: Path) -> None:
-    oracle: Final = replace(
+    oracle: Final[Oracle] = replace(
         ORACLES["parser-bytes"],
         check=partial(parser_bytes_check, one_shot=_reject_fixture),
         seeds=lambda: ["utf8:g"],
         floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"parser-bytes": oracle}, clear=True)
-    status: Final = fuzz_parser_byte_invariants_main([
+    status: Final[int] = fuzz_parser_byte_invariants_main([
         "--oracle",
         "parser-bytes",
         "--minutes",
@@ -3257,13 +3301,13 @@ def test_parser_byte_cli_reports_valid_fixture_rejection(mocker: MockerFixture, 
         "--crash-dir",
         str(tmp_path),
     ])
-    findings: Final = list(tmp_path.glob("*.json"))
-    payload: Final = json.loads(findings[0].read_text(encoding="utf-8"))
+    findings: Final[list[Path]] = list(tmp_path.glob("*.json"))
+    payload: Final[dict[str, str | int]] = json.loads(findings[0].read_text(encoding="utf-8"))
     assert (status, len(findings), payload["detail"], payload["hits"]) == (1, 1, "raised ValueError", 1)
 
 
 def _reject_fixture(_data: bytes, _label: str) -> tuple[str, str | None]:
-    message: Final = "rejected valid bytes"
+    message: Final[str] = "rejected valid bytes"
     raise ValueError(message)
 
 
@@ -3302,7 +3346,7 @@ if TYPE_CHECKING:
     ],
 )
 def test_idna_invariant_pins_public_output(case: str, source: str, expected: str) -> None:
-    url: Final = f"https://{expected}/"
+    url: Final[str] = f"https://{expected}/"
     assert (normalize_url(f"https://{source}/"), normalize_url(url), idna_host_check(case)) == (url, url, None)
 
 
@@ -3361,8 +3405,8 @@ def _fuzz_idna_invariants_reject() -> str:
 
 
 def test_idna_registry_has_discriminating_controls_and_seed_floor() -> None:
-    oracle: Final = ORACLES["idna-host"]
-    seeds: Final = oracle.seeds()
+    oracle: Final[Oracle] = ORACLES["idna-host"]
+    seeds: Final[list[str]] = oracle.seeds()
     assert (
         all(oracle.controls().values()),
         len(seeds),
@@ -3377,17 +3421,17 @@ def test_idna_registry_has_discriminating_controls_and_seed_floor() -> None:
 
 
 def test_idna_cli_writes_mapping_failure(mocker: MockerFixture, tmp_path: Path) -> None:
-    oracle: Final = replace(
+    oracle: Final[Oracle] = replace(
         ORACLES["idna-host"],
         check=partial(idna_host_check, normalize=lambda text: text),
         seeds=lambda: ["umlaut\n"],
         floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"idna-host": oracle}, clear=True)
-    status: Final = fuzz_idna_invariants_main(["--minutes", "0", "--crash-dir", str(tmp_path)])
-    findings: Final = list(tmp_path.glob("*.json"))
+    status: Final[int] = fuzz_idna_invariants_main(["--minutes", "0", "--crash-dir", str(tmp_path)])
+    findings: Final[list[Path]] = list(tmp_path.glob("*.json"))
     assert len(findings) == 1
-    minimized: Final = findings[0].with_suffix("").read_text(encoding="utf-8")
+    minimized: Final[str] = findings[0].with_suffix("").read_text(encoding="utf-8")
     assert (
         status,
         json.loads(findings[0].read_text()),
@@ -3425,7 +3469,7 @@ def test_resolve_links_oracle_pins_first_and_repeated_targets(case: str, referen
     document = parse_fragment('<a href="">link</a>')
     document.select("a")[0].attrs["href"] = reference
     document.resolve_links(base)
-    first: Final = document.links()[0].url
+    first: Final[str] = document.links()[0].url
     document.resolve_links(base)
     assert (first, document.links()[0].url, resolve_links_check(f"{case}:g")) == (expected, expected, None)
 
@@ -3470,8 +3514,8 @@ def test_resolve_links_oracle_discriminates_failures(resolve: Callable[[Node, st
 
 
 def test_resolve_links_registry_checks_seed_batch_and_controls() -> None:
-    oracle: Final = ORACLES["resolve-links"]
-    seeds: Final = oracle.seeds()
+    oracle: Final[Oracle] = ORACLES["resolve-links"]
+    seeds: Final[list[str]] = oracle.seeds()
     assert (
         len(seeds),
         len(set(seeds)) >= 100,
@@ -3486,7 +3530,7 @@ def test_resolve_links_registry_checks_seed_batch_and_controls() -> None:
 
 
 def test_resolve_links_cli_compares_seeds(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    result: Final = fuzz_resolve_links_invariants_main([
+    result: Final[int] = fuzz_resolve_links_invariants_main([
         "--oracle",
         "resolve-links",
         "--minutes",
@@ -3498,14 +3542,14 @@ def test_resolve_links_cli_compares_seeds(tmp_path: Path, capsys: pytest.Capture
 
 
 def test_resolve_links_cli_writes_wrong_target_finding(mocker: MockerFixture, tmp_path: Path) -> None:
-    oracle: Final = replace(
+    oracle: Final[Oracle] = replace(
         ORACLES["resolve-links"],
         check=partial(resolve_links_check, resolve=_wrong_target),
         seeds=lambda: ["parent:g"],
         floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"resolve-links": oracle}, clear=True)
-    result: Final = fuzz_resolve_links_invariants_main([
+    result: Final[int] = fuzz_resolve_links_invariants_main([
         "--oracle",
         "resolve-links",
         "--minutes",
@@ -3513,8 +3557,8 @@ def test_resolve_links_cli_writes_wrong_target_finding(mocker: MockerFixture, tm
         "--crash-dir",
         str(tmp_path),
     ])
-    findings: Final = list(tmp_path.glob("*.json"))
-    payload: Final = json.loads(findings[0].read_text(encoding="utf-8"))
+    findings: Final[list[Path]] = list(tmp_path.glob("*.json"))
+    payload: Final[dict[str, str | int]] = json.loads(findings[0].read_text(encoding="utf-8"))
     assert (result, len(findings), payload["oracle"], payload["detail"], payload["hits"]) == (
         1,
         1,
@@ -3599,7 +3643,7 @@ def test_xml_literal_trees(case: str, source: str, expected: list[tuple[str, dic
 
 
 def test_xml_literal_rejects_nested_second_child() -> None:
-    source: Final = (
+    source: Final[str] = (
         '<Root xmlns:p="urn:p"><p:Leaf p:Key="Value" Key="Other">MiXeD'
         '<p:Leaf p:Key="Value" Key="Other">MiXeD</p:Leaf></p:Leaf></Root>'
     )
@@ -3621,7 +3665,7 @@ def test_xml_literal_rejects_unexpected_comment() -> None:
 
 
 def test_xml_literal_checks_repeat_formatting() -> None:
-    outputs: Final = iter([
+    outputs: Final[Iterator[str]] = iter([
         '<Root xmlns:p="urn:p"><p:Leaf p:Key="Value" Key="Other">MiXeD</p:Leaf></Root>',
         "<Root xmlns:p='urn:p'><p:Leaf p:Key='Value' Key='Other'>MiXeD</p:Leaf></Root>",
     ])
@@ -3650,8 +3694,8 @@ def test_xml_literal_rejects_unsupported_grammar(case: str) -> None:
 
 
 def test_xml_literal_production_sweep_and_bounds() -> None:
-    rng: Final = random.Random(1018)  # ruff: ignore[suspicious-non-cryptographic-random-usage] - Reproducible grammar samples.
-    cases: Final = [*xml_literal_seeds(), *(xml_literal_generate(rng) for _ in range(100))]
+    rng: Final[random.Random] = random.Random(1018)  # ruff: ignore[suspicious-non-cryptographic-random-usage] - Reproducible grammar samples.
+    cases: Final[list[str]] = [*xml_literal_seeds(), *(xml_literal_generate(rng) for _ in range(100))]
     assert (
         len(xml_literal_seeds()),
         {case.split(":")[index] for case in cases for index in (0, 1, 2, 4)},
@@ -3673,7 +3717,7 @@ def test_xml_literal_production_sweep_and_bounds() -> None:
 
 
 def test_xml_literal_cli_seed_floor(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    status: Final = fuzz_xml_literal_invariants_main([
+    status: Final[int] = fuzz_xml_literal_invariants_main([
         "--oracle",
         "xml-literal-grammar",
         "--minutes",
@@ -3685,7 +3729,7 @@ def test_xml_literal_cli_seed_floor(tmp_path: Path, capsys: pytest.CaptureFixtur
 
 
 def test_xml_literal_cli_emits_changed_declaration(mocker: MockerFixture, tmp_path: Path) -> None:
-    oracle: Final = replace(
+    oracle: Final[Oracle] = replace(
         ORACLES["xml-literal-grammar"],
         check=partial(
             xml_literal_check,
@@ -3695,7 +3739,7 @@ def test_xml_literal_cli_emits_changed_declaration(mocker: MockerFixture, tmp_pa
         floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"xml-literal-grammar": oracle}, clear=True)
-    status: Final = fuzz_xml_literal_invariants_main([
+    status: Final[int] = fuzz_xml_literal_invariants_main([
         "--oracle",
         "xml-literal-grammar",
         "--minutes",
@@ -3703,8 +3747,8 @@ def test_xml_literal_cli_emits_changed_declaration(mocker: MockerFixture, tmp_pa
         "--crash-dir",
         str(tmp_path),
     ])
-    findings: Final = list(tmp_path.glob("*.json"))
-    payload: Final = json.loads(findings[0].read_text(encoding="utf-8"))
+    findings: Final[list[Path]] = list(tmp_path.glob("*.json"))
+    payload: Final[dict[str, str | int]] = json.loads(findings[0].read_text(encoding="utf-8"))
     assert (status, len(findings), payload["detail"], payload["hits"]) == (
         1,
         1,
@@ -3716,9 +3760,11 @@ def test_xml_literal_cli_emits_changed_declaration(mocker: MockerFixture, tmp_pa
 def test_xml_literal_cli_rejection_is_out_of_scope(
     mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    oracle: Final = replace(ORACLES["xml-literal-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1))
+    oracle: Final[Oracle] = replace(
+        ORACLES["xml-literal-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1)
+    )
     mocker.patch.dict(ORACLES, {"xml-literal-grammar": oracle}, clear=True)
-    status: Final = fuzz_xml_literal_invariants_main([
+    status: Final[int] = fuzz_xml_literal_invariants_main([
         "--oracle",
         "xml-literal-grammar",
         "--minutes",
@@ -3820,14 +3866,14 @@ def test_xml_island_rejects_unexpected_instruction() -> None:
 
 
 def test_xml_island_rejects_changed_attachment() -> None:
-    source: Final = "<!--lead &amp;--><Root><!--note--><![CDATA[Value]]>&lt;&amp;<!--tail--></Root>"
+    source: Final[str] = "<!--lead &amp;--><Root><!--note--><![CDATA[Value]]>&lt;&amp;<!--tail--></Root>"
     assert xml_island_check("outside:plain:plain:1", lambda _node: source) == (
         "serialized XML islands differ from literals"
     )
 
 
 def test_xml_island_checks_repeat_formatting() -> None:
-    outputs: Final = iter([
+    outputs: Final[Iterator[str]] = iter([
         "<Root><!--note--><![CDATA[Value]]>&lt;&amp;</Root>",
         "<Root ><!--note--><![CDATA[Value]]>&lt;&amp;</Root>",
     ])
@@ -3855,8 +3901,8 @@ def test_xml_island_rejects_unsupported_grammar(case: str) -> None:
 
 
 def test_xml_island_production_sweep_and_bounds() -> None:
-    rng: Final = random.Random(1018)  # ruff: ignore[suspicious-non-cryptographic-random-usage] - Reproducible grammar samples.
-    cases: Final = [*xml_island_seeds(), *(xml_island_generate(rng) for _ in range(100))]
+    rng: Final[random.Random] = random.Random(1018)  # ruff: ignore[suspicious-non-cryptographic-random-usage] - Reproducible grammar samples.
+    cases: Final[list[str]] = [*xml_island_seeds(), *(xml_island_generate(rng) for _ in range(100))]
     assert (
         len(xml_island_seeds()),
         {case.split(":")[index] for case in cases for index in (0, 1, 2)},
@@ -3873,7 +3919,7 @@ def test_xml_island_production_sweep_and_bounds() -> None:
 
 
 def test_xml_island_cli_seed_floor(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    status: Final = fuzz_xml_island_invariants_main([
+    status: Final[int] = fuzz_xml_island_invariants_main([
         "--oracle",
         "xml-island-grammar",
         "--minutes",
@@ -3885,14 +3931,14 @@ def test_xml_island_cli_seed_floor(tmp_path: Path, capsys: pytest.CaptureFixture
 
 
 def test_xml_island_cli_emits_kind_loss(mocker: MockerFixture, tmp_path: Path) -> None:
-    oracle: Final = replace(
+    oracle: Final[Oracle] = replace(
         ORACLES["xml-island-grammar"],
         check=partial(xml_island_check, serialize=lambda _node: "<Root><!--note-->Value&lt;&amp;</Root>"),
         seeds=lambda: ["inside:plain:plain:1"],
         floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"xml-island-grammar": oracle}, clear=True)
-    status: Final = fuzz_xml_island_invariants_main([
+    status: Final[int] = fuzz_xml_island_invariants_main([
         "--oracle",
         "xml-island-grammar",
         "--minutes",
@@ -3900,8 +3946,8 @@ def test_xml_island_cli_emits_kind_loss(mocker: MockerFixture, tmp_path: Path) -
         "--crash-dir",
         str(tmp_path),
     ])
-    findings: Final = list(tmp_path.glob("*.json"))
-    payload: Final = json.loads(findings[0].read_text(encoding="utf-8"))
+    findings: Final[list[Path]] = list(tmp_path.glob("*.json"))
+    payload: Final[dict[str, str | int]] = json.loads(findings[0].read_text(encoding="utf-8"))
     assert (status, len(findings), payload["detail"], payload["hits"]) == (
         1,
         1,
@@ -3913,9 +3959,11 @@ def test_xml_island_cli_emits_kind_loss(mocker: MockerFixture, tmp_path: Path) -
 def test_xml_island_cli_rejection_is_out_of_scope(
     mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    oracle: Final = replace(ORACLES["xml-island-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1))
+    oracle: Final[Oracle] = replace(
+        ORACLES["xml-island-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1)
+    )
     mocker.patch.dict(ORACLES, {"xml-island-grammar": oracle}, clear=True)
-    status: Final = fuzz_xml_island_invariants_main([
+    status: Final[int] = fuzz_xml_island_invariants_main([
         "--oracle",
         "xml-island-grammar",
         "--minutes",
@@ -3947,7 +3995,9 @@ if TYPE_CHECKING:
     ],
 )
 def test_css_custom_literals_require_conservation_and_shortening(case: str, text: str, expected: str) -> None:
-    printer: Final = {"sheet": minify_css, "inline": minify_css_inline}[case.split(":", maxsplit=1)[0]]
+    printer: Final[Callable[[str], str]] = {"sheet": minify_css, "inline": minify_css_inline}[
+        case.split(":", maxsplit=1)[0]
+    ]
     assert (
         printer(text),
         printer(expected),
@@ -3965,12 +4015,12 @@ def test_css_custom_literals_require_conservation_and_shortening(case: str, text
 
 @pytest.mark.parametrize("quote", [pytest.param("'", id="single-quote"), pytest.param('"', id="double-quote")])
 def test_css_custom_accepts_either_string_quote(quote: str) -> None:
-    expected: Final = f"--Foo:{quote}A B{quote}"
+    expected: Final[str] = f"--Foo:{quote}A B{quote}"
     assert css_custom_check("inline:string:1:0", lambda _text: expected) is None
 
 
 def test_css_custom_repeated_output_is_checked() -> None:
-    expected: Final = "--Foo:MiXeD"
+    expected: Final[str] = "--Foo:MiXeD"
     assert css_custom_check("inline:ident:1:0", lambda text: expected if text != expected else f"{expected} ") == (
         "custom-property output changes on repeat"
     )
@@ -3995,10 +4045,10 @@ def test_css_custom_rejects_unsupported_productions(case: str) -> None:
 
 
 def test_css_custom_production_sweep_and_bounds() -> None:
-    seeds: Final = css_custom_seeds()
-    rng: Final = random.Random(1018)  # ruff: ignore[suspicious-non-cryptographic-random-usage] - Reproduce grammar samples; no security tokens.
-    generated: Final = [css_custom_generate(rng) for _ in range(100)]
-    productions: Final = Counter(tuple(case.split(":")[:2]) for case in seeds)
+    seeds: Final[list[str]] = css_custom_seeds()
+    rng: Final[random.Random] = random.Random(1018)  # ruff: ignore[suspicious-non-cryptographic-random-usage] - Reproduce grammar samples; no security tokens.
+    generated: Final[list[str]] = [css_custom_generate(rng) for _ in range(100)]
+    productions: Final[Counter[tuple[str, ...]]] = Counter(tuple(case.split(":")[:2]) for case in seeds)
     assert (
         len(seeds),
         productions,
@@ -4015,7 +4065,7 @@ def test_css_custom_production_sweep_and_bounds() -> None:
 
 
 def test_css_custom_cli_seed_floor(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    status: Final = fuzz_css_custom_invariants_main([
+    status: Final[int] = fuzz_css_custom_invariants_main([
         "--oracle",
         "css-custom-tokens",
         "--minutes",
@@ -4027,14 +4077,14 @@ def test_css_custom_cli_seed_floor(tmp_path: Path, capsys: pytest.CaptureFixture
 
 
 def test_css_custom_cli_emits_token_loss(mocker: MockerFixture, tmp_path: Path) -> None:
-    oracle: Final = replace(
+    oracle: Final[Oracle] = replace(
         ORACLES["css-custom-tokens"],
         check=partial(css_custom_check, minify=lambda _text: ""),
         seeds=lambda: ["inline:ident:1:0"],
         floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"css-custom-tokens": oracle}, clear=True)
-    status: Final = fuzz_css_custom_invariants_main([
+    status: Final[int] = fuzz_css_custom_invariants_main([
         "--oracle",
         "css-custom-tokens",
         "--minutes",
@@ -4042,8 +4092,8 @@ def test_css_custom_cli_emits_token_loss(mocker: MockerFixture, tmp_path: Path) 
         "--crash-dir",
         str(tmp_path),
     ])
-    findings: Final = list(tmp_path.glob("*.json"))
-    payload: Final = json.loads(findings[0].read_text(encoding="utf-8"))
+    findings: Final[list[Path]] = list(tmp_path.glob("*.json"))
+    payload: Final[dict[str, str | int]] = json.loads(findings[0].read_text(encoding="utf-8"))
     assert (status, len(findings), payload["detail"], payload["hits"]) == (
         1,
         1,
@@ -4055,9 +4105,11 @@ def test_css_custom_cli_emits_token_loss(mocker: MockerFixture, tmp_path: Path) 
 def test_css_custom_cli_rejection_is_out_of_scope(
     mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    oracle: Final = replace(ORACLES["css-custom-tokens"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1))
+    oracle: Final[Oracle] = replace(
+        ORACLES["css-custom-tokens"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1)
+    )
     mocker.patch.dict(ORACLES, {"css-custom-tokens": oracle}, clear=True)
-    status: Final = fuzz_css_custom_invariants_main([
+    status: Final[int] = fuzz_css_custom_invariants_main([
         "--oracle",
         "css-custom-tokens",
         "--minutes",
@@ -4095,13 +4147,17 @@ def anchored() -> ModuleType:
 def test_xpath_anchored_retains_target(
     anchored: ModuleType, predicate: str, target: str, expected: tuple[str, ...]
 ) -> None:
-    verdict: Final = next(anchored.compare(anchored.Case(xml=_XML, target=target, predicate=predicate)))
+    verdict: Final[AnchoredVerdict] = next(
+        anchored.compare(anchored.Case(xml=_XML, target=target, predicate=predicate))
+    )
     assert (verdict.ours, verdict.reference) == (("nodes", expected), ("nodes", expected))
 
 
 @pytest.mark.oracle
 def test_xpath_anchored_compares_values_and_types(anchored: ModuleType) -> None:
-    rows: Final = list(anchored.compare(anchored.Case(xml=_XML, target="n1", predicate="@score < 3")))
+    rows: Final[list[AnchoredVerdict]] = list(
+        anchored.compare(anchored.Case(xml=_XML, target="n1", predicate="@score < 3"))
+    )
     assert [(row.ours, row.reference) for row in rows] == [
         (("nodes", ("n1",)), ("nodes", ("n1",))),
         (("nodes", ("n1",)), ("nodes", ("n1",))),
@@ -4129,7 +4185,7 @@ def test_xpath_anchored_reports_evaluation_rejection(anchored: ModuleType) -> No
 
 @pytest.mark.oracle
 def test_xpath_anchored_control_changes_actual_boolean_answer(anchored: ModuleType) -> None:
-    rows: Final = list(
+    rows: Final[list[AnchoredVerdict]] = list(
         anchored.compare(anchored.Case(xml=_XML, target="n1", predicate="@score < 3"), negative_control=True)
     )
     assert [(row.ours, row.reference) for row in rows if row.ours != row.reference] == [
@@ -4148,10 +4204,11 @@ def test_xpath_anchored_control_changes_actual_boolean_answer(anchored: ModuleTy
     ],
 )
 def test_xpath_anchored_generation_is_deterministic_and_bounded(anchored: ModuleType, seed: int) -> None:
-    case: Final = anchored.generate(seed)
-    etree: Final = pytest.importorskip("lxml.etree")
-    elements: Final = list(etree.fromstring(case.xml.encode()).iter())
-    identifiers: Final = [element.get("id") for element in elements]
+    case: Final[AnchoredCase] = anchored.generate(seed)
+    elements: Final[list[lxml.etree._Element]] = list(
+        pytest.importorskip("lxml.etree").fromstring(case.xml.encode()).iter()
+    )
+    identifiers: Final[list[str | None]] = [element.get("id") for element in elements]
     assert (
         case == anchored.generate(seed),
         case != anchored.generate(seed + 1),
@@ -4180,7 +4237,7 @@ def test_xpath_anchored_generation_is_deterministic_and_bounded(anchored: Module
 def test_xpath_anchored_cli_summary(
     anchored: ModuleType, capsys: pytest.CaptureFixture[str], extra: list[str], expected_status: int, findings: int
 ) -> None:
-    status: Final = anchored.main(["--seed", "0", "--cases", "2", *extra])
+    status: Final[int] = anchored.main(["--seed", "0", "--cases", "2", *extra])
     assert (status, json.loads(capsys.readouterr().out.splitlines()[-1])) == (
         expected_status,
         {"summary": {"cases": 2, "rows": 12, "findings": findings}},
@@ -4297,7 +4354,7 @@ if TYPE_CHECKING:
     ],
 )
 def test_encoding_invariants_pin_public_outputs(case: str, data: bytes, label: str, decoded: str) -> None:
-    match: Final = detect(data)
+    match: Final[EncodingMatch] = detect(data)
     assert match.codec is not None
     assert (
         match.encoding,
@@ -4334,7 +4391,7 @@ def test_encoding_invariants_reject_unsupported_cases(check: Callable[[str], str
 
 
 def test_encoding_stream_empty_sentinel() -> None:
-    detector: Final = EncodingDetector()
+    detector: Final[EncodingDetector] = EncodingDetector()
     detector.feed(b"")
     assert (detect(b""), detector.close(), encoding_stream_check("empty\n")) == (
         EncodingMatch(encoding=None, confidence=0.0, language=None),
@@ -4407,7 +4464,7 @@ def test_encoding_invariants_discriminate_failures(
     "name", [pytest.param("encoding-stream", id="stream"), pytest.param("encoding-decode", id="decode")]
 )
 def test_encoding_registry_controls_seeds_and_floor(name: str) -> None:
-    oracle: Final = ORACLES[name]
+    oracle: Final[Oracle] = ORACLES[name]
     assert (
         oracle.check("utf-8-meta\ncafé"),
         all(oracle.controls().values()),
@@ -4433,7 +4490,7 @@ def test_encoding_cli_replays_seed_floor(tmp_path: Path) -> None:
 
 
 def test_encoding_cli_emits_wrong_detection(mocker: MockerFixture, tmp_path: Path) -> None:
-    oracle: Final = replace(
+    oracle: Final[Oracle] = replace(
         ORACLES["encoding-stream"],
         check=partial(
             encoding_stream_check, one_shot=lambda _data: EncodingMatch(encoding=None, confidence=0.0, language=None)
@@ -4442,7 +4499,7 @@ def test_encoding_cli_emits_wrong_detection(mocker: MockerFixture, tmp_path: Pat
         floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"encoding-stream": oracle}, clear=True)
-    status: Final = fuzz_encoding_invariants_main([
+    status: Final[int] = fuzz_encoding_invariants_main([
         "--oracle",
         "encoding-stream",
         "--minutes",
@@ -4471,7 +4528,7 @@ _RNG: Final[str] = "http://relaxng.org/ns/structure/1.0"
 
 @pytest.fixture
 def fuzz_rng_labels_engines() -> tuple[ModuleType, ModuleType]:
-    load: Final = pytest.importorskip
+    load = pytest.importorskip
     return load("fuzz.rng_labels", exc_type=ImportError), load("lxml.etree", exc_type=ImportError)
 
 
@@ -4538,7 +4595,7 @@ def test_rng_labels_instance_names_are_not_resource_metadata(
     fuzz_rng_labels_engines: tuple[ModuleType, ModuleType], name: str
 ) -> None:
     rng_labels, etree = fuzz_rng_labels_engines
-    suite: Final = etree.fromstring(
+    suite: Final[lxml.etree._Element] = etree.fromstring(
         f'<testSuite><testCase><correct><element xmlns="{_RNG}" name="{name}"><empty/></element></correct>'
         f"<valid><{name}/></valid></testCase></testSuite>"
     )
@@ -4580,7 +4637,7 @@ def test_rng_labels_resource_cases(
     fuzz_rng_labels_engines: tuple[ModuleType, ModuleType], case: str, expected: list[bool]
 ) -> None:
     rng_labels, etree = fuzz_rng_labels_engines
-    suite: Final = etree.fromstring(f"<testSuite><testCase>{case}</testCase></testSuite>")
+    suite: Final[lxml.etree._Element] = etree.fromstring(f"<testSuite><testCase>{case}</testCase></testSuite>")
     assert [row.actual for row in rng_labels.compare(suite)] == expected
 
 
@@ -4597,7 +4654,7 @@ def test_rng_labels_rejects_resource_name_outside_case(
     fuzz_rng_labels_engines: tuple[ModuleType, ModuleType], name: str
 ) -> None:
     rng_labels, etree = fuzz_rng_labels_engines
-    suite: Final = etree.fromstring(
+    suite: Final[lxml.etree._Element] = etree.fromstring(
         f'<testSuite><testCase><resource name="{name}"/><correct><empty xmlns="{_RNG}"/></correct>'
         "</testCase></testSuite>"
     )
@@ -4608,7 +4665,7 @@ def test_rng_labels_rejects_resource_name_outside_case(
 @pytest.mark.oracle
 def test_rng_labels_preserves_inherited_qname_prefix(fuzz_rng_labels_engines: tuple[ModuleType, ModuleType]) -> None:
     rng_labels, etree = fuzz_rng_labels_engines
-    suite: Final = etree.fromstring(
+    suite: Final[lxml.etree._Element] = etree.fromstring(
         f'<testSuite xmlns:q="urn:example"><testCase><correct><element xmlns="{_RNG}" name="q:root">'
         "<empty/></element></correct><valid><q:root/></valid><invalid><root/></invalid></testCase></testSuite>"
     )
@@ -4618,7 +4675,7 @@ def test_rng_labels_preserves_inherited_qname_prefix(fuzz_rng_labels_engines: tu
 @pytest.mark.oracle
 def test_rng_labels_internal_entities(fuzz_rng_labels_engines: tuple[ModuleType, ModuleType]) -> None:
     rng_labels, etree = fuzz_rng_labels_engines
-    suite: Final = etree.fromstring(
+    suite: Final[lxml.etree._Element] = etree.fromstring(
         (
             '<!DOCTYPE testSuite [<!ENTITY word "expected">]><testSuite><testCase><correct>'
             f'<element xmlns="{_RNG}" name="root"><value>&word;</value></element></correct>'
@@ -4677,7 +4734,7 @@ def test_rng_labels_cli(
     case: str,
     expected: tuple[int, dict[str, int]],
 ) -> None:
-    corpus: Final = tmp_path / "suite.xml"
+    corpus: Final[Path] = tmp_path / "suite.xml"
     corpus.write_text(f"<testSuite><testCase>{case}</testCase></testSuite>")
     assert (
         fuzz_rng_labels_engines[0].main(["--corpus", str(corpus)]),
@@ -4689,7 +4746,7 @@ def test_rng_labels_cli(
 def test_rng_labels_cli_empty_corpus(
     fuzz_rng_labels_engines: tuple[ModuleType, ModuleType], tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    corpus: Final = tmp_path / "suite.xml"
+    corpus: Final[Path] = tmp_path / "suite.xml"
     corpus.write_text("<testSuite/>")
     assert (
         fuzz_rng_labels_engines[0].main(["--corpus", str(corpus)]),
@@ -4701,7 +4758,7 @@ def test_rng_labels_cli_empty_corpus(
 def test_rng_labels_cli_preparation_error_keeps_source_private(
     fuzz_rng_labels_engines: tuple[ModuleType, ModuleType], tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    corpus: Final = tmp_path / "suite.xml"
+    corpus: Final[Path] = tmp_path / "suite.xml"
     corpus.write_text("<testSuite>private-marker")
     assert (fuzz_rng_labels_engines[0].main(["--corpus", str(corpus)]), capsys.readouterr()) == (
         2,
@@ -4714,7 +4771,7 @@ def test_rng_labels_preserves_prefix_used_only_in_instance_text(
     fuzz_rng_labels_engines: tuple[ModuleType, ModuleType],
 ) -> None:
     rng_labels, etree = fuzz_rng_labels_engines
-    suite: Final = etree.fromstring(
+    suite: Final[lxml.etree._Element] = etree.fromstring(
         f'<testSuite xmlns:e2="urn:second"><testCase><correct><element xmlns="{_RNG}" name="root">'
         '<value type="QName" datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes">'
         "e2:xyzzy</value></element></correct><valid><root>e2:xyzzy</root></valid>"
@@ -4730,7 +4787,7 @@ def test_rng_labels_preserves_prefix_used_only_in_instance_text(
 @pytest.mark.oracle
 def test_rng_labels_hash_tracks_resources(fuzz_rng_labels_engines: tuple[ModuleType, ModuleType]) -> None:
     rng_labels, etree = fuzz_rng_labels_engines
-    rows: Final = [
+    rows: Final[list[RngVerdict]] = [
         next(
             iter(
                 rng_labels.compare(
@@ -4749,7 +4806,7 @@ def test_rng_labels_hash_tracks_resources(fuzz_rng_labels_engines: tuple[ModuleT
 @pytest.mark.oracle
 def test_rng_labels_nested_suites(fuzz_rng_labels_engines: tuple[ModuleType, ModuleType]) -> None:
     rng_labels, etree = fuzz_rng_labels_engines
-    suite: Final = etree.fromstring(
+    suite: Final[lxml.etree._Element] = etree.fromstring(
         f"<testSuite><documentation>ignored</documentation><testSuite><testCase><incorrect>"
         f'<grammar xmlns="{_RNG}"/></incorrect></testCase></testSuite></testSuite>'
     )

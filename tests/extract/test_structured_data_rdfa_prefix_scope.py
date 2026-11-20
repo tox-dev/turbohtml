@@ -78,7 +78,9 @@ def test_rdfa_prefix_of_nested_item_ends_with_it() -> None:
         '<span property="in:a">1</span></div>'
         '<span property="ex:b in:b">2</span></div>'
     )
-    child: Final = RdfaItem(vocab=None, type=[f"{_INNER}Child"], resource=None, properties={f"{_INNER}a": ["1"]})
+    child: Final[RdfaItem] = RdfaItem(
+        vocab=None, type=[f"{_INNER}Child"], resource=None, properties={f"{_INNER}a": ["1"]}
+    )
     assert parse(html).rdfa() == [_thing({f"{_INNER}child": [child], f"{_OUTER}b": ["2"], "in:b": ["2"]})]
 
 

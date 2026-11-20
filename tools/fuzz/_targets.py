@@ -72,9 +72,6 @@ _SCRIPT_DOUBLE_ESCAPE: Final[re.Pattern[str]] = re.compile(
     r"(?#script start tag)<script(?#tag name end)[\t\n\f />]",
     re.IGNORECASE | re.DOTALL,
 )
-# TH_MAX_TREE_DEPTH (src/turbohtml/_c/dom/tree.h): past 512 open elements a start tag is inserted but not pushed, so
-# further tags become siblings and reparsing the flattened output nests them differently
-_MAX_TREE_DEPTH: Final[int] = 512
 
 
 def main() -> int:
@@ -93,7 +90,10 @@ def main() -> int:
 
     regressions = _inputs(args.regression_dir)
     findings: list[str] = []
-    for name in (_ALLOC_TARGETS if args.mode == "alloc" else _TARGETS) if args.target == "all" else [args.target]:
+    # minify_html stays out because a failed text copy in its script and style minifiers crashes, and sanitize because
+    # sweeping its deep-nesting seed grows past 7 GiB
+    alloc_targets: tuple[str, ...] = ("phone", "parse", "serialize", "roundtrip", "url", "idna", "minify_css")
+    for name in (alloc_targets if args.mode == "alloc" else _TARGETS) if args.target == "all" else [args.target]:
         repro = args.repro_dir / name
         seeds = regressions + _inputs(args.corpus_dir / name)
         if args.mode == "alloc":
@@ -124,7 +124,7 @@ def _sweep(name: str, seeds: list[bytes], repro: Path, crash_dir: Path) -> list[
     # ``malloc-fail`` fixes show where such bugs hide: cleanup paths. A ``failure_pos`` of 0 only counts the seed's N
     # allocations; positions 1..N then fail one each. An ASan report aborts the process, and ``fuzz.py`` keeps the
     # framed input it died on.
-    inject: Final = _fuzz_inject_failure
+    inject: Final[Callable[[int], tuple[int, bool]]] = _fuzz_inject_failure
     func = _TARGETS[name]
     findings: list[str] = []
     swept = 0
@@ -284,9 +284,6 @@ _TARGETS: Final[dict[str, Callable[[bytes], None]]] = {
     "minify_css": _minify_css,
     "minify_html": _minify_html,
 }
-# minify_html stays out because a failed text copy in its script and style minifiers crashes, and sanitize because
-# sweeping its deep-nesting seed grows past 7 GiB
-_ALLOC_TARGETS: Final[tuple[str, ...]] = ("phone", "parse", "serialize", "roundtrip", "url", "idna", "minify_css")
 
 
 def _decode(data: bytes) -> str:
@@ -304,7 +301,10 @@ def _html_newline_normalization_only(once: str, twice: str) -> bool:
 
 def _past_depth_cap(root: turbohtml.Node) -> bool:
     # the root node plus 512 ancestors is the deepest placement the tree builder allows, reached only on a full stack
-    return any(sum(1 for _ in element.ancestors) > _MAX_TREE_DEPTH for element in root.iter_elements())
+    # TH_MAX_TREE_DEPTH (src/turbohtml/_c/dom/tree.h): past 512 open elements a start tag is inserted but not pushed, so
+    # further tags become siblings and reparsing the flattened output nests them differently
+    max_tree_depth: int = 512
+    return any(sum(1 for _ in element.ancestors) > max_tree_depth for element in root.iter_elements())
 
 
 def _finding(target: str, origin: str, kind: str, data: bytes, crash_dir: Path) -> str:

@@ -12,6 +12,8 @@ if TYPE_CHECKING:
     import random
     from collections.abc import Callable
 
+    from turbohtml import Document
+
 
 def parser_bytes_generate(rng: random.Random) -> str:
     # Keep generated prefixes inside the fixed byte fixtures' encoding domain.
@@ -51,8 +53,8 @@ def parser_bytes_check(
     if not separator or variant not in _FIXTURES or _PARSER_BYTES_CHECK_PATTERN.fullmatch(leaf) is None:
         raise UnsupportedParserCaseError(case)
     label, encoding, prefix, payload, text, framing = _FIXTURES[variant]
-    data: Final = prefix + f"<p>{leaf}:".encode(framing) + payload + "</p>".encode(framing)
-    expected: Final = (f"{leaf}:{text}", encoding)
+    data: Final[bytes] = prefix + f"<p>{leaf}:".encode(framing) + payload + "</p>".encode(framing)
+    expected: Final[tuple[str, str]] = (f"{leaf}:{text}", encoding)
     if (one_shot or _parse_bytes)(data, label) != expected:
         return "one-shot parser differs from fixed text or label"
     for width in (1, 2, 3, 4, 5, len(data)):
@@ -67,17 +69,17 @@ class UnsupportedParserCaseError(ValueError):
 
 
 def _parse_bytes(data: bytes, label: str) -> tuple[str, str | None]:
-    document: Final = parse(data, encoding=label)
+    document: Final[Document] = parse(data, encoding=label)
     return document.text, document.encoding
 
 
 def _stream_bytes(data: bytes, label: str, width: int) -> tuple[str, str | None]:
-    parser: Final = IncrementalParser(encoding=label)
+    parser: Final[IncrementalParser] = IncrementalParser(encoding=label)
     parser.feed(b"")
     for start in range(0, len(data), width):
         parser.feed(data[start : start + width])
         parser.feed(b"")
-    document: Final = parser.close()
+    document: Final[Document] = parser.close()
     return document.text, document.encoding
 
 

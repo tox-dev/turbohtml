@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Final
 
 import pytest
 
-from turbohtml import CData, Comment, Element, Html, Indent, Minify, Range, Text, parse
+from turbohtml import CData, Comment, Document, DocumentFragment, Element, Html, Indent, Minify, Range, Text, parse
 from turbohtml.clean import JSMinify
 
 if TYPE_CHECKING:
@@ -35,9 +35,9 @@ _INPUT_ENDED: Final[list[pytest.ParameterSet]] = [
 @pytest.mark.parametrize("markup", _INPUT_ENDED)
 def test_script_the_input_ended_inside_a_double_escape_is_closed(markup: str, write: Callable[[Node], str]) -> None:
     # left open, the script would end at the comment's or the style's </script> and free the img
-    output: Final = write(parse(markup))
+    output: Final[str] = write(parse(markup))
     assert "</script></script>" in output
-    reparsed: Final = parse(output)
+    reparsed: Final[Document] = parse(output)
     assert reparsed.select("img") == []
     assert reparsed.serialize() == parse(reparsed.serialize()).serialize()
 
@@ -45,18 +45,18 @@ def test_script_the_input_ended_inside_a_double_escape_is_closed(markup: str, wr
 @pytest.mark.parametrize("markup", _INPUT_ENDED)
 def test_to_source_closes_a_script_the_source_left_open_in_a_double_escape(markup: str) -> None:
     # to_source closes a script the source left open; one </script> alone would only end the double escape
-    doc: Final = parse(markup, source_locations=True)
-    output: Final = doc.to_source()
+    doc: Final[Document] = parse(markup, source_locations=True)
+    output: Final[str] = doc.to_source()
     assert "</script></script>" in output
     assert parse(output).select("img") == []
 
 
 def test_to_source_doubles_the_end_tag_the_source_wrote() -> None:
-    doc: Final = parse("<script>a</script><!--</script><img>-->", source_locations=True)
-    script: Final = doc.select_one("script")
+    doc: Final[Document] = parse("<script>a</script><!--</script><img>-->", source_locations=True)
+    script: Final[Element | None] = doc.select_one("script")
     assert script is not None
     script.text = "<!--<script>"
-    output: Final = doc.to_source()
+    output: Final[str] = doc.to_source()
     assert "<script><!--<script></script></script>" in output
     assert parse(output).select("img") == []
 
@@ -82,7 +82,7 @@ def test_to_source_doubles_the_end_tag_the_source_wrote() -> None:
 )
 def test_script_text_ending_double_escaped_takes_two_end_tags(text: str, write: Callable[[Node], str]) -> None:
     # a raw-text CR is written as LF, which a re-parse reads back as the same whitespace
-    written: Final = text.replace("\r", "\n")
+    written: Final[str] = text.replace("\r", "\n")
     assert write(Element("script", children=[Text(text)])) == f"<script>{written}</script></script>"
 
 
@@ -123,7 +123,7 @@ def test_script_text_not_ending_double_escaped_takes_one_end_tag(text: str, writ
 def test_script_written_again_gets_the_same_end_tags(
     children: list[Node], expected: str, write: Callable[[Node], str]
 ) -> None:
-    script: Final = Element("script", children=children)
+    script: Final[Element] = Element("script", children=children)
     assert [write(script), write(script)] == [expected, expected]
 
 
@@ -145,13 +145,13 @@ def _set_data(text: Text) -> None:
 
 
 def _delete_range(text: Text) -> None:
-    edit: Final = Range(text, 8)
+    edit: Final[Range] = Range(text, 8)
     edit.set_end(text, 9)
     edit.delete_contents()
 
 
 def _append_and_normalize(text: Text) -> None:
-    script: Final = text.parent
+    script: Final[Element | Document | DocumentFragment | None] = text.parent
     assert isinstance(script, Element)
     script.append(Text("<script>"))
     script.normalize()
@@ -170,15 +170,15 @@ def test_script_text_edited_after_a_write_is_read_again(
     before: str, edit: Callable[[Text], None], write: Callable[[Node], str]
 ) -> None:
     # the first write remembers that the text needs one end tag; the edit makes it need two
-    text: Final = Text(before)
-    script: Final = Element("script", children=[text])
+    text: Final[Text] = Text(before)
+    script: Final[Element] = Element("script", children=[text])
     assert write(script) == f"<script>{before}</script>"
     edit(text)
     assert write(script) == "<script><!--<script></script></script>"
 
 
 def test_script_text_split_across_nodes_is_read_as_one() -> None:
-    script: Final = Element("script", children=[Text("<!"), Text("--<scr"), Text("ipt>")])
+    script: Final[Element] = Element("script", children=[Text("<!"), Text("--<scr"), Text("ipt>")])
     assert script.serialize() == "<script><!--<script></script></script>"
     assert script.to_source() == "<script><!--<script></script></script>"
 
@@ -199,14 +199,14 @@ def test_other_raw_text_has_no_double_escape(tag: str, write: Callable[[Node], s
     ],
 )
 def test_minified_script_is_judged_on_the_text_written(source: str, expected: str) -> None:
-    script: Final = Element("script", children=[Text(source)])
+    script: Final[Element] = Element("script", children=[Text(source)])
     assert script.serialize(Html(layout=Minify(minify_js=JSMinify()))) == expected
 
 
 @pytest.mark.parametrize("write", _WRITERS)
 def test_script_with_a_markup_child_in_a_double_escape_is_closed(write: Callable[[Node], str]) -> None:
-    script: Final = Element("script", children=[Text("<!--<script>"), Element("b")])
-    reparsed: Final = parse(write(Element("div", children=[script, Comment("</script><img>")])))
+    script: Final[Element] = Element("script", children=[Text("<!--<script>"), Element("b")])
+    reparsed: Final[Document] = parse(write(Element("div", children=[script, Comment("</script><img>")])))
     assert reparsed.select("img") == []
 
 
@@ -215,7 +215,7 @@ def test_script_with_a_markup_child_in_a_double_escape_is_closed(write: Callable
 def test_script_data_after_a_markup_child_is_read_with_it(
     data: Callable[[str], Node], write: Callable[[Node], str]
 ) -> None:
-    script: Final = Element("script", children=[Element("b"), data("<!--<script>")])
+    script: Final[Element] = Element("script", children=[Element("b"), data("<!--<script>")])
     assert write(script) == "<script><b></b><!--<script></script></script>"
 
 
@@ -228,8 +228,8 @@ def test_script_data_after_a_markup_child_is_read_with_it(
     ],
 )
 def test_script_nested_in_a_raw_text_element_adds_no_end_tag(nested: Element, write: Callable[[Node], str]) -> None:
-    outer: Final = Element("script", children=[Element("b", children=[nested]), Text("x<img src=x>")])
-    output: Final = write(outer)
+    outer: Final[Element] = Element("script", children=[Element("b", children=[nested]), Text("x<img src=x>")])
+    output: Final[str] = write(outer)
     assert "</script></script>" not in output
     assert parse(output).select("img") == []
 
@@ -250,8 +250,8 @@ def test_script_nested_in_a_raw_text_element_adds_no_end_tag(nested: Element, wr
     ],
 )
 def test_script_after_a_parsed_plaintext_gets_no_end_tag(script: Element, expected: str) -> None:
-    doc: Final = parse("<plaintext>a", source_locations=True)
-    body: Final = doc.select_one("body")
+    doc: Final[Document] = parse("<plaintext>a", source_locations=True)
+    body: Final[Element | None] = doc.select_one("body")
     assert body is not None
     body.append(script)
     assert doc.to_source() == expected

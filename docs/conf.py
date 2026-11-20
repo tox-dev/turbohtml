@@ -10,8 +10,8 @@ import os
 import re
 import sys
 from functools import reduce
-from html import escape as _html_escape
-from importlib.metadata import version as _version
+from html import escape
+from importlib import metadata
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Final, NamedTuple, TypedDict
 from urllib.parse import urlsplit
@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent / "_ext"))
 project: Final[str] = "turbohtml"
 author: Final[str] = "Bernát Gábor"
 project_copyright: Final[str] = "2026, Bernát Gábor and contributors"
-release = _version("turbohtml")
+release = metadata.version("turbohtml")
 version = ".".join(release.split(".")[:2])
 
 # The how-to and migration guides are split across one page per topic/library, and each page is its own doctest
@@ -383,7 +383,7 @@ def _add_page_description(
         if not (text := " ".join(paragraph.astext().split())):
             continue
         summary = text if len(text) <= description_limit else f"{text[: description_limit - 1].rstrip()}…"
-        tag = f'<meta name="description" content="{_html_escape(summary, quote=True)}" />'
+        tag = f'<meta name="description" content="{escape(summary, quote=True)}" />'
         context["metatags"] = f"{context.get('metatags', '')}\n    {tag}"
         return
 

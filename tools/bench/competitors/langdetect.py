@@ -8,6 +8,7 @@ from langdetect import DetectorFactory
 from langdetect.detector_factory import PROFILES_DIRECTORY
 
 if TYPE_CHECKING:
+    from langdetect.detector import Detector
     from langdetect.language import Language
 
     from bench.operations import Timed
@@ -20,7 +21,7 @@ _FACTORY.set_seed(0)
 
 
 def _detect_language(text: str) -> list[Language]:
-    detector: Final = _FACTORY.create()
+    detector: Final[Detector] = _FACTORY.create()
     detector.set_max_text_length(len(text))
     detector.append(text)
     return detector.get_probabilities()

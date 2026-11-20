@@ -42,7 +42,7 @@ _CATEGORIES: Final[tuple[str, ...]] = (
 
 def main() -> None:
     # Write Unicode property tables for the XSD regex matcher.
-    unicode_version: Final = "16.0.0"
+    unicode_version: Final[str] = "16.0.0"
     if unicodedata.unidata_version != unicode_version:
         msg = f"Unicode {unicode_version} is required; found {unicodedata.unidata_version}"
         raise RuntimeError(msg)
@@ -92,7 +92,7 @@ def _append_page(bits: list[int], pages: list[int], mixed: list[list[int]]) -> N
 
 def _write_table(kind: str, description: str, pages: list[int], mixed: list[list[int]], unicode_version: str) -> None:
     if len(mixed) > 254:
-        message: Final = "more than 254 mixed pages need a wider page index"
+        message: Final[str] = "more than 254 mixed pages need a wider page index"
         raise RuntimeError(message)
 
     page_rows = [

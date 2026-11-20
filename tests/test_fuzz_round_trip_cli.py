@@ -30,8 +30,12 @@ from fuzz.round_trip_oracles import ORACLES, Floor, Oracle, OutOfScopeError, mai
 if TYPE_CHECKING:
     import random
     from collections.abc import Callable
+    from typing import Protocol
 
     from pytest_mock import MockerFixture, MockType
+
+    class _RunCommand(Protocol):
+        def __call__(self, command: list[str], **kwargs: object) -> CompletedProcess[str]: ...
 
 
 def test_inprocess_worker_imports_without_fuzz_hooks() -> None:
@@ -233,14 +237,20 @@ if TYPE_CHECKING:
 def test_fuzz_cli_builds_every_standalone_harness_under_the_sanitizer(
     mocker: MockerFixture, tmp_path: Path, arguments: list[str], flags: list[str]
 ) -> None:
-    run: Final = mocker.patch(
+    run: Final[MockType] = mocker.patch(
         "fuzz.fuzz.subprocess.run",
         autospec=True,
         return_value=CompletedProcess([], returncode=0, stdout=str(tmp_path / "runtime")),
     )
-    status: Final = fuzz_sanitizer_cli_main(["--mode", "smoke", *arguments, "--crash-dir", str(tmp_path / "crashes")])
-    commands: Final = [call.args[0] for call in run.call_args_list]
-    compiled: Final = [command for command in commands if "-o" in command]
+    status: Final[int] = fuzz_sanitizer_cli_main([
+        "--mode",
+        "smoke",
+        *arguments,
+        "--crash-dir",
+        str(tmp_path / "crashes"),
+    ])
+    commands: Final[list[list[str]]] = [call.args[0] for call in run.call_args_list]
+    compiled: Final[list[list[str]]] = [command for command in commands if "-o" in command]
     assert (
         status,
         [command[1] for command in compiled],
@@ -280,8 +290,8 @@ def build_log(docker: MockType) -> Callable[[str, int], None]:
 
 def test_cflite_runs_build_then_mode_on_standalone_filestore(docker: MockType, tmp_path: Path) -> None:
     assert fuzz_cflite_main(_arguments(tmp_path)) == 0
-    workspace: Final = tmp_path / "workspace"
-    commands: Final = [call.args[0] for call in docker.call_args_list]
+    workspace: Final[Path] = tmp_path / "workspace"
+    commands: Final[list[list[str]]] = [call.args[0] for call in docker.call_args_list]
     assert [(command[-1], _environment(command)) for command in commands] == [
         (BUILD_IMAGE, _expected(tmp_path)),
         (RUN_IMAGE, {**_expected(tmp_path), "MODE": "batch", "FUZZ_SECONDS": "3600", "OUTPUT_SARIF": "True"}),
@@ -336,7 +346,7 @@ def _expected(tmp_path: Path) -> dict[str, str]:
 
 
 def test_cflite_replays_build_seeds_with_stored_corpus(docker: MockType, tmp_path: Path) -> None:
-    build: Final = tmp_path / "workspace" / "build-out"
+    build: Final[Path] = tmp_path / "workspace" / "build-out"
 
     def run(*_: object, **__: object) -> CompletedProcess[str]:
         if docker.call_count == 1:
@@ -354,7 +364,7 @@ def test_cflite_replays_build_seeds_with_stored_corpus(docker: MockType, tmp_pat
 
 def test_cflite_writes_logs_not_console(docker: MockType, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     fuzz_cflite_main(_arguments(tmp_path))
-    logs: Final = [call.kwargs["stdout"].name for call in docker.call_args_list]
+    logs: Final[list[str]] = [call.kwargs["stdout"].name for call in docker.call_args_list]
     assert (logs, json.loads(capsys.readouterr().out)) == (
         [
             str(tmp_path / "workspace" / "logs" / "build-address.log"),
@@ -437,7 +447,7 @@ def test_cflite_build_success_keeps_log_private(
 
 
 def test_cflite_reports_crashes_by_hash(docker: MockType, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    artifacts: Final = tmp_path / "workspace" / "out" / "artifacts"
+    artifacts: Final[Path] = tmp_path / "workspace" / "out" / "artifacts"
     for target, name, data in (
         ("fuzz_html_document", "crash-8c1ff5bd5bfa04b3c5dd2b9b5bd52bc1a0ea0d1a", b"<secret>"),
         ("fuzz_xml_transform", "crash-2b0f8d36f2e8f9d2e86c4b8a2e43f4e5c0a1b7d9", b"<x/>"),
@@ -447,8 +457,8 @@ def test_cflite_reports_crashes_by_hash(docker: MockType, tmp_path: Path, capsys
         crash.write_bytes(data)
         crash.with_name(f"{crash.name}.summary").write_text("==1==ERROR: AddressSanitizer: heap-buffer-overflow\n")
     docker.side_effect = [CompletedProcess([], returncode=0), CompletedProcess([], returncode=1)]
-    status: Final = fuzz_cflite_main(_arguments(tmp_path))
-    output: Final = capsys.readouterr().out
+    status: Final[int] = fuzz_cflite_main(_arguments(tmp_path))
+    output: Final[str] = capsys.readouterr().out
     assert (status, json.loads(output)["crashes"], "secret" in output) == (
         1,
         [
@@ -462,7 +472,7 @@ def test_cflite_reports_crashes_by_hash(docker: MockType, tmp_path: Path, capsys
 @pytest.fixture
 def per_target(docker: MockType, mocker: MockerFixture, tmp_path: Path) -> MockType:
     # Build two Atheris targets, a shared runtime and a non-target, with a larger stored corpus for the second.
-    workspace: Final = tmp_path / "workspace"
+    workspace: Final[Path] = tmp_path / "workspace"
     mocker.patch("fuzz.cflite.monotonic", autospec=True, return_value=0.0)
     for target, inputs in (("fuzz_dom_query", 1), ("fuzz_html_document", 3)):
         for index in range(inputs):
@@ -504,9 +514,9 @@ def per_target(docker: MockType, mocker: MockerFixture, tmp_path: Path) -> MockT
 def test_cflite_runs_each_target_alone_largest_corpus_first(
     per_target: MockType, tmp_path: Path, mode: str, ordered: tuple[str, str]
 ) -> None:
-    workspace: Final = tmp_path / "workspace"
+    workspace: Final[Path] = tmp_path / "workspace"
     assert fuzz_cflite_main(_target_arguments(tmp_path, mode)) == 0
-    runs: Final = [call.args[0] for call in per_target.call_args_list[1:]]
+    runs: Final[list[list[str]]] = [call.args[0] for call in per_target.call_args_list[1:]]
     assert [
         (_environment(command), command[-3:-1], call.kwargs["timeout"])
         for command, call in zip(runs, per_target.call_args_list[1:], strict=True)
@@ -528,7 +538,7 @@ def test_cflite_runs_each_target_alone_largest_corpus_first(
 
 
 def _target_arguments(tmp_path: Path, mode: str = "prune") -> list[str]:
-    arguments: Final = _arguments(tmp_path, "--jobs", "1")
+    arguments: Final[list[str]] = _arguments(tmp_path, "--jobs", "1")
     arguments[1] = mode
     return arguments
 
@@ -536,13 +546,13 @@ def _target_arguments(tmp_path: Path, mode: str = "prune") -> list[str]:
 @pytest.mark.usefixtures("per_target")
 def test_cflite_per_target_build_holds_only_its_target(tmp_path: Path) -> None:
     fuzz_cflite_main(_target_arguments(tmp_path))
-    workspace: Final = tmp_path / "workspace"
-    target: Final = workspace / "targets" / "fuzz_dom_query"
-    links: Final = {
+    workspace: Final[Path] = tmp_path / "workspace"
+    target: Final[Path] = workspace / "targets" / "fuzz_dom_query"
+    links: Final[dict[str, tuple[bool, bool]]] = {
         path.name: (path.is_symlink(), path.resolve() == workspace / "build-out" / path.name)
         for path in (target / "build-out").iterdir()
     }
-    storage: Final = {path.name: path.resolve() for path in (target / "storage").iterdir()}
+    storage: Final[dict[str, Path]] = {path.name: path.resolve() for path in (target / "storage").iterdir()}
     assert (links, storage) == (
         {
             "fuzz_dom_query": (False, False),
@@ -565,7 +575,7 @@ def test_cflite_per_target_rerun_replaces_links(tmp_path: Path) -> None:
 @pytest.mark.usefixtures("per_target")
 def test_cflite_collects_coverage_data_for_reachability(tmp_path: Path) -> None:
     fuzz_cflite_main(_target_arguments(tmp_path, "coverage"))
-    collected: Final = tmp_path / "workspace" / "coverage-data"
+    collected: Final[Path] = tmp_path / "workspace" / "coverage-data"
     assert {path.name: path.read_bytes() for path in collected.iterdir()} == {
         "coverage_d_fuzz_dom_query": b"fuzz_dom_query",
         "coverage_d_fuzz_html_document": b"fuzz_html_document",
@@ -575,7 +585,7 @@ def test_cflite_collects_coverage_data_for_reachability(tmp_path: Path) -> None:
 @pytest.mark.usefixtures("per_target")
 def test_cflite_coverage_uses_build_seeds_without_changing_stored_corpus(tmp_path: Path) -> None:
     fuzz_cflite_main(_target_arguments(tmp_path, "coverage"))
-    workspace: Final = tmp_path / "workspace"
+    workspace: Final[Path] = tmp_path / "workspace"
     assert (
         (workspace / "targets" / "fuzz_dom_query" / "storage" / "corpus").resolve(),
         (workspace / "coverage-corpus" / "fuzz_dom_query" / "tools_fuzz_corpus_css_translate_simple.css").read_bytes(),
@@ -584,10 +594,10 @@ def test_cflite_coverage_uses_build_seeds_without_changing_stored_corpus(tmp_pat
 
 
 def test_cflite_coverage_replays_reachability_seeds(per_target: MockType, tmp_path: Path) -> None:
-    build: Final = per_target.side_effect
+    build: Final[_RunCommand] = per_target.side_effect
 
     def run(command: list[str], **kwargs: object) -> CompletedProcess[str]:
-        result: Final = build(command, **kwargs)
+        result: Final[CompletedProcess[str]] = build(command, **kwargs)
         if command[-1] == BUILD_IMAGE:
             with ZipFile(tmp_path / "workspace" / "build-out" / "fuzz_dom_query_seed_corpus.zip", "a") as archive:
                 archive.writestr("tools_fuzz_corpus_xml_schema_mismatch.xml", b"xx")
@@ -605,7 +615,7 @@ def test_cflite_coverage_replays_reachability_seeds(per_target: MockType, tmp_pa
 def test_cflite_stops_target_at_deadline(
     per_target: MockType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    build: Final = per_target.side_effect
+    build: Final[_RunCommand] = per_target.side_effect
 
     def run(command: list[str], **kwargs: object) -> CompletedProcess[str]:
         if command[-1] == RUN_IMAGE:
@@ -614,8 +624,10 @@ def test_cflite_stops_target_at_deadline(
 
     per_target.side_effect = run
     assert fuzz_cflite_main(_target_arguments(tmp_path)) == 124
-    kills: Final = [call.args[0] for call in per_target.call_args_list if call.args[0][:2] == ["docker", "kill"]]
-    names: Final = [call.args[0][-2] for call in per_target.call_args_list if call.args[0][-1] == RUN_IMAGE]
+    kills: Final[list[list[str]]] = [
+        call.args[0] for call in per_target.call_args_list if call.args[0][:2] == ["docker", "kill"]
+    ]
+    names: Final[list[str]] = [call.args[0][-2] for call in per_target.call_args_list if call.args[0][-1] == RUN_IMAGE]
     assert (kills, json.loads(capsys.readouterr().out)["status"]) == (
         [["docker", "kill", name] for name in names],
         {"build": 0, "prune fuzz_dom_query": 124, "prune fuzz_html_document": 124},
@@ -623,14 +635,14 @@ def test_cflite_stops_target_at_deadline(
 
 
 def test_cflite_skips_targets_past_deadline(per_target: MockType, tmp_path: Path) -> None:
-    arguments: Final = _target_arguments(tmp_path)
+    arguments: Final[list[str]] = _target_arguments(tmp_path)
     arguments[5] = "120"
     assert (fuzz_cflite_main(arguments), per_target.call_count) == (124, 1)
 
 
 @pytest.mark.usefixtures("per_target")
 def test_cflite_reports_per_target_crashes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    crash: Final = tmp_path / "workspace" / "targets" / "fuzz_dom_query" / "out" / "artifacts" / "fuzz_dom_query"
+    crash: Final[Path] = tmp_path / "workspace" / "targets" / "fuzz_dom_query" / "out" / "artifacts" / "fuzz_dom_query"
     crash.mkdir(parents=True)
     (crash / "crash-1").write_bytes(b"<x>")
     fuzz_cflite_main(_target_arguments(tmp_path))
@@ -659,7 +671,7 @@ def test_oss_fuzz_fuzzer_name(target: str, fuzzer: str) -> None:
 
 
 def test_oss_fuzz_harness_runs_its_target(tmp_path: Path) -> None:
-    script: Final = next(path for path in write_harnesses(tmp_path) if path.name == "fuzz_xml_transform.py")
+    script: Final[Path] = next(path for path in write_harnesses(tmp_path) if path.name == "fuzz_xml_transform.py")
     assert script.read_text(encoding="utf-8") == (
         "import sys\n\nfrom fuzz.atheris_driver import fuzz\n"
         "from fuzz.atheris_targets import MODULES, public_targets\n\n"
@@ -676,7 +688,7 @@ def test_oss_fuzz_cli_prints_one_script_per_target(tmp_path: Path, capsys: pytes
 
 def test_oss_fuzz_cli_seeds_have_no_failure_header(tmp_path: Path) -> None:
     assert fuzz_oss_fuzz_main(["seeds", "--output", str(tmp_path)]) == 0
-    source: Final = Path(__file__).resolve().parents[1] / "tools" / "fuzz" / "corpus" / "minify_css" / "basic.css"
+    source: Final[Path] = Path(__file__).resolve().parents[1] / "tools" / "fuzz" / "corpus" / "minify_css" / "basic.css"
     assert (tmp_path / "tools_fuzz_corpus_minify_css_basic.css").read_bytes() == SEED_HEADER + source.read_bytes()
 
 
@@ -704,12 +716,14 @@ def test_reachability_target_functions_follow_registry(target: str, names: list[
 
 
 def test_reachability_skips_def_line() -> None:
-    callback: Final = target_functions(_TARGETS["html-document"])[0]
+    callback = target_functions(_TARGETS["html-document"])[0]
     assert inspect.getsourcelines(_TARGETS["html-document"].callback)[1] not in callback.lines
 
 
 def test_reachability_uses_public_function_source() -> None:
-    paths: Final = {function.name: function.path for function in target_functions(_TARGETS["content-extract"])}
+    paths: Final[dict[str, str]] = {
+        function.name: function.path for function in target_functions(_TARGETS["content-extract"])
+    }
     assert {name: paths[name] for name in ("boilerplate", "feed", "microdata", "opengraph")} == {
         "boilerplate": "turbohtml/extract/__init__.py",
         "feed": "turbohtml/extract/__init__.py",
@@ -731,13 +745,13 @@ def test_reachability_ignores_protocol_stubs() -> None:
     ],
 )
 def test_reachability_unreached_names_zero_coverage(tmp_path: Path, missing: set[str], expected: list[str]) -> None:
-    target: Final = _TARGETS["xml-transform"]
+    target: Final[Target] = _TARGETS["xml-transform"]
     _record(tmp_path, target, missing)
     assert unreached(target, tmp_path) == expected
 
 
 def _record(directory: Path, target: Target, missing: set[str]) -> None:
-    data: Final = CoverageData(basename=str(directory / f"coverage_d_{fuzzer_name(target.name)}"))
+    data: Final[CoverageData] = CoverageData(basename=str(directory / f"coverage_d_{fuzzer_name(target.name)}"))
     executed: dict[str, set[int]] = {}
     for function in target_functions(target):
         if function.name not in missing:
@@ -747,8 +761,8 @@ def _record(directory: Path, target: Target, missing: set[str]) -> None:
 
 
 def test_reachability_matches_path_suffix_only(tmp_path: Path) -> None:
-    target: Final = _TARGETS["xml-transform"]
-    data: Final = CoverageData(basename=str(tmp_path / f"coverage_d_{fuzzer_name(target.name)}"))
+    target: Final[Target] = _TARGETS["xml-transform"]
+    data: Final[CoverageData] = CoverageData(basename=str(tmp_path / f"coverage_d_{fuzzer_name(target.name)}"))
     data.add_lines({f"/medio/other_{function.path}": sorted(function.lines) for function in target_functions(target)})
     data.write()
     assert unreached(target, tmp_path) == ["_transform", "Transform", "strparam", "transform"]
@@ -843,7 +857,7 @@ def test_fuzz_cli_prepares_url_seeds(
 ) -> None:
     mode, prepared, selection, sparse, module = scenario
     for relative in prepared:
-        seed: Final = tmp_path / "tools/fuzz-data/wpt" / relative
+        seed: Final[Path] = tmp_path / "tools/fuzz-data/wpt" / relative
         seed.parent.mkdir(parents=True, exist_ok=True)
         seed.write_text("[]", encoding="utf-8")
     mocker.patch("fuzz.fuzz._ROOT", tmp_path)
@@ -867,7 +881,7 @@ def test_fuzz_cli_prepares_url_seeds(
         return_value=CompletedProcess([], returncode=2, stdout=str(tmp_path / "runtime")),
     )
     status = fuzz_url_cli_main()
-    commands = [call.args[0] for call in run.call_args_list]
+    commands: Final[list[list[str]]] = [call.args[0] for call in run.call_args_list]
     child = commands[-1]
     assert (status, [command for command in commands if "sparse-checkout" in command], child[1:3], child[7:]) == (
         2,

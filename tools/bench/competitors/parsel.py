@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Final, Protocol
 from urllib.parse import urljoin
 
 from cssselect import HTMLTranslator
-from lxml import etree as _lxml_etree
+from lxml import etree
 from parsel import Selector
 
 from bench.link_attributes import element_links
@@ -21,7 +21,6 @@ if TYPE_CHECKING:
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("parsel>=1.11", "cssselect>=1.2")
 
-_LINKS_BASE: Final[str] = "https://example.com/base/"  # the base turbohtml resolves relative hrefs against
 _TRANSLATOR: Final[HTMLTranslator] = HTMLTranslator()
 
 
@@ -93,7 +92,7 @@ def link_urls(text: str) -> list[str]:
     # Collect every link-bearing attribute and <style> url() with parsel's lxml root, the set turbohtml's links() reads.
     return [
         link
-        for element in _parsed(text).root.iter(_lxml_etree.Element)
+        for element in _parsed(text).root.iter(etree.Element)
         for link in element_links(element.tag, element.attrib.items(), element.text if element.tag == "style" else None)
     ]
 
@@ -105,9 +104,11 @@ def links_extract(text: str) -> None:
 def links_filter(text: str) -> None:
     # Collect the cleaned, absolutized, deduplicated page links, the work turbohtml's extract_links does.
     seen: dict[str, None] = {}
+    # the base turbohtml resolves relative hrefs against
+    links_base: str = "https://example.com/base/"
     for href in Selector(text=text).css("a::attr(href)").getall():
         if href:
-            seen[urljoin(_LINKS_BASE, href)] = None
+            seen[urljoin(links_base, href)] = None
     _ = list(seen)
 
 
@@ -147,28 +148,28 @@ def translate(case: tuple[str, int]) -> None:
 class _ExtensionContext(Protocol): ...
 
 
-def _count_ext(_context: _ExtensionContext, nodes: list[_lxml_etree._Element]) -> float:
+def _count_ext(_context: _ExtensionContext, nodes: list[etree._Element]) -> float:
     # Count the node-set; a trivial extension registered for the engine.
     return float(len(nodes))
 
 
-def _first_two_ext(_context: _ExtensionContext, nodes: list[_lxml_etree._Element]) -> list[_lxml_etree._Element]:
+def _first_two_ext(_context: _ExtensionContext, nodes: list[etree._Element]) -> list[etree._Element]:
     # Return the first two nodes as a node-set; the cheapest non-trivial node-set return.
     return nodes[:2]
 
 
 _SVG_NS: Final[dict[str, str]] = {"svg": "http://www.w3.org/2000/svg"}
-_COUNT_EXTENSIONS: Final[dict[tuple[None, str], Callable[[_ExtensionContext, list[_lxml_etree._Element]], float]]] = {
+_COUNT_EXTENSIONS: Final[dict[tuple[None, str], Callable[[_ExtensionContext, list[etree._Element]], float]]] = {
     (None, "ext_count"): _count_ext
 }
 _NODESET_EXTENSIONS: Final[
-    dict[tuple[None, str], Callable[[_ExtensionContext, list[_lxml_etree._Element]], list[_lxml_etree._Element]]]
+    dict[tuple[None, str], Callable[[_ExtensionContext, list[etree._Element]], list[etree._Element]]]
 ] = {(None, "ext_first_two"): _first_two_ext}
-_PRECOMPILED: Final[_lxml_etree.XPath] = _lxml_etree.XPath("//a[@href]")
+_PRECOMPILED: Final[etree.XPath] = etree.XPath("//a[@href]")
 
 
 @functools.cache
-def _div_rows(text: str) -> list[_lxml_etree._Element]:
+def _div_rows(text: str) -> list[etree._Element]:
     # Return the document's <div> lxml elements, cached so the node-set variable case times only the reuse.
     return [selector.root for selector in _parsed(text).xpath("//div")]
 

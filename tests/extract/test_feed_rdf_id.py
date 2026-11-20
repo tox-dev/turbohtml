@@ -32,7 +32,7 @@ from turbohtml.extract import feed
     ],
 )
 def test_feed_rdf_item_id_resolves_about(root_base: str, item_base: str, about: str, expected: str) -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" '
         f'xmlns="http://purl.org/rss/1.0/"{root_base}>'
         f'<item{item_base} rdf:about="{about}"><title>Item</title></item></rdf:RDF>'
@@ -43,7 +43,7 @@ def test_feed_rdf_item_id_resolves_about(root_base: str, item_base: str, about: 
 
 
 def test_feed_rdf_item_id_uses_explicit_id() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" '
         'xmlns="http://purl.org/rss/1.0/" xml:base="https://example.org/base/">'
         '<item rdf:about="item"><id>explicit-id</id></item></rdf:RDF>'
@@ -55,7 +55,7 @@ def test_feed_rdf_item_id_uses_explicit_id() -> None:
 
 @pytest.mark.parametrize("identifier", ["guid", "id"])
 def test_feed_rdf_sequence_id_uses_explicit_element(identifier: str) -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" '
         'xmlns="http://purl.org/rss/1.0/" xml:base="https://example.org/base/">'
         '<channel><items><rdf:Seq><rdf:li rdf:resource="item"/></rdf:Seq></items></channel>'

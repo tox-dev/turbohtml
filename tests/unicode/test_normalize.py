@@ -58,10 +58,6 @@ _VECTORS: Final[tuple[tuple[str, str, str, str, str], ...]] = (
     ("\u03d3", "\u03d3", "\u03d2\u0301", "\u038e", "\u03a5\u0301"),
 )
 
-# Combining sequences whose exact output shifts across Unicode versions but whose invariants do not, so they validate
-# the engine's reordering, composition, and blocking on every interpreter. The empty prefix yields mark-leading
-# sequences, so a lower-class mark can bubble to the front during reordering.
-_STARTERS: Final[tuple[str, ...]] = ("", "a", "e", "\u00c5", "\u1100", "\uac00", "\u2126", "\ufb01", "o")
 _MARKS: Final[tuple[str, ...]] = (
     "\u0301",
     "\u0316",
@@ -115,7 +111,9 @@ def test_compose_equals_composing_the_decomposition_over_the_whole_range(
 
 @pytest.mark.parametrize("form", _FORMS)
 def test_two_mark_sequences_hold_the_invariants(form: NormalizationForm) -> None:
-    corpus = [start + first + second for start in _STARTERS for first, second in product(_MARKS, repeat=2)]
+    # Normalized output can vary by Unicode version. An empty starter lets a lower-class mark reorder to the front.
+    starters: tuple[str, ...] = ("", "a", "e", "\u00c5", "\u1100", "\uac00", "\u2126", "\ufb01", "o")
+    corpus = [start + first + second for start in starters for first, second in product(_MARKS, repeat=2)]
     unstable = [text for text in corpus if (once := normalize(form, text)) != normalize(form, once)]
     inconsistent = [text for text in corpus if is_normalized(form, text) is not (normalize(form, text) == text)]
     assert (unstable, inconsistent) == ([], [])

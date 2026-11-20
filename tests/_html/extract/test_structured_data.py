@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from turbohtml._html import microdata_as_dict as _microdata_as_dict
+from turbohtml._html import microdata_as_dict
 
 
 class _WrongProperties:
@@ -20,4 +20,4 @@ class _WrongProperties:
 )
 def test_the_binding_rejects_what_is_not_an_item(value: str | int | _WrongProperties | None) -> None:
     with pytest.raises(TypeError, match="expected a MicrodataItem"):
-        _microdata_as_dict(value)  # ty: ignore[invalid-argument-type]  # tests the C argument guard
+        microdata_as_dict(value)  # ty: ignore[invalid-argument-type]  # tests the C argument guard

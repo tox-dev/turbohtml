@@ -12,9 +12,7 @@ from typing import NamedTuple
 
 from ._native import (
     Element,
-)
-from ._native import (
-    register_links as _register_links,
+    register_links,
 )
 
 
@@ -36,7 +34,7 @@ class Link(NamedTuple):
     """the link as written in the source, before any resolution; a CSS target has its escapes decoded."""
 
 
-_register_links(Link)
+register_links(Link)
 
 
 __all__ = [

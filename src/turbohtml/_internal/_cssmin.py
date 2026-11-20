@@ -22,15 +22,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ._native import (
-    minify_css as _minify_css,
-)
-from ._native import (
-    minify_css_inline as _minify_css_inline,
-)
-from ._native import (
-    register_css_minify as _register_css_minify,
-)
+from ._native import minify_css as native_minify_css
+from ._native import minify_css_inline as native_minify_css_inline
+from ._native import register_css_minify
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +46,7 @@ class CSSMinify:
 
 # Hand the type to the serializer so Minify(minify_css=...) reaches it with a module-state pointer
 # load (speed over a per-call import), not a global; mirrors the other type registers.
-_register_css_minify(CSSMinify)
+register_css_minify(CSSMinify)
 
 
 def minify_css(css: str, options: CSSMinify | None = None) -> str:
@@ -63,7 +57,7 @@ def minify_css(css: str, options: CSSMinify | None = None) -> str:
     :param options: the minification options; defaults to :class:`CSSMinify` (the most compatible output).
     :returns: the minified stylesheet.
     """
-    return _minify_css(css, (options or CSSMinify()).baseline or 0)
+    return native_minify_css(css, (options or CSSMinify()).baseline or 0)
 
 
 def minify_css_inline(css: str, options: CSSMinify | None = None) -> str:
@@ -77,7 +71,7 @@ def minify_css_inline(css: str, options: CSSMinify | None = None) -> str:
     :param options: the minification options; defaults to :class:`CSSMinify` (the most compatible output).
     :returns: the minified declaration list.
     """
-    return _minify_css_inline(css, (options or CSSMinify()).baseline or 0)
+    return native_minify_css_inline(css, (options or CSSMinify()).baseline or 0)
 
 
 __all__ = [

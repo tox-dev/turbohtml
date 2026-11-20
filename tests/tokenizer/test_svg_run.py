@@ -170,16 +170,20 @@ def _render(token: Token) -> str:
 
 @pytest.mark.parametrize(("document", "expected"), _RUN_CASES)
 def test_svg_run_streamed_one_character_at_a_time(document: str, expected: list[str]) -> None:
-    tokenizer: Final = Tokenizer()
-    tokens: Final = [token for char in document for token in tokenizer.feed(char)]
+    tokenizer: Final[Tokenizer] = Tokenizer()
+    tokens: Final[list[Token]] = [token for char in document for token in tokenizer.feed(char)]
     assert _rendered([*tokens, *tokenizer.close()]) == expected
 
 
 @pytest.mark.parametrize(("document", "expected"), _RUN_CASES)
 def test_svg_run_split_at_every_feed_boundary(document: str, expected: list[str]) -> None:
     for split in range(len(document) + 1):
-        tokenizer: Final = Tokenizer()
-        tokens: Final = [*tokenizer.feed(document[:split]), *tokenizer.feed(document[split:]), *tokenizer.close()]
+        tokenizer: Final[Tokenizer] = Tokenizer()
+        tokens: Final[list[Token]] = [
+            *tokenizer.feed(document[:split]),
+            *tokenizer.feed(document[split:]),
+            *tokenizer.close(),
+        ]
         assert _rendered(tokens) == expected, split
 
 
@@ -212,7 +216,7 @@ _BARE_CASES: Final[list[pytest.ParameterSet]] = [
 
 @pytest.mark.parametrize(("document", "expected"), _BARE_CASES)
 def test_svg_run_without_captured_attributes(document: str, expected: list[str]) -> None:
-    tokens: Final = list(tokenize(document, capture_attributes=False))
+    tokens: Final[list[Token]] = list(tokenize(document, capture_attributes=False))
     assert _rendered(tokens) == expected
     assert not any(token.attrs for token in tokens)
 
@@ -242,10 +246,10 @@ def test_svg_run_stops_at_the_depth_limit(document: str, expected: list[str]) ->
 
 
 def test_reset_inside_svg_run_returns_to_html_content() -> None:
-    tokenizer: Final = Tokenizer(capture_attributes=False)
-    before: Final = _rendered(tokenizer.feed("<svg><g><g>"))
+    tokenizer: Final[Tokenizer] = Tokenizer(capture_attributes=False)
+    before: Final[list[str]] = _rendered(tokenizer.feed("<svg><g><g>"))
     tokenizer.reset()
-    after: Final = _rendered([*tokenizer.feed("<style><i></style></g><svg></svg><b>"), *tokenizer.close()])
+    after: Final[list[str]] = _rendered([*tokenizer.feed("<style><i></style></g><svg></svg><b>"), *tokenizer.close()])
     assert before == ["<svg>", "<g>", "<g>"]
     assert after == [
         "<style>",

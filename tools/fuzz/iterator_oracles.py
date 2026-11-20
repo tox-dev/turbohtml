@@ -73,23 +73,32 @@ class UnsupportedIteratorCaseError(ValueError):
 
 
 def _run(program: str, name: str) -> str:
-    registers: Final = (Element(name), Element("a"), Element("b"), Element("c"), Element("d"))
-    root: Final = registers[0]
+    registers: Final[tuple[Element, Element, Element, Element, Element]] = (
+        Element(name),
+        Element("a"),
+        Element("b"),
+        Element("c"),
+        Element("d"),
+    )
+    root: Final[Element] = registers[0]
     registers[1].append(registers[2])
     for child in (registers[1], *registers[3:]):
         root.append(child)
-    iterator: Final = NodeIterator(root, what_to_show=NodeFilter.SHOW_ELEMENT)
+    iterator: Final[NodeIterator] = NodeIterator(root, what_to_show=NodeFilter.SHOW_ELEMENT)
     forward, back, removed_index = _PROGRAMS[program]
-    visited: Final = [_identity(iterator.next_node(), registers) for _ in range(forward)]
-    rewind: Final = [_identity(iterator.previous_node(), registers) for _ in range(back)]
-    removed: Final = registers[removed_index]
+    visited: Final[list[int | None]] = [_identity(iterator.next_node(), registers) for _ in range(forward)]
+    rewind: Final[list[int | None]] = [_identity(iterator.previous_node(), registers) for _ in range(back)]
+    removed: Final[Element] = registers[removed_index]
     removed.extract()
-    adjusted: Final = (_identity(iterator.reference_node, registers), iterator.pointer_before_reference_node)
-    next_node: Final = _identity(iterator.next_node(), registers)
-    previous_node: Final = _identity(iterator.previous_node(), registers)
-    detached: Final = (removed.tag, removed.parent is None)
+    adjusted: Final[tuple[int | None, bool]] = (
+        _identity(iterator.reference_node, registers),
+        iterator.pointer_before_reference_node,
+    )
+    next_node: Final[int | None] = _identity(iterator.next_node(), registers)
+    previous_node: Final[int | None] = _identity(iterator.previous_node(), registers)
+    detached: Final[tuple[str, bool]] = (removed.tag, removed.parent is None)
     root.append(removed)
-    remaining: Final = [_identity(node, registers) for node in iterator]
+    remaining: Final[list[int | None]] = [_identity(node, registers) for node in iterator]
     return json.dumps((visited, rewind, adjusted, next_node, previous_node, detached, remaining, root.html))
 
 
@@ -98,7 +107,7 @@ def _identity(node: Node | None, registers: tuple[Element, ...]) -> int | None:
 
 
 def _expected(program: str, name: str) -> str:
-    traces: Final = {
+    traces = {
         "after": ([0, 1, 2, 3], [], (2, False), 4, 4, ("c", True), [4, 3], "<a><b></b></a><d></d><c></c>"),
         "before": ([0, 1, 2, 3], [3], (4, True), 4, 4, ("c", True), [4, 3], "<a><b></b></a><d></d><c></c>"),
         "last": ([0, 1, 2, 3, 4], [4], (3, False), None, 3, ("d", True), [3, 4], "<a><b></b></a><c></c><d></d>"),

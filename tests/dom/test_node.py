@@ -29,7 +29,8 @@ from turbohtml import (
 from turbohtml.query import Query
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Iterator
+    from types import ModuleType
 
     from work_steps import WorkSteps
 
@@ -281,12 +282,12 @@ def test_hashable_by_identity() -> None:
     "released", [pytest.param(0, id="first"), pytest.param(1, id="middle"), pytest.param(2, id="last")]
 )
 def test_identity_survives_alias_release_and_adoption(released: int) -> None:
-    source: Final = Element("main", children=[Element("p")])
-    aliases: Final = [source.children[0] for _ in range(3)]
-    original_hash: Final = hash(aliases[0])
+    source: Final[Element] = Element("main", children=[Element("p")])
+    aliases: Final[list[Node]] = [source.children[0] for _ in range(3)]
+    original_hash: Final[int] = hash(aliases[0])
     del aliases[released]
     gc.collect()
-    destination: Final = Element("aside")
+    destination: Final[Element] = Element("aside")
     destination.append(aliases[0])
     assert (len({*aliases, destination.children[0]}), hash(aliases[1])) == (1, original_hash)
 
@@ -295,11 +296,11 @@ def test_identity_survives_alias_release_and_adoption(released: int) -> None:
     "count", [pytest.param(1, id="one"), pytest.param(12, id="inline"), pytest.param(32, id="expanded")]
 )
 def test_adoption_preserves_descendants_after_alias_release(count: int) -> None:
-    source: Final = Element("section")
+    source: Final[Element] = Element("section")
     source.set_inner_html("<span>text</span>" * count)
-    aliases: Final = source.select("span")
+    aliases: Final[list[Element]] = source.select("span")
     aliases.clear()
-    target: Final = Element("main")
+    target: Final[Element] = Element("main")
     target.append(source)
     assert target.inner_html == f"<section>{'<span>text</span>' * count}</section>"
 
@@ -308,12 +309,12 @@ def test_adoption_preserves_descendants_after_alias_release(count: int) -> None:
     "count", [pytest.param(1, id="one"), pytest.param(12, id="inline"), pytest.param(32, id="expanded")]
 )
 def test_adoption_keeps_retained_alias_attributes(count: int) -> None:
-    source: Final = Element("section")
+    source: Final[Element] = Element("section")
     source.set_inner_html("<span>text</span>" * count)
-    aliases: Final = source.select("span")
-    retained: Final = aliases[-1]
+    aliases: Final[list[Element]] = source.select("span")
+    retained: Final[Element] = aliases[-1]
     aliases.clear()
-    target: Final = Element("main")
+    target: Final[Element] = Element("main")
     target.append(source)
     retained.attrs["live"] = "yes"
     assert target.inner_html == f'<section>{"<span>text</span>" * (count - 1)}<span live="yes">text</span></section>'
@@ -330,18 +331,18 @@ def test_adoption_keeps_retained_alias_attributes(count: int) -> None:
     ],
 )
 def test_element_result_types_after_adoption(find_result: Callable[[Document], Iterable[Node]]) -> None:
-    source: Final = parse('<section><a data-x="yes"><b></b></a><a data-x="yes"><b></b></a></section>')
-    section: Final = source.select("section")[0]
-    expected: Final = section.select("a")
-    target: Final = parse("<main></main>")
+    source: Final[Document] = parse('<section><a data-x="yes"><b></b></a><a data-x="yes"><b></b></a></section>')
+    section: Final[Element] = source.select("section")[0]
+    expected: Final[list[Element]] = section.select("a")
+    target: Final[Document] = parse("<main></main>")
     target.select("main")[0].append(section)
     assert [(type(node), node) for node in find_result(target)] == [(Element, node) for node in expected]
 
 
 def test_hash_survives_release_of_all_adopted_aliases() -> None:
-    source: Final = Element("main", children=[Element("p")])
-    original_hash: Final = hash(source.children[0])
-    destination: Final = Element("aside")
+    source: Final[Element] = Element("main", children=[Element("p")])
+    original_hash: Final[int] = hash(source.children[0])
+    destination: Final[Element] = Element("aside")
     destination.append(source.children[0])
     gc.collect()
     assert hash(destination.children[0]) == original_hash
@@ -589,9 +590,9 @@ def test_node_is_truthy_regardless_of_children(
     ],
 )
 def test_duplicate_normalized_attributes_keep_the_first(count: int) -> None:
-    ordinary: Final = {f"data-{index}": "é水😀" for index in range(count)}
-    duplicates: Final = {"A": "x", "a": "y"}
-    kept: Final = {"a": "x"}
+    ordinary: Final[dict[str, str]] = {f"data-{index}": "é水😀" for index in range(count)}
+    duplicates: Final[dict[str, str]] = {"A": "x", "a": "y"}
+    kept: Final[dict[str, str]] = {"a": "x"}
     assert Element("div", duplicates | ordinary).equals(Element("div", kept | ordinary))
 
 
@@ -605,9 +606,9 @@ def test_duplicate_normalized_attributes_keep_the_first(count: int) -> None:
     ],
 )
 def test_duplicate_normalized_attributes_keep_the_first_after_ordinary(count: int) -> None:
-    ordinary: Final = {f"data-{index}": "é水😀" for index in range(count)}
-    duplicates: Final = {"A": "x", "a": "y"}
-    kept: Final = {"a": "x"}
+    ordinary: Final[dict[str, str]] = {f"data-{index}": "é水😀" for index in range(count)}
+    duplicates: Final[dict[str, str]] = {"A": "x", "a": "y"}
+    kept: Final[dict[str, str]] = {"a": "x"}
     assert Element("div", ordinary | duplicates).equals(Element("div", ordinary | kept))
 
 
@@ -622,8 +623,8 @@ def test_duplicate_normalized_attributes_keep_the_first_after_ordinary(count: in
 )
 @pytest.mark.parametrize("different", [pytest.param(False, id="equal"), pytest.param(True, id="different")])
 def test_xml_attribute_equality(prefix: str, *, different: bool) -> None:
-    left: Final = parse_xml(f"""<root {" ".join(f'{prefix}{index}="{index}"' for index in range(40))}/>""")
-    right: Final = parse_xml(
+    left: Final[Document] = parse_xml(f"""<root {" ".join(f'{prefix}{index}="{index}"' for index in range(40))}/>""")
+    right: Final[Document] = parse_xml(
         "<root "
         f"""{
             " ".join(f'{prefix}{index}="{index + int(different and index == 39)}"' for index in reversed(range(40)))
@@ -639,8 +640,8 @@ def test_xml_attribute_equality(prefix: str, *, different: bool) -> None:
     [pytest.param({}, id="equal"), pytest.param({"data-39": "different"}, id="different")],
 )
 def test_attribute_equality_with_sparse_atoms(order: str, overrides: dict[str, str]) -> None:
-    left: Final = Element("div")
-    right: Final = Element("div")
+    left: Final[Element] = Element("div")
+    right: Final[Element] = Element("div")
     for index in range(40):
         left.attrs[f"data-{index}"] = str(index)
     for name in _reordered(order, [f"data-{index}" for index in range(40)]):
@@ -663,7 +664,7 @@ def _reordered(order: str, names: list[str]) -> list[str]:
 
 @pytest.mark.parametrize("different", [pytest.param(False, id="equal"), pytest.param(True, id="different")])
 def test_large_attribute_equality_within_one_tree(*, different: bool) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         f"""<div {" ".join(f'data-{index}="{index}"' for index in range(40))}></div><div """
         f"""{" ".join(f'data-{index}="{index + int(different and index == 39)}"' for index in reversed(range(40)))}"""
         "></div>"
@@ -676,7 +677,7 @@ def test_large_attribute_equality_within_one_tree(*, different: bool) -> None:
 @pytest.mark.parametrize("order", ["aligned", "reversed", "rotated"])
 @pytest.mark.parametrize("count", [pytest.param(n, id=f"{n}-attributes") for n in (1, 7, 8, 9, 33, 1000)])
 def test_reordered_attributes_are_equal(*, same_tree: bool, order: str, count: int) -> None:
-    left: Final = {f"data-{index}": f"value-{index}" for index in range(count)}
+    left: Final[dict[str, str]] = {f"data-{index}": f"value-{index}" for index in range(count)}
     left_element, right_element = _attribute_pair(left, _ordered(order, left), same_tree=same_tree)
     assert left_element.equals(right_element)
 
@@ -707,8 +708,8 @@ def _ordered(order: str, attrs: dict[str, str]) -> dict[str, str]:
 @pytest.mark.parametrize("order", ["aligned", "reversed", "rotated"])
 @pytest.mark.parametrize("count", [pytest.param(n, id=f"{n}-attributes") for n in (1, 7, 8, 9, 33, 1000)])
 def test_reordered_attribute_with_a_changed_value_is_unequal(*, same_tree: bool, order: str, count: int) -> None:
-    left: Final = {f"data-{index}": f"value-{index}" for index in range(count)}
-    right: Final = _ordered(order, left | {"data-0": "different"})
+    left: Final[dict[str, str]] = {f"data-{index}": f"value-{index}" for index in range(count)}
+    right: Final[dict[str, str]] = _ordered(order, left | {"data-0": "different"})
     left_element, right_element = _attribute_pair(left, right, same_tree=same_tree)
     assert not left_element.equals(right_element)
 
@@ -717,9 +718,11 @@ def test_reordered_attribute_with_a_changed_value_is_unequal(*, same_tree: bool,
 @pytest.mark.parametrize("order", ["aligned", "reversed", "rotated"])
 @pytest.mark.parametrize("count", [pytest.param(n, id=f"{n}-attributes") for n in (1, 7, 8, 9, 33, 1000)])
 def test_reordered_attribute_with_a_new_name_is_unequal(*, same_tree: bool, order: str, count: int) -> None:
-    left: Final = {f"data-{index}": f"value-{index}" for index in range(count)}
-    last: Final = f"data-{count - 1}"
-    renamed: Final = {name: value for name, value in left.items() if name != last} | {"data-missing": left[last]}
+    left: Final[dict[str, str]] = {f"data-{index}": f"value-{index}" for index in range(count)}
+    last: Final[str] = f"data-{count - 1}"
+    renamed: Final[dict[str, str]] = {name: value for name, value in left.items() if name != last} | {
+        "data-missing": left[last]
+    }
     left_element, right_element = _attribute_pair(left, _ordered(order, renamed), same_tree=same_tree)
     assert not left_element.equals(right_element)
 
@@ -728,8 +731,10 @@ def test_reordered_attribute_with_a_new_name_is_unequal(*, same_tree: bool, orde
 @pytest.mark.parametrize("order", ["aligned", "reversed", "rotated"])
 @pytest.mark.parametrize("spelling", [pytest.param("data-0", id="equal"), pytest.param("DATA-0", id="case-variant")])
 def test_attribute_names_differing_only_in_case_are_distinct(*, same_tree: bool, order: str, spelling: str) -> None:
-    left: Final = {f"data-{index}": "same" for index in range(40)} | {"Data-0": "other"}
-    right: Final = {spelling: "same"} | {name: value for name, value in left.items() if name != "data-0"}
+    left: Final[dict[str, str]] = {f"data-{index}": "same" for index in range(40)} | {"Data-0": "other"}
+    right: Final[dict[str, str]] = {spelling: "same"} | {
+        name: value for name, value in left.items() if name != "data-0"
+    }
     left_element, right_element = _attribute_pair(left, _ordered(order, right), same_tree=same_tree)
     assert left_element.equals(right_element) is (spelling == "data-0")
 
@@ -738,8 +743,8 @@ def test_attribute_names_differing_only_in_case_are_distinct(*, same_tree: bool,
 @pytest.mark.parametrize("order", ["aligned", "reversed", "rotated"])
 @pytest.mark.parametrize("prefix", [pytest.param("x", id="same-prefix"), pytest.param("y", id="other-prefix")])
 def test_namespaced_attribute_equality(*, same_tree: bool, order: str, prefix: str) -> None:
-    left: Final = {f"x:data-{index}": "same" for index in range(40)}
-    right: Final = _ordered(order, {f"{prefix}:data-{index}": "same" for index in range(40)})
+    left: Final[dict[str, str]] = {f"x:data-{index}": "same" for index in range(40)}
+    right: Final[dict[str, str]] = _ordered(order, {f"{prefix}:data-{index}": "same" for index in range(40)})
     left_element, right_element = _attribute_pair(left, right, same_tree=same_tree)
     assert left_element.equals(right_element) is (prefix == "x")
 
@@ -783,24 +788,24 @@ _STATIC_NAMES: Final[list[str]] = [
 
 @pytest.mark.parametrize("order", ["aligned", "reversed", "rotated"])
 def test_static_attribute_names_equal_across_trees_past_the_index_cutoff(order: str) -> None:
-    left: Final = Element("div", dict.fromkeys(_STATIC_NAMES, "same"))
-    right: Final = Element("div", dict.fromkeys(_reordered(order, _STATIC_NAMES), "same"))
+    left: Final[Element] = Element("div", dict.fromkeys(_STATIC_NAMES, "same"))
+    right: Final[Element] = Element("div", dict.fromkeys(_reordered(order, _STATIC_NAMES), "same"))
     assert left.equals(right)
 
 
 def test_dynamic_attribute_absent_from_a_tree_with_no_dynamic_names_is_unequal() -> None:
-    left: Final = Element("div", dict.fromkeys(_STATIC_NAMES, "same") | {"data-x": "same"})
-    right: Final = Element("div", dict.fromkeys([*_STATIC_NAMES[::-1], "translate"], "same"))
+    left: Final[Element] = Element("div", dict.fromkeys(_STATIC_NAMES, "same") | {"data-x": "same"})
+    right: Final[Element] = Element("div", dict.fromkeys([*_STATIC_NAMES[::-1], "translate"], "same"))
     assert not left.equals(right)
 
 
 def test_duplicate_attributes_reach_index_threshold_at_last_name() -> None:
-    names: Final = [
+    names: Final[list[str]] = [
         "".join(letter.upper() if variant & (1 << index) else letter for index, letter in enumerate("abcdef"))
         for variant in range(30)
     ]
-    left: Final = Element("div", dict.fromkeys(names, "same") | {"penultimate": "x", "last": "y"})
-    right: Final = Element(
+    left: Final[Element] = Element("div", dict.fromkeys(names, "same") | {"penultimate": "x", "last": "y"})
+    right: Final[Element] = Element(
         "div", {names[0]: "same", "penultimate": "x"} | dict.fromkeys(names[1:], "same") | {"last": "y"}
     )
     assert left.equals(right)
@@ -811,14 +816,14 @@ def test_duplicate_attributes_reach_index_threshold_at_last_name() -> None:
     [pytest.param({}, True, id="equal"), pytest.param({"abcdefghij": "different"}, False, id="different")],
 )
 def test_many_duplicate_attributes_preserve_first_value(override: dict[str, str], *, equal: bool) -> None:
-    names: Final = [
+    names: Final[list[str]] = [
         "".join(letter.upper() if variant & (1 << index) else letter for index, letter in enumerate("abcdefghij"))
         for variant in range(1000)
     ]
-    duplicates: Final = dict.fromkeys(names, "same")
-    anchors: Final = {"first": "1", "second": "2", "third": "3"}
-    left: Final = Element("div", anchors | duplicates)
-    right: Final = Element("div", duplicates | anchors | override)
+    duplicates: Final[dict[str, str]] = dict.fromkeys(names, "same")
+    anchors: Final[dict[str, str]] = {"first": "1", "second": "2", "third": "3"}
+    left: Final[Element] = Element("div", anchors | duplicates)
+    right: Final[Element] = Element("div", duplicates | anchors | override)
     assert left.equals(right) is equal
 
 
@@ -1291,13 +1296,17 @@ def test_position_survives_a_structural_move() -> None:
     ],
 )
 def test_node_equality_benchmark_result(library: str, case: int, *, expected: bool) -> None:
-    module: Final = pytest.importorskip(f"bench.{library}", exc_type=ImportError)
-    operation: Final = cast("Callable[[tuple[int, str]], bool]", module.OPERATIONS["node-equals"][0])
+    module: Final[ModuleType] = pytest.importorskip(f"bench.{library}", exc_type=ImportError)
+    operation: Final[Callable[[tuple[int, str]], bool]] = cast(
+        "Callable[[tuple[int, str]], bool]", module.OPERATIONS["node-equals"][0]
+    )
     assert operation(cast("tuple[int, str]", INPUTS["node-equals"]()[case][1])) is expected
 
 
 def test_node_equality_duplicate_benchmark_result() -> None:
-    operation: Final = cast("Callable[[tuple[int, str]], bool]", OPERATIONS["node-equals"][0])
+    operation: Final[Callable[[tuple[int, str]], bool]] = cast(
+        "Callable[[tuple[int, str]], bool]", OPERATIONS["node-equals"][0]
+    )
     assert operation(cast("tuple[int, str]", INPUTS["node-equals"]()[12][1]))
 
 
@@ -1317,8 +1326,10 @@ def test_codspeed_node_equality_result(name: str, *, expected: bool) -> None:
 
 @pytest.mark.oracle
 def test_competitor_node_equality_duplicates_unsupported() -> None:
-    beautifulsoup: Final = pytest.importorskip("bench.competitors.beautifulsoup4", exc_type=ImportError)
-    operation: Final = cast("Callable[[tuple[int, str]], bool]", beautifulsoup.OPERATIONS["node-equals"][0])
+    beautifulsoup: Final[ModuleType] = pytest.importorskip("bench.competitors.beautifulsoup4", exc_type=ImportError)
+    operation: Final[Callable[[tuple[int, str]], bool]] = cast(
+        "Callable[[tuple[int, str]], bool]", beautifulsoup.OPERATIONS["node-equals"][0]
+    )
     with pytest.raises(ValueError, match="constructor does not normalize case variants"):
         operation(cast("tuple[int, str]", INPUTS["node-equals"]()[12][1]))
 
@@ -1345,6 +1356,7 @@ def test_text_concatenates_descendant_character_data(
         pytest.param("café", id="latin1"),
         pytest.param("雪", id="bmp"),
         pytest.param("😀", id="supplementary"),
+        pytest.param(f"{'a' * 256}😀{'z' * 256}", id="supplementary-middle"),
         pytest.param("\U00100000\U000f0000", id="or-exceeds-unicode-range"),
         pytest.param("\ufeff\ufffe", id="bom-and-noncharacter"),
         pytest.param("\ud800", id="lone-surrogate"),
@@ -1353,8 +1365,9 @@ def test_text_concatenates_descendant_character_data(
     ],
 )
 def test_text_preserves_unicode(text: str) -> None:
-    child: Final = Text(text)
-    assert (child.text, Element("p", children=[child]).text) == (text, text)
+    child: Final[Text] = Text(text)
+    parent: Final[Element] = Element("p", children=[child])
+    assert (child.text, parent.text, parent.serialize(inner=True)) == (text, text, text)
 
 
 @pytest.mark.parametrize(
@@ -1369,15 +1382,17 @@ def test_text_ignores_cdata(node: Node, expected: str) -> None:
 
 
 def test_text_subnode_excludes_siblings() -> None:
-    root: Final = Element("main", children=[Text("before"), Element("p", children=[Text("inside")]), Text("after")])
-    paragraph: Final = root.find("p")
+    root: Final[Element] = Element(
+        "main", children=[Text("before"), Element("p", children=[Text("inside")]), Text("after")]
+    )
+    paragraph: Final[Element | None] = root.find("p")
     assert paragraph is not None
     assert paragraph.text == "inside"
 
 
 def test_text_ascii_flag_ignores_non_text_data() -> None:
-    root: Final = Element("p", children=[Comment("😀"), CData("雪"), Text("ascii")])
-    result: Final = root.text
+    root: Final[Element] = Element("p", children=[Comment("😀"), CData("雪"), Text("ascii")])
+    result: Final[str] = root.text
     assert (result, result.isascii()) == ("ascii", True)
 
 
@@ -1391,26 +1406,26 @@ def test_text_ascii_flag_ignores_non_text_data() -> None:
     ],
 )
 def test_iter_elements_skips_non_elements(tags: str | list[str] | dict[str, bool] | None) -> None:
-    root: Final = Element("main", children=[Text("before"), Element("p"), Text("after")])
+    root: Final[Element] = Element("main", children=[Text("before"), Element("p"), Text("after")])
     assert [node.tag for node in root.iter_elements(tags)] == ["p"]
 
 
 def test_iter_elements_filters_eagerly() -> None:
-    root: Final = Element("main", children=[Element("p"), Element("li"), Element("p")])
-    tags: Final = iter(["p", "li"])
-    result: Final = root.iter_elements(tags, include_self=True)
+    root: Final[Element] = Element("main", children=[Element("p"), Element("li"), Element("p")])
+    tags: Final[Iterator[str]] = iter(["p", "li"])
+    result: Final[Iterator[Element]] = root.iter_elements(tags, include_self=True)
     assert [node.tag for node in result] == ["p", "li", "p"]
 
 
 def test_iter_elements_matches_known_and_custom_tags() -> None:
-    root: Final = Element("main", children=[Element("p"), Element("widget"), Element("li")])
+    root: Final[Element] = Element("main", children=[Element("p"), Element("widget"), Element("li")])
     assert [node.tag for node in root.iter_elements(("p", "widget"))] == ["p", "widget"]
 
 
 def test_iter_elements_snapshots_tag_list() -> None:
-    root: Final = Element("main", children=[Element("p"), Element("li")])
-    tags: Final = ["p"]
-    result: Final = root.iter_elements(tags)
+    root: Final[Element] = Element("main", children=[Element("p"), Element("li")])
+    tags: Final[list[str]] = ["p"]
+    result: Final[Iterator[Element]] = root.iter_elements(tags)
     tags.append("li")
     assert [node.tag for node in result] == ["p"]
 
@@ -1420,46 +1435,46 @@ def test_iter_elements_empty_walk() -> None:
 
 
 def test_iter_elements_includes_root() -> None:
-    root: Final = Element("main", children=[Element("p")])
+    root: Final[Element] = Element("main", children=[Element("p")])
     assert [node.tag for node in root.iter_elements("main", include_self=True)] == ["main"]
 
 
 def test_iter_elements_keeps_prefetched_sibling() -> None:
-    first: Final = Element("li")
-    second: Final = Element("li")
-    root: Final = Element("ul", children=[first, second])
-    iterator: Final = root.iter_elements("li")
+    first: Final[Element] = Element("li")
+    second: Final[Element] = Element("li")
+    root: Final[Element] = Element("ul", children=[first, second])
+    iterator: Final[Iterator[Element]] = root.iter_elements("li")
     assert next(iterator) == first
-    holder: Final = Element("section")
+    holder: Final[Element] = Element("section")
     holder.append(second)
     assert next(iterator) == second
 
 
 def test_iter_elements_keeps_renamed_pending_node() -> None:
-    first: Final = Element("p")
-    second: Final = Element("p")
-    iterator: Final = Element("main", children=[first, second]).iter_elements("p")
+    first: Final[Element] = Element("p")
+    second: Final[Element] = Element("p")
+    iterator: Final[Iterator[Element]] = Element("main", children=[first, second]).iter_elements("p")
     assert next(iterator) == first
     second.tag = "aside"
     assert list(iterator) == [second]
 
 
 def test_iter_elements_skips_insertion_before_pending() -> None:
-    first: Final = Element("p")
-    second: Final = Element("p")
-    root: Final = Element("main", children=[first, second])
-    iterator: Final = root.iter_elements("p")
+    first: Final[Element] = Element("p")
+    second: Final[Element] = Element("p")
+    root: Final[Element] = Element("main", children=[first, second])
+    iterator: Final[Iterator[Element]] = root.iter_elements("p")
     assert next(iterator) == first
     first.insert_after(Element("p"))
     assert list(iterator) == [second]
 
 
 def test_iter_elements_stops_at_detached_boundary() -> None:
-    child: Final = Element("p")
-    first: Final = Element("section", children=[child])
-    second: Final = Element("p")
-    root: Final = Element("main", children=[first, second])
-    iterator: Final = root.iter_elements()
+    child: Final[Element] = Element("p")
+    first: Final[Element] = Element("section", children=[child])
+    second: Final[Element] = Element("p")
+    root: Final[Element] = Element("main", children=[first, second])
+    iterator: Final[Iterator[Element]] = root.iter_elements()
     assert next(iterator) == first
     Element("holder").append(first)
     assert next(iterator) == child
@@ -1467,42 +1482,42 @@ def test_iter_elements_stops_at_detached_boundary() -> None:
 
 
 def test_iter_elements_stops_after_extracted_pending_node() -> None:
-    first: Final = Element("p")
-    second: Final = Element("p")
-    root: Final = Element("main", children=[first, second])
-    iterator: Final = root.iter_elements()
+    first: Final[Element] = Element("p")
+    second: Final[Element] = Element("p")
+    root: Final[Element] = Element("main", children=[first, second])
+    iterator: Final[Iterator[Element]] = root.iter_elements()
     assert next(iterator) == first
     second.extract()
     assert list(iterator) == [second]
 
 
 def test_iter_elements_stops_after_pending_leaves_root() -> None:
-    first: Final = Element("p")
-    second: Final = Element("p")
-    root: Final = Element("section", children=[first, second])
-    holder: Final = Element("aside")
+    first: Final[Element] = Element("p")
+    second: Final[Element] = Element("p")
+    root: Final[Element] = Element("section", children=[first, second])
+    holder: Final[Element] = Element("aside")
     Element("main", children=[root, holder])
-    iterator: Final = root.iter_elements()
+    iterator: Final[Iterator[Element]] = root.iter_elements()
     assert next(iterator) == first
     holder.append(second)
     assert list(iterator) == [second]
 
 
 def test_iter_elements_follows_new_siblings_of_moved_pending() -> None:
-    first: Final = Element("p")
-    second: Final = Element("p")
-    tail: Final = Element("p")
-    root: Final = Element("section", children=[first, second])
-    iterator: Final = root.iter_elements("p")
+    first: Final[Element] = Element("p")
+    second: Final[Element] = Element("p")
+    tail: Final[Element] = Element("p")
+    root: Final[Element] = Element("section", children=[first, second])
+    iterator: Final[Iterator[Element]] = root.iter_elements("p")
     assert next(iterator) == first
     Element("aside", children=[second, tail])
     assert list(iterator) == [second, tail]
 
 
 def test_iter_elements_follows_detached_current_subtree() -> None:
-    first: Final = Element("a", children=[Element("b"), Element("c")])
-    root: Final = Element("div", children=[first, Element("d")])
-    iterator: Final = root.iter_elements(include_self=True)
+    first: Final[Element] = Element("a", children=[Element("b"), Element("c")])
+    root: Final[Element] = Element("div", children=[first, Element("d")])
+    iterator: Final[Iterator[Element]] = root.iter_elements(include_self=True)
     assert next(iterator) == root
     assert next(iterator) == first
     first.extract()
@@ -1510,30 +1525,30 @@ def test_iter_elements_follows_detached_current_subtree() -> None:
 
 
 def test_iter_elements_follows_detached_ancestor_subtree() -> None:
-    first: Final = Element("b")
-    outer: Final = Element(
+    first: Final[Element] = Element("b")
+    outer: Final[Element] = Element(
         "a", children=[Element("x", children=[first, Element("c")]), Element("y", children=[Element("d")])]
     )
-    root: Final = Element("div", children=[outer])
-    iterator: Final = root.iter_elements(("b", "c", "d"))
+    root: Final[Element] = Element("div", children=[outer])
+    iterator: Final[Iterator[Element]] = root.iter_elements(("b", "c", "d"))
     assert next(iterator) == first
     outer.extract()
     assert [node.tag for node in iterator] == ["c", "d"]
 
 
 def test_iter_elements_crosses_nested_following_sibling() -> None:
-    nested: Final = Element("p")
-    following: Final = Element("p")
-    root: Final = Element("main", children=[Element("section", children=[nested]), following])
+    nested: Final[Element] = Element("p")
+    following: Final[Element] = Element("p")
+    root: Final[Element] = Element("main", children=[Element("section", children=[nested]), following])
     assert list(root.iter_elements("p")) == [nested, following]
 
 
 def test_iter_elements_walks_detached_pending_subtree() -> None:
-    first: Final = Element("p")
-    child: Final = Element("p")
-    second: Final = Element("section", children=[child])
-    root: Final = Element("main", children=[first, second, Element("p")])
-    iterator: Final = root.iter_elements()
+    first: Final[Element] = Element("p")
+    child: Final[Element] = Element("p")
+    second: Final[Element] = Element("section", children=[child])
+    root: Final[Element] = Element("main", children=[first, second, Element("p")])
+    iterator: Final[Iterator[Element]] = root.iter_elements()
     assert next(iterator) == first
     Element("holder").append(second)
     assert list(iterator) == [second, child]
@@ -1548,54 +1563,54 @@ def test_iter_elements_walks_detached_pending_subtree() -> None:
     ],
 )
 def test_iter_elements_survives_an_edit_clearing_pending_siblings(tag: str, edit: Callable[[Element], None]) -> None:
-    first: Final = Element("a")
-    root: Final = Element(tag, children=[first, Element("b"), Element("c")])
-    iterator: Final = root.iter_elements()
+    first: Final[Element] = Element("a")
+    root: Final[Element] = Element(tag, children=[first, Element("b"), Element("c")])
+    iterator: Final[Iterator[Element]] = root.iter_elements()
     assert next(iterator) == first
     edit(root)
     assert [node.tag for node in iterator] == ["b"]
 
 
 def test_iter_elements_follows_moved_root() -> None:
-    first: Final = Element("p")
-    second: Final = Element("p")
-    root: Final = Element("main", children=[first, second])
-    iterator: Final = root.iter_elements("p")
+    first: Final[Element] = Element("p")
+    second: Final[Element] = Element("p")
+    root: Final[Element] = Element("main", children=[first, second])
+    iterator: Final[Iterator[Element]] = root.iter_elements("p")
     assert next(iterator) == first
     Element("holder").append(root)
     assert next(iterator) == second
 
 
 def test_iter_elements_sees_insertions_after_pending() -> None:
-    first: Final = Element("p")
-    second: Final = Element("p")
-    root: Final = Element("main", children=[first, second])
-    iterator: Final = root.iter_elements("p")
+    first: Final[Element] = Element("p")
+    second: Final[Element] = Element("p")
+    root: Final[Element] = Element("main", children=[first, second])
+    iterator: Final[Iterator[Element]] = root.iter_elements("p")
     assert next(iterator) == first
-    third: Final = Element("p")
+    third: Final[Element] = Element("p")
     second.insert_after(third)
     assert list(iterator) == [second, third]
 
 
 def test_iter_elements_leaves_scope_entered_from_preceding_node() -> None:
-    first: Final = Element("p")
-    second: Final = Element("p")
-    tail: Final = Element("p")
-    root: Final = Element("section", children=[first, second])
-    holder: Final = Element("header")
+    first: Final[Element] = Element("p")
+    second: Final[Element] = Element("p")
+    tail: Final[Element] = Element("p")
+    root: Final[Element] = Element("section", children=[first, second])
+    holder: Final[Element] = Element("header")
     Element("main", children=[holder, root, tail])
-    iterator: Final = root.iter_elements("p")
+    iterator: Final[Iterator[Element]] = root.iter_elements("p")
     assert next(iterator) == first
     holder.append(second)  # the pending node now precedes the scope, so the walk crosses it and runs on to the tail
     assert list(iterator) == [second, first, tail]
 
 
 def test_iter_elements_leaves_scope_nested_under_pending() -> None:
-    first: Final = Element("p")
-    second: Final = Element("p")
-    tail: Final = Element("p")
-    root: Final = Element("section", children=[first, second])
-    iterator: Final = root.iter_elements("p")
+    first: Final[Element] = Element("p")
+    second: Final[Element] = Element("p")
+    tail: Final[Element] = Element("p")
+    root: Final[Element] = Element("section", children=[first, second])
+    iterator: Final[Iterator[Element]] = root.iter_elements("p")
     assert next(iterator) == first
     second.extract()
     second.append(root)
@@ -1604,12 +1619,12 @@ def test_iter_elements_leaves_scope_nested_under_pending() -> None:
 
 
 def test_iter_elements_keeps_scope_when_pending_returns() -> None:
-    first: Final = Element("p")
-    second: Final = Element("p")
-    third: Final = Element("p")
-    root: Final = Element("section", children=[first, second])
+    first: Final[Element] = Element("p")
+    second: Final[Element] = Element("p")
+    third: Final[Element] = Element("p")
+    root: Final[Element] = Element("section", children=[first, second])
     Element("main", children=[root, Element("p")])
-    iterator: Final = root.iter_elements("p")
+    iterator: Final[Iterator[Element]] = root.iter_elements("p")
     assert next(iterator) == first
     Element("aside", children=[second, third])
     assert next(iterator) == second
@@ -1618,15 +1633,15 @@ def test_iter_elements_keeps_scope_when_pending_returns() -> None:
 
 
 def test_iter_elements_follows_reattached_pending_subtree() -> None:
-    first: Final = Element("p")
-    second: Final = Element("p")
-    third: Final = Element("p")
-    tail: Final = Element("p")
-    holder: Final = Element("div", children=[second, third])
-    root: Final = Element("section", children=[first, holder])
-    target: Final = Element("aside")
+    first: Final[Element] = Element("p")
+    second: Final[Element] = Element("p")
+    third: Final[Element] = Element("p")
+    tail: Final[Element] = Element("p")
+    holder: Final[Element] = Element("div", children=[second, third])
+    root: Final[Element] = Element("section", children=[first, holder])
+    target: Final[Element] = Element("aside")
     Element("main", children=[root, target, tail])
-    iterator: Final = root.iter_elements("p")
+    iterator: Final[Iterator[Element]] = root.iter_elements("p")
     assert next(iterator) == first
     holder.extract()
     assert next(iterator) == second
@@ -1635,7 +1650,7 @@ def test_iter_elements_follows_reattached_pending_subtree() -> None:
 
 
 def test_iter_elements_drops_every_match_under_deep_nesting() -> None:
-    document: Final = parse_xml("<section>" * 300 + "<li/>" * 200 + "</section>" * 300)
+    document: Final[Document] = parse_xml("<section>" * 300 + "<li/>" * 200 + "</section>" * 300)
     dropped = 0
     for element in document.iter_elements("li"):
         element.decompose()
@@ -1655,7 +1670,7 @@ def test_iter_elements_edit_under_deep_nesting_stays_linear(
     edit: Callable[[Element], object], work_steps: WorkSteps
 ) -> None:
     def edit_every_match(depth: int) -> Callable[[], object]:
-        document: Final = parse_xml("<section>" * depth + "<li/>" * depth + "</section>" * depth)
+        document: Final[Document] = parse_xml("<section>" * depth + "<li/>" * depth + "</section>" * depth)
 
         def edit_each() -> None:
             for element in document.iter_elements("li"):
@@ -1667,19 +1682,19 @@ def test_iter_elements_edit_under_deep_nesting_stays_linear(
 
 
 def test_iter_elements_preserves_xml_case() -> None:
-    root: Final = parse_xml("<Root><item/><Item/></Root>").root
+    root: Final[Element | None] = parse_xml("<Root><item/><Item/></Root>").root
     assert root is not None
     assert [node.tag for node in root.iter_elements("Item")] == ["Item"]
 
 
 def test_iter_elements_matches_xml_known_tag() -> None:
-    root: Final = parse_xml("<Root><p/><P/></Root>").root
+    root: Final[Element | None] = parse_xml("<Root><p/><P/></Root>").root
     assert root is not None
     assert [node.tag for node in root.iter_elements("p")] == ["p"]
 
 
 def test_iter_elements_matches_unicode_custom_tag() -> None:
-    root: Final = parse_xml("<Root><é/><e/></Root>").root
+    root: Final[Element | None] = parse_xml("<Root><é/><e/></Root>").root
     assert root is not None
     assert [node.tag for node in root.iter_elements("é")] == ["é"]
 
@@ -1689,20 +1704,22 @@ def test_iter_elements_surrogate_tag_has_no_match() -> None:
 
 
 def test_iter_elements_concurrent_next_yields_each_once() -> None:
-    nodes: Final = [Element("p") for _ in range(200)]
-    iterator: Final = Element("main", children=nodes).iter_elements("p")
+    nodes: Final[list[Element]] = [Element("p") for _ in range(200)]
+    iterator: Final[Iterator[Element]] = Element("main", children=nodes).iter_elements("p")
 
     def consume() -> list[Element]:
         return list(iterator)
 
     with ThreadPoolExecutor(max_workers=4) as executor:
-        found: Final = [node for future in (executor.submit(consume) for _ in range(4)) for node in future.result()]
+        found: Final[list[Element]] = [
+            node for future in (executor.submit(consume) for _ in range(4)) for node in future.result()
+        ]
     assert set(found) == set(nodes)
     assert len(found) == len(nodes)
 
 
 def test_iter_elements_rejects_non_string_tags() -> None:
-    root: Final = Element("main")
+    root: Final[Element] = Element("main")
     with pytest.raises(TypeError, match="only str"):
         root.iter_elements(cast("Iterable[str]", [1]))
 

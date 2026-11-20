@@ -50,23 +50,23 @@ class NodeFilter:
     :cvar FILTER_SKIP: skip only the node.
     """
 
-    SHOW_ALL: Final = 0xFFFFFFFF
-    SHOW_ELEMENT: Final = 0x1
-    SHOW_ATTRIBUTE: Final = 0x2
-    SHOW_TEXT: Final = 0x4
-    SHOW_CDATA_SECTION: Final = 0x8
-    SHOW_ENTITY_REFERENCE: Final = 0x10
-    SHOW_ENTITY: Final = 0x20
-    SHOW_PROCESSING_INSTRUCTION: Final = 0x40
-    SHOW_COMMENT: Final = 0x80
-    SHOW_DOCUMENT: Final = 0x100
-    SHOW_DOCUMENT_TYPE: Final = 0x200
-    SHOW_DOCUMENT_FRAGMENT: Final = 0x400
-    SHOW_NOTATION: Final = 0x800
+    SHOW_ALL: Final[int] = 0xFFFFFFFF
+    SHOW_ELEMENT: Final[int] = 0x1
+    SHOW_ATTRIBUTE: Final[int] = 0x2
+    SHOW_TEXT: Final[int] = 0x4
+    SHOW_CDATA_SECTION: Final[int] = 0x8
+    SHOW_ENTITY_REFERENCE: Final[int] = 0x10
+    SHOW_ENTITY: Final[int] = 0x20
+    SHOW_PROCESSING_INSTRUCTION: Final[int] = 0x40
+    SHOW_COMMENT: Final[int] = 0x80
+    SHOW_DOCUMENT: Final[int] = 0x100
+    SHOW_DOCUMENT_TYPE: Final[int] = 0x200
+    SHOW_DOCUMENT_FRAGMENT: Final[int] = 0x400
+    SHOW_NOTATION: Final[int] = 0x800
 
-    FILTER_ACCEPT: Final = 1
-    FILTER_REJECT: Final = 2
-    FILTER_SKIP: Final = 3
+    FILTER_ACCEPT: Final[int] = 1
+    FILTER_REJECT: Final[int] = 2
+    FILTER_SKIP: Final[int] = 3
 
 
 __all__ = [

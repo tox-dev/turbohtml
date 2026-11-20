@@ -14,6 +14,8 @@ if TYPE_CHECKING:
     import random
     from collections.abc import Callable
 
+    from turbohtml import DocumentFragment
+
 
 def xml_literal_generate(rng: random.Random) -> str:
     return (
@@ -68,11 +70,11 @@ def xml_literal_check(
     if (match := _CASE.fullmatch(case)) is None:
         raise UnsupportedXmlLiteralCaseError(case)
     source, expected = _document(*match.groups())
-    root: Final = read(source)
+    root: Final[Document] = read(source)
     if _snapshot(root) != expected:
         return "parsed XML tree differs from literals"
-    printed: Final = _serialize(root, serialize)
-    reparsed: Final = read(printed)
+    printed: Final[str] = _serialize(root, serialize)
+    reparsed: Final[Document] = read(printed)
     if _snapshot(reparsed) != expected:
         return "serialized XML tree differs from literals"
     return None if _serialize(reparsed, serialize) == printed else "XML serialization changes on repeat"
@@ -85,14 +87,14 @@ class UnsupportedXmlLiteralCaseError(ValueError):
 
 def _document(prefix: str, tag: str, quote: str, count: str, leaf: str) -> tuple[str, str]:
     encoded, decoded, encoded_attribute, decoded_attribute = _LEAVES[leaf]
-    delimiter: Final = _QUOTES[quote]
-    declaration: Final = f"xmlns:{prefix}"
-    qualified: Final = f"{prefix}:{tag}"
-    child: Final = (
+    delimiter: Final[str] = _QUOTES[quote]
+    declaration: Final[str] = f"xmlns:{prefix}"
+    qualified: Final[str] = f"{prefix}:{tag}"
+    child: Final[str] = (
         f"<{qualified} {prefix}:Key={delimiter}{encoded_attribute}{delimiter} Key={delimiter}Other{delimiter}>"
         f"{encoded}</{qualified}>"
     )
-    source: Final = f'<Root {declaration}="urn:{prefix}">{child * int(count)}</Root>'
+    source: Final[str] = f'<Root {declaration}="urn:{prefix}">{child * int(count)}</Root>'
     return source, json.dumps([
         ("element", "Root", ((declaration, f"urn:{prefix}"),), "Document"),
         *[
@@ -111,8 +113,8 @@ def _snapshot(root: Document) -> str:
         list[tuple[str, str, str] | tuple[str, str, tuple[tuple[str, str | list[str] | None], ...], str]]
     ] = []
     for node in root.descendants:
-        parent: Final = node.parent
-        parent_tag: Final = parent.tag if isinstance(parent, Element) else "Document"
+        parent: Final[Element | Document | DocumentFragment | None] = node.parent
+        parent_tag: Final[str] = parent.tag if isinstance(parent, Element) else "Document"
         if isinstance(node, Element):
             records.append(("element", node.tag, tuple(sorted(node.attrs.items())), parent_tag))
         elif isinstance(node, Text):

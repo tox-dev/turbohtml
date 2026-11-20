@@ -44,7 +44,6 @@ _TOOLS: Final[Path] = Path(__file__).resolve().parent
 _ROOT: Final[Path] = _TOOLS.parent
 _BENCH_DATA: Final[Path] = _TOOLS / "bench-data"
 _ENCODING_SAMPLES: Final[Path] = _ROOT / "tests" / "html5lib-tests" / "encoding"
-_SLICE: Final[int] = 1 << 16  # 64 kB of book text: enough work per call without a multi-megabyte parse in the profile
 
 
 def _safe(load: Callable[[], list[Case]]) -> list[Case]:
@@ -87,7 +86,8 @@ def real_pages(names: tuple[str, ...]) -> list[str]:
 
 def _book(relative: str) -> str:
     # Return a 64 kB latin-1 slice of a vendored War-and-Peace document.
-    return corpus.corpus(relative, _SLICE)
+    # Profile 64 kB of book text to avoid a multi-megabyte parse on each call.
+    return corpus.corpus(relative, 1 << 16)
 
 
 def _escape_inputs() -> list[Case]:

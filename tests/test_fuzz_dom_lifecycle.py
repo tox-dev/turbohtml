@@ -68,11 +68,12 @@ from fuzz.observer_oracles import (
     observer_sequence_generate,
     observer_sequence_seeds,
 )
-from fuzz.round_trip_oracles import ORACLES, Floor, OutOfScopeError, main
+from fuzz.round_trip_oracles import ORACLES, Floor, Oracle, OutOfScopeError, main
 
-from turbohtml import Element, Text, parse_fragment
+from turbohtml import Element, Node, Text, parse_fragment
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
     from pytest_mock import MockerFixture
@@ -92,7 +93,7 @@ def test_dom_lifecycle_seed_holds_and_reports_a_violation(text: str) -> None:
 
 
 def _generated_lifecycle_cases() -> list[str]:
-    rng: Final = random.Random(1017)  # ruff: ignore[suspicious-non-cryptographic-random-usage] - a fixed seed reproduces failing programs
+    rng: Final[random.Random] = random.Random(1017)  # ruff: ignore[suspicious-non-cryptographic-random-usage] - a fixed seed reproduces failing programs
     return [dom_lifecycle_generate(rng) for _ in range(100)]
 
 
@@ -131,19 +132,19 @@ def test_dom_lifecycle_rejects_unsupported_encoding(text: str) -> None:
 
 
 def test_dom_lifecycle_cli_seed_floor(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    status: Final = main(["--oracle", "dom-lifecycle", "--minutes", "0", "--crash-dir", str(tmp_path)])
+    status: Final[int] = main(["--oracle", "dom-lifecycle", "--minutes", "0", "--crash-dir", str(tmp_path)])
     assert (status, list(tmp_path.glob("crash-*")), "'compared': 240" in capsys.readouterr().out) == (0, [], True)
 
 
 def test_dom_lifecycle_cli_emits_violation(mocker: MockerFixture, tmp_path: Path) -> None:
-    oracle: Final = replace(
+    oracle: Final[Oracle] = replace(
         ORACLES["dom-lifecycle"],
         check=partial(dom_lifecycle_check, run=lambda _program: _BROKEN),
         seeds=lambda: [dom_lifecycle_seeds()[0]],
         floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"dom-lifecycle": oracle}, clear=True)
-    status: Final = main(["--oracle", "dom-lifecycle", "--minutes", "0", "--crash-dir", str(tmp_path)])
+    status: Final[int] = main(["--oracle", "dom-lifecycle", "--minutes", "0", "--crash-dir", str(tmp_path)])
     assert (status, len(list(tmp_path.glob("*.json")))) == (1, 1)
 
 
@@ -168,7 +169,7 @@ def test_dom_lifecycle_limits_created_nodes() -> None:
 
 
 def test_dom_lifecycle_bounds_callback_nesting() -> None:
-    steps: Final = _steps((18, 0, 0, 3), (18, 0, 0, 2), (18, 0, 0, 1), (0, 0, 0, 0))
+    steps: Final[tuple[LifecycleStep, ...]] = _steps((18, 0, 0, 3), (18, 0, 0, 2), (18, 0, 0, 1), (0, 0, 0, 0))
     assert max(step.depth for step in steps) == 2
 
 
@@ -209,7 +210,7 @@ def test_dom_lifecycle_moves_an_iterator_out_of_removed_text(
     removal: tuple[int, int, int, int], operation: str
 ) -> None:
     # p holds the texts "alpha" and "beta gamma"; an iterator over p steps to the second text, which the removal drops
-    steps: Final = _steps(
+    steps: Final[tuple[LifecycleStep, ...]] = _steps(
         (0, 0, 0, 0),
         (1, 1, 1, 0),
         (1, 2, 2, 0),
@@ -230,7 +231,7 @@ def test_dom_lifecycle_race_matches_the_serial_run() -> None:
 
 
 def test_dom_lifecycle_race_on_shared_trees_keeps_every_tree_intact() -> None:
-    traces: Final = dom_lifecycle_race(_SEEDS, shared=True)
+    traces: Final[list[tuple[LifecycleStep, ...]]] = dom_lifecycle_race(_SEEDS, shared=True)
     assert {step.violations for trace in traces for step in trace} == {(0, 0, 0, 0)}
 
 
@@ -256,13 +257,13 @@ if TYPE_CHECKING:
     ],
 )
 def test_dom_program_public_opcode_result(suffix: bytes, expected: str) -> None:
-    program: Final = bytes((0, 0, 0, 0)) + suffix
+    program: Final[bytes] = bytes((0, 0, 0, 0)) + suffix
     assert json.loads(run_dom_program(program)[-1])[0] == expected
 
 
 @pytest.mark.parametrize("opcode", range(1, 8))
 def test_dom_program_unoccupied_element_registers(opcode: int) -> None:
-    program: Final = bytes((opcode, 0, 0, 0))
+    program: Final[bytes] = bytes((opcode, 0, 0, 0))
     assert json.loads(run_dom_program(program)[-1]) == ["<main></main>", []]
 
 
@@ -275,13 +276,12 @@ def test_dom_program_unoccupied_element_registers(opcode: int) -> None:
     ],
 )
 def test_dom_program_partial_instruction_is_ignored(extra: bytes) -> None:
-    program: Final = bytes((0, 0, 0, 0))
+    program: Final[bytes] = bytes((0, 0, 0, 0))
     assert run_dom_program(program + extra) == run_dom_program(program)
 
 
 def test_dom_program_limits_created_nodes() -> None:
-    result: Final = json.loads(run_dom_program(bytes((0, 0, 0, 0)) * 64)[-1])
-    assert len(result[1]) == 16
+    assert len(json.loads(run_dom_program(bytes((0, 0, 0, 0)) * 64)[-1])[1]) == 16
 
 
 def test_dom_program_limits_executed_steps() -> None:
@@ -304,7 +304,7 @@ def test_dom_program_empty_program_preserves_root() -> None:
 
 
 def test_dom_program_generated_cases_match_model() -> None:
-    rng: Final = random.Random(1017)  # ruff: ignore[suspicious-non-cryptographic-random-usage] - a fixed seed reproduces failing byte programs
+    rng: Final[random.Random] = random.Random(1017)  # ruff: ignore[suspicious-non-cryptographic-random-usage] - a fixed seed reproduces failing byte programs
     assert all(dom_program_check(dom_program_generate(rng)) is None for _ in range(100))
 
 
@@ -321,21 +321,21 @@ def test_dom_program_negative_control_fires() -> None:
 
 
 def test_dom_program_cli_seed_floor(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    status: Final = main(["--oracle", "dom-program", "--minutes", "0", "--crash-dir", str(tmp_path)])
+    status: Final[int] = main(["--oracle", "dom-program", "--minutes", "0", "--crash-dir", str(tmp_path)])
     assert (status, list(tmp_path.glob("crash-*")), "100" in capsys.readouterr().out) == (0, [], True)
 
 
 def test_dom_program_cli_emits_wrong_result(mocker: MockerFixture, tmp_path: Path) -> None:
-    oracle: Final = replace(
+    oracle: Final[Oracle] = replace(
         ORACLES["dom-program"],
         check=partial(dom_program_check, run=lambda _program: ()),
         seeds=lambda: [dom_program_seeds()[1]],
         floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"dom-program": oracle}, clear=True)
-    status: Final = main(["--oracle", "dom-program", "--minutes", "0", "--crash-dir", str(tmp_path)])
-    findings: Final = list(tmp_path.glob("*.json"))
-    payload: Final = json.loads(findings[0].read_text(encoding="utf-8"))
+    status: Final[int] = main(["--oracle", "dom-program", "--minutes", "0", "--crash-dir", str(tmp_path)])
+    findings: Final[list[Path]] = list(tmp_path.glob("*.json"))
+    payload: Final[dict[str, str | int]] = json.loads(findings[0].read_text(encoding="utf-8"))
     assert (status, len(findings), payload["detail"], payload["hits"]) == (
         1,
         1,
@@ -368,9 +368,11 @@ def test_dom_program_checker_preserves_unoccupied_registers(opcode: int) -> None
 
 @pytest.mark.parametrize("opcode", [pytest.param(5, id="append"), pytest.param(6, id="insert")])
 def test_dom_program_reorders_identical_nodes(opcode: int) -> None:
-    program: Final = bytes((0, 0, 0, 0, 0, 0, 0, 0, opcode, 0, 0, 2))
-    result: Final = json.loads(run_dom_program(program)[-1])
-    assert (result[0], [row[-1] for row in result[1]]) == ("<main><p></p><p></p></main>", [1, 0])
+    program: Final[bytes] = bytes((0, 0, 0, 0, 0, 0, 0, 0, opcode, 0, 0, 2))
+    markup: Final[str]
+    rows: Final[list[list[str | int | None]]]
+    markup, rows = json.loads(run_dom_program(program)[-1])
+    assert (markup, [row[-1] for row in rows]) == ("<main><p></p><p></p></main>", [1, 0])
 
 
 if TYPE_CHECKING:
@@ -454,8 +456,8 @@ _TABLE_CASES: Final[list[pytest.ParameterSet]] = [
 
 @pytest.mark.parametrize(("case", "source", "expected"), _TABLE_CASES)
 def test_html_table_literal_elements(case: str, source: str, expected: list[tuple[str, str, int]]) -> None:
-    root: Final = parse_fragment(source)
-    nodes: Final = [root, *root.descendants]
+    root: Final[Element] = parse_fragment(source)
+    nodes: Final[list[Node]] = [root, *root.descendants]
     assert (
         [
             (node.tag, cast("str", node.attrs.get("id", "")), nodes.index(cast("Element", node.parent)))
@@ -476,15 +478,17 @@ def test_html_table_literal_elements(case: str, source: str, expected: list[tupl
 
 @pytest.mark.parametrize(("case", "source", "expected"), _TABLE_CASES)
 def test_html_table_literal_texts(case: str, source: str, expected: list[tuple[str, str, int]]) -> None:
-    root: Final = parse_fragment(source)
-    nodes: Final = [root, *root.descendants]
+    root: Final[Element] = parse_fragment(source)
+    nodes: Final[list[Node]] = [root, *root.descendants]
     assert [(node.data, nodes.index(cast("Element", node.parent))) for node in nodes[1:] if isinstance(node, Text)] == [
         (data, parent) for tag, data, parent in expected if tag == "#text"
     ], case
 
 
 def test_html_table_checks_first_parse() -> None:
-    source: Final = '<table id="z"><thead><tr id="x"><td id="x">MiXeD</td><td id="y">MiXeD</td></tr></thead></table>'
+    source: Final[str] = (
+        '<table id="z"><thead><tr id="x"><td id="x">MiXeD</td><td id="y">MiXeD</td></tr></thead></table>'
+    )
     assert (
         html_table_check("td:implied:1:plain", read=lambda _source: parse_fragment(source))
         == "parsed table tree differs from literals"
@@ -492,8 +496,10 @@ def test_html_table_checks_first_parse() -> None:
 
 
 def test_html_table_checks_repeat_formatting() -> None:
-    source: Final = '<table id="z"><tbody><tr id="x"><td id="x">MiXeD</td><td id="y">MiXeD</td></tr></tbody></table>'
-    outputs: Final = iter([source, source.replace('"', "'")])
+    source: Final[str] = (
+        '<table id="z"><tbody><tr id="x"><td id="x">MiXeD</td><td id="y">MiXeD</td></tr></tbody></table>'
+    )
+    outputs: Final[Iterator[str]] = iter([source, source.replace('"', "'")])
     assert (
         html_table_check("td:implied:1:plain", lambda _node: next(outputs)) == "table serialization changes on repeat"
     )
@@ -565,9 +571,9 @@ def test_html_table_rejects_unsupported_grammar(case: str) -> None:
 
 
 def test_html_table_production_sweep_and_bounds() -> None:
-    seeds: Final = html_table_seeds()
-    rng: Final = random.Random(1018)  # ruff: ignore[suspicious-non-cryptographic-random-usage] - Reproducible grammar samples.
-    generated: Final = [html_table_generate(rng) for _ in range(100)]
+    seeds: Final[list[str]] = html_table_seeds()
+    rng: Final[random.Random] = random.Random(1018)  # ruff: ignore[suspicious-non-cryptographic-random-usage] - Reproducible grammar samples.
+    generated: Final[list[str]] = [html_table_generate(rng) for _ in range(100)]
     assert (
         len(seeds),
         len(set(seeds)),
@@ -596,8 +602,8 @@ def test_html_table_generated_trees_obey_bounds() -> None:
     identifiers: Final[set[str]] = set()
 
     def capture(source: str) -> Element:
-        root: Final = parse_fragment(source)
-        elements: Final = [node for node in root.descendants if isinstance(node, Element)]
+        root: Final[Element] = parse_fragment(source)
+        elements: Final[list[Element]] = [node for node in root.descendants if isinstance(node, Element)]
         bounds.add((
             len(elements),
             sum(isinstance(node, Text) for node in root.descendants),
@@ -616,22 +622,24 @@ def test_html_table_generated_trees_obey_bounds() -> None:
 
 
 def test_html_table_cli_seed_floor(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    status: Final = main(["--oracle", "html-table-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
+    status: Final[int] = main(["--oracle", "html-table-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
     assert (status, list(tmp_path.glob("crash-*")), "24" in capsys.readouterr().out) == (0, [], True)
 
 
 def test_html_table_cli_emits_group_change(mocker: MockerFixture, tmp_path: Path) -> None:
-    source: Final = '<table id="z"><thead><tr id="x"><td id="x">MiXeD</td><td id="y">MiXeD</td></tr></thead></table>'
-    oracle: Final = replace(
+    source: Final[str] = (
+        '<table id="z"><thead><tr id="x"><td id="x">MiXeD</td><td id="y">MiXeD</td></tr></thead></table>'
+    )
+    oracle: Final[Oracle] = replace(
         ORACLES["html-table-grammar"],
         check=partial(html_table_check, serialize=lambda _node: source),
         seeds=lambda: ["td:implied:1:plain"],
         floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"html-table-grammar": oracle}, clear=True)
-    status: Final = main(["--oracle", "html-table-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
-    findings: Final = list(tmp_path.glob("*.json"))
-    payload: Final = json.loads(findings[0].read_text(encoding="utf-8"))
+    status: Final[int] = main(["--oracle", "html-table-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
+    findings: Final[list[Path]] = list(tmp_path.glob("*.json"))
+    payload: Final[dict[str, str | int]] = json.loads(findings[0].read_text(encoding="utf-8"))
     assert (status, len(findings), payload["detail"], payload["hits"]) == (
         1,
         1,
@@ -643,9 +651,11 @@ def test_html_table_cli_emits_group_change(mocker: MockerFixture, tmp_path: Path
 def test_html_table_cli_rejection_is_out_of_scope(
     mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    oracle: Final = replace(ORACLES["html-table-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1))
+    oracle: Final[Oracle] = replace(
+        ORACLES["html-table-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1)
+    )
     mocker.patch.dict(ORACLES, {"html-table-grammar": oracle}, clear=True)
-    status: Final = main(["--oracle", "html-table-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
+    status: Final[int] = main(["--oracle", "html-table-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
     assert (status, list(tmp_path.glob("*.json")), "VACUOUS RUN" in capsys.readouterr().err) == (2, [], True)
 
 
@@ -708,8 +718,8 @@ _LIST_CASES: Final[list[pytest.ParameterSet]] = [
 
 @pytest.mark.parametrize(("case", "source", "expected"), _LIST_CASES)
 def test_html_list_literal_elements(case: str, source: str, expected: list[tuple[str, str, int]]) -> None:
-    root: Final = parse_fragment(source)
-    nodes: Final = [root, *root.descendants]
+    root: Final[Element] = parse_fragment(source)
+    nodes: Final[list[Node]] = [root, *root.descendants]
     assert (
         [(node.tag, node.attrs["id"], nodes.index(cast("Element", node.parent))) for node in root.iter_elements()],
         {node.namespace.value for node in root.iter_elements()},
@@ -727,8 +737,8 @@ def test_html_list_literal_elements(case: str, source: str, expected: list[tuple
 
 @pytest.mark.parametrize(("case", "source", "expected"), _LIST_CASES)
 def test_html_list_literal_texts(case: str, source: str, expected: list[tuple[str, str, int]]) -> None:
-    root: Final = parse_fragment(source)
-    nodes: Final = [root, *root.descendants]
+    root: Final[Element] = parse_fragment(source)
+    nodes: Final[list[Node]] = [root, *root.descendants]
     assert [(node.data, nodes.index(cast("Element", node.parent))) for node in nodes[1:] if isinstance(node, Text)] == [
         (data, parent) for tag, data, parent in expected if tag == "#text"
     ], case
@@ -778,8 +788,8 @@ def test_html_list_rejects_changed_tree(source: str) -> None:
 
 
 def test_html_list_checks_repeat_formatting() -> None:
-    source: Final = '<ul id="z"><li id="x">MiXeD</li><li id="y">MiXeD</li></ul>'
-    outputs: Final = iter([source, source.replace('"', "'")])
+    source: Final[str] = '<ul id="z"><li id="x">MiXeD</li><li id="y">MiXeD</li></ul>'
+    outputs: Final[Iterator[str]] = iter([source, source.replace('"', "'")])
     assert (
         html_list_check("ul:flat:explicit:plain", lambda _node: next(outputs)) == "list serialization changes on repeat"
     )
@@ -804,9 +814,9 @@ def test_html_list_rejects_unsupported_grammar(case: str) -> None:
 
 
 def test_html_list_production_sweep_and_bounds() -> None:
-    seeds: Final = html_list_seeds()
-    rng: Final = random.Random(1018)  # ruff: ignore[suspicious-non-cryptographic-random-usage] - Reproducible grammar samples.
-    generated: Final = [html_list_generate(rng) for _ in range(100)]
+    seeds: Final[list[str]] = html_list_seeds()
+    rng: Final[random.Random] = random.Random(1018)  # ruff: ignore[suspicious-non-cryptographic-random-usage] - Reproducible grammar samples.
+    generated: Final[list[str]] = [html_list_generate(rng) for _ in range(100)]
     assert (
         len(seeds),
         len(set(seeds)),
@@ -831,25 +841,25 @@ def test_html_list_production_sweep_and_bounds() -> None:
 
 
 def test_html_list_cli_seed_floor(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    status: Final = main(["--oracle", "html-list-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
+    status: Final[int] = main(["--oracle", "html-list-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
     assert (status, list(tmp_path.glob("crash-*")), "24" in capsys.readouterr().out) == (0, [], True)
 
 
 def test_html_list_cli_emits_attachment_loss(mocker: MockerFixture, tmp_path: Path) -> None:
-    source: Final = (
+    source: Final[str] = (
         '<ul id="z"><li id="x">MiXeD<ul id="z"><li id="x">MiXeD</li></ul></li>'
         '<li id="y">MiXeD</li><li id="y">MiXeD</li></ul>'
     )
-    oracle: Final = replace(
+    oracle: Final[Oracle] = replace(
         ORACLES["html-list-grammar"],
         check=partial(html_list_check, serialize=lambda _node: source),
         seeds=lambda: ["ul:nested:explicit:plain"],
         floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"html-list-grammar": oracle}, clear=True)
-    status: Final = main(["--oracle", "html-list-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
-    findings: Final = list(tmp_path.glob("*.json"))
-    payload: Final = json.loads(findings[0].read_text(encoding="utf-8"))
+    status: Final[int] = main(["--oracle", "html-list-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
+    findings: Final[list[Path]] = list(tmp_path.glob("*.json"))
+    payload: Final[dict[str, str | int]] = json.loads(findings[0].read_text(encoding="utf-8"))
     assert (status, len(findings), payload["detail"], payload["hits"]) == (
         1,
         1,
@@ -861,9 +871,11 @@ def test_html_list_cli_emits_attachment_loss(mocker: MockerFixture, tmp_path: Pa
 def test_html_list_cli_rejection_is_out_of_scope(
     mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    oracle: Final = replace(ORACLES["html-list-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1))
+    oracle: Final[Oracle] = replace(
+        ORACLES["html-list-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1)
+    )
     mocker.patch.dict(ORACLES, {"html-list-grammar": oracle}, clear=True)
-    status: Final = main(["--oracle", "html-list-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
+    status: Final[int] = main(["--oracle", "html-list-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
     assert (status, list(tmp_path.glob("*.json")), "VACUOUS RUN" in capsys.readouterr().err) == (2, [], True)
 
 
@@ -872,8 +884,8 @@ def test_html_list_generated_trees_obey_bounds() -> None:
     identifiers: Final[set[str]] = set()
 
     def capture(source: str) -> Element:
-        root: Final = parse_fragment(source)
-        elements: Final = [node for node in root.descendants if isinstance(node, Element)]
+        root: Final[Element] = parse_fragment(source)
+        elements: Final[list[Element]] = [node for node in root.descendants if isinstance(node, Element)]
         bounds.add((
             len(elements),
             sum(isinstance(node, Text) for node in root.descendants),
@@ -922,7 +934,7 @@ if TYPE_CHECKING:
     ],
 )
 def test_html_foreign_literal_tree(case: str, source: str, boundary: str, decoded: str) -> None:
-    root: Final = parse_fragment(source)
+    root: Final[Element] = parse_fragment(source)
     assert (
         [
             (node.namespace.value, node.tag, cast("Element", node.parent).tag)
@@ -967,7 +979,7 @@ def test_html_foreign_serialized_corruption(serialized: str) -> None:
 
 
 def test_html_foreign_repeat_formatting() -> None:
-    outputs: Final = iter([
+    outputs: Final[Iterator[str]] = iter([
         '<svg><desc><a id="x">MiXeD</a></desc><g id="y"></g></svg>',
         "<svg><desc><a id='x'>MiXeD</a></desc><g id='y'></g></svg>",
     ])
@@ -994,9 +1006,9 @@ def test_html_foreign_unsupported_program(case: str) -> None:
 
 
 def test_html_foreign_finite_productions() -> None:
-    seeds: Final = html_foreign_seeds()
-    rng: Final = random.Random(1018)  # ruff: ignore[suspicious-non-cryptographic-random-usage] - Reproducible grammar samples.
-    generated: Final = [html_foreign_generate(rng) for _ in range(100)]
+    seeds: Final[list[str]] = html_foreign_seeds()
+    rng: Final[random.Random] = random.Random(1018)  # ruff: ignore[suspicious-non-cryptographic-random-usage] - Reproducible grammar samples.
+    generated: Final[list[str]] = [html_foreign_generate(rng) for _ in range(100)]
     assert (
         len(seeds),
         Counter(case.split(":")[0] for case in seeds),
@@ -1020,21 +1032,21 @@ def test_html_foreign_finite_productions() -> None:
 
 
 def test_html_foreign_cli_seed_floor(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    status: Final = main(["--oracle", "html-foreign-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
+    status: Final[int] = main(["--oracle", "html-foreign-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
     assert (status, list(tmp_path.glob("crash-*")), "36" in capsys.readouterr().out) == (0, [], True)
 
 
 def test_html_foreign_cli_emits_loss(mocker: MockerFixture, tmp_path: Path) -> None:
-    oracle: Final = replace(
+    oracle: Final[Oracle] = replace(
         ORACLES["html-foreign-grammar"],
         check=partial(html_foreign_check, serialize=lambda _node: ""),
         seeds=lambda: ["desc:x:double:plain"],
         floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"html-foreign-grammar": oracle}, clear=True)
-    status: Final = main(["--oracle", "html-foreign-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
-    findings: Final = list(tmp_path.glob("*.json"))
-    payload: Final = json.loads(findings[0].read_text(encoding="utf-8"))
+    status: Final[int] = main(["--oracle", "html-foreign-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
+    findings: Final[list[Path]] = list(tmp_path.glob("*.json"))
+    payload: Final[dict[str, str | int]] = json.loads(findings[0].read_text(encoding="utf-8"))
     assert (status, len(findings), payload["detail"], payload["hits"]) == (
         1,
         1,
@@ -1044,9 +1056,11 @@ def test_html_foreign_cli_emits_loss(mocker: MockerFixture, tmp_path: Path) -> N
 
 
 def test_html_foreign_cli_rejection(mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    oracle: Final = replace(ORACLES["html-foreign-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1))
+    oracle: Final[Oracle] = replace(
+        ORACLES["html-foreign-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1)
+    )
     mocker.patch.dict(ORACLES, {"html-foreign-grammar": oracle}, clear=True)
-    status: Final = main(["--oracle", "html-foreign-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
+    status: Final[int] = main(["--oracle", "html-foreign-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
     assert (status, list(tmp_path.glob("*.json")), "VACUOUS RUN" in capsys.readouterr().err) == (2, [], True)
 
 
@@ -1086,7 +1100,7 @@ if TYPE_CHECKING:
     ],
 )
 def test_html_sibling_literal_trees(case: str, source: str, expected: list[tuple[str, dict[str, str], str]]) -> None:
-    root: Final = parse_fragment(source)
+    root: Final[Element] = parse_fragment(source)
     assert (
         [(node.tag, dict(node.attrs), node.text) for node in root.iter_elements() if node is not root],
         html_sibling_check(case),
@@ -1108,7 +1122,7 @@ def test_html_sibling_rejects_unexpected_comment() -> None:
 
 
 def test_html_sibling_checks_repeat_formatting() -> None:
-    outputs: Final = iter(['<span title="Token"></span>', "<span title='Token'></span>"])
+    outputs: Final[Iterator[str]] = iter(['<span title="Token"></span>', "<span title='Token'></span>"])
     assert html_sibling_check("span:title:bare:1:empty", lambda _node: next(outputs)) == (
         "sibling serialization changes on repeat"
     )
@@ -1134,10 +1148,10 @@ def test_html_sibling_rejects_unsupported_grammar(case: str) -> None:
 
 
 def test_html_sibling_production_sweep_and_bounds() -> None:
-    seeds: Final = html_sibling_seeds()
-    rng: Final = random.Random(1018)  # ruff: ignore[suspicious-non-cryptographic-random-usage] - Reproducible grammar samples.
-    generated: Final = [html_sibling_generate(rng) for _ in range(100)]
-    leaves: Final = Counter(case.rsplit(":", 1)[1] for case in seeds)
+    seeds: Final[list[str]] = html_sibling_seeds()
+    rng: Final[random.Random] = random.Random(1018)  # ruff: ignore[suspicious-non-cryptographic-random-usage] - Reproducible grammar samples.
+    generated: Final[list[str]] = [html_sibling_generate(rng) for _ in range(100)]
+    leaves: Final[Counter[str]] = Counter(case.rsplit(":", 1)[1] for case in seeds)
     assert (
         len(seeds),
         leaves,
@@ -1154,21 +1168,21 @@ def test_html_sibling_production_sweep_and_bounds() -> None:
 
 
 def test_html_sibling_cli_seed_floor(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    status: Final = main(["--oracle", "html-sibling-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
+    status: Final[int] = main(["--oracle", "html-sibling-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
     assert (status, list(tmp_path.glob("crash-*")), "288" in capsys.readouterr().out) == (0, [], True)
 
 
 def test_html_sibling_cli_emits_multiplicity_loss(mocker: MockerFixture, tmp_path: Path) -> None:
-    oracle: Final = replace(
+    oracle: Final[Oracle] = replace(
         ORACLES["html-sibling-grammar"],
         check=partial(html_sibling_check, serialize=lambda _node: ""),
         seeds=lambda: ["span:title:bare:2:empty"],
         floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"html-sibling-grammar": oracle}, clear=True)
-    status: Final = main(["--oracle", "html-sibling-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
-    findings: Final = list(tmp_path.glob("*.json"))
-    payload: Final = json.loads(findings[0].read_text(encoding="utf-8"))
+    status: Final[int] = main(["--oracle", "html-sibling-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
+    findings: Final[list[Path]] = list(tmp_path.glob("*.json"))
+    payload: Final[dict[str, str | int]] = json.loads(findings[0].read_text(encoding="utf-8"))
     assert (status, len(findings), payload["detail"], payload["hits"]) == (
         1,
         1,
@@ -1180,9 +1194,11 @@ def test_html_sibling_cli_emits_multiplicity_loss(mocker: MockerFixture, tmp_pat
 def test_html_sibling_cli_rejection_is_out_of_scope(
     mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    oracle: Final = replace(ORACLES["html-sibling-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1))
+    oracle: Final[Oracle] = replace(
+        ORACLES["html-sibling-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1)
+    )
     mocker.patch.dict(ORACLES, {"html-sibling-grammar": oracle}, clear=True)
-    status: Final = main(["--oracle", "html-sibling-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
+    status: Final[int] = main(["--oracle", "html-sibling-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
     assert (status, list(tmp_path.glob("*.json")), "VACUOUS RUN" in capsys.readouterr().err) == (2, [], True)
 
 
@@ -1202,7 +1218,7 @@ if TYPE_CHECKING:
     ],
 )
 def test_iterator_sequence_pins_reference_and_traversal(program: str, name: str) -> None:
-    case: Final = f"{program}:{name}"
+    case: Final[str] = f"{program}:{name}"
     assert (
         iterator_sequence_check(case),
         iterator_sequence_check(case, lambda _program, _name: "[]"),
@@ -1230,9 +1246,9 @@ def test_iterator_sequence_rejects_unsupported_grammar(case: str) -> None:
 
 
 def test_iterator_sequence_seed_programs_and_controls() -> None:
-    rng: Final = random.SystemRandom()
-    seeds: Final = iterator_sequence_seeds()
-    generated: Final = [iterator_sequence_generate(rng) for _ in range(100)]
+    rng: Final[random.SystemRandom] = random.SystemRandom()
+    seeds: Final[list[str]] = iterator_sequence_seeds()
+    generated: Final[list[str]] = [iterator_sequence_generate(rng) for _ in range(100)]
     assert (
         len(seeds),
         all(iterator_sequence_check(case) is None for case in [*seeds, *generated]),
@@ -1245,21 +1261,21 @@ def test_iterator_sequence_seed_programs_and_controls() -> None:
 
 
 def test_iterator_sequence_cli_seed_floor(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    status: Final = main(["--oracle", "iterator-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)])
+    status: Final[int] = main(["--oracle", "iterator-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)])
     assert (status, list(tmp_path.glob("crash-*")), "120" in capsys.readouterr().out) == (0, [], True)
 
 
 def test_iterator_sequence_cli_emits_missed_edit(mocker: MockerFixture, tmp_path: Path) -> None:
-    oracle: Final = replace(
+    oracle: Final[Oracle] = replace(
         ORACLES["iterator-sequence"],
         check=partial(iterator_sequence_check, run=lambda _program, _name: "[]"),
         seeds=lambda: ["after:a"],
         floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"iterator-sequence": oracle}, clear=True)
-    status: Final = main(["--oracle", "iterator-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)])
-    findings: Final = list(tmp_path.glob("*.json"))
-    payload: Final = json.loads(findings[0].read_text(encoding="utf-8"))
+    status: Final[int] = main(["--oracle", "iterator-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)])
+    findings: Final[list[Path]] = list(tmp_path.glob("*.json"))
+    payload: Final[dict[str, str | int]] = json.loads(findings[0].read_text(encoding="utf-8"))
     assert (status, len(findings), payload["detail"], payload["hits"]) == (
         1,
         1,
@@ -1269,21 +1285,21 @@ def test_iterator_sequence_cli_emits_missed_edit(mocker: MockerFixture, tmp_path
 
 
 def test_iterator_sequence_cli_emits_valid_program_failure(mocker: MockerFixture, tmp_path: Path) -> None:
-    oracle: Final = replace(
+    oracle: Final[Oracle] = replace(
         ORACLES["iterator-sequence"],
         check=partial(iterator_sequence_check, run=_reject_program),
         seeds=lambda: ["after:a"],
         floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"iterator-sequence": oracle}, clear=True)
-    status: Final = main(["--oracle", "iterator-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)])
-    findings: Final = list(tmp_path.glob("*.json"))
-    payload: Final = json.loads(findings[0].read_text(encoding="utf-8"))
+    status: Final[int] = main(["--oracle", "iterator-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)])
+    findings: Final[list[Path]] = list(tmp_path.glob("*.json"))
+    payload: Final[dict[str, str | int]] = json.loads(findings[0].read_text(encoding="utf-8"))
     assert (status, len(findings), payload["detail"], payload["hits"]) == (1, 1, "raised RuntimeError", 1)
 
 
 def _reject_program(_program: str, _name: str) -> str:
-    message: Final = "valid DOM operation failed"
+    message: Final[str] = "valid DOM operation failed"
     raise RuntimeError(message)
 
 
@@ -1316,7 +1332,7 @@ if TYPE_CHECKING:
     ],
 )
 def test_observer_sequence_pins_edits_records_and_callbacks(program: str, name: str) -> None:
-    case: Final = f"{program}:{name}"
+    case: Final[str] = f"{program}:{name}"
     assert (
         observer_sequence_check(case),
         observer_sequence_check(case, lambda _program, _name: "[]"),
@@ -1344,9 +1360,9 @@ def test_observer_sequence_rejects_unsupported_grammar(case: str) -> None:
 
 
 def test_observer_sequence_seed_programs_and_controls() -> None:
-    rng: Final = random.SystemRandom()
-    seeds: Final = observer_sequence_seeds()
-    generated: Final = [observer_sequence_generate(rng) for _ in range(100)]
+    rng: Final[random.SystemRandom] = random.SystemRandom()
+    seeds: Final[list[str]] = observer_sequence_seeds()
+    generated: Final[list[str]] = [observer_sequence_generate(rng) for _ in range(100)]
     assert (
         len(seeds),
         all(observer_sequence_check(case) is None for case in [*seeds, *generated]),
@@ -1359,21 +1375,21 @@ def test_observer_sequence_seed_programs_and_controls() -> None:
 
 
 def test_observer_sequence_cli_seed_floor(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    status: Final = main(["--oracle", "observer-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)])
+    status: Final[int] = main(["--oracle", "observer-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)])
     assert (status, list(tmp_path.glob("crash-*")), "180" in capsys.readouterr().out) == (0, [], True)
 
 
 def test_observer_sequence_cli_emits_missed_edit(mocker: MockerFixture, tmp_path: Path) -> None:
-    oracle: Final = replace(
+    oracle: Final[Oracle] = replace(
         ORACLES["observer-sequence"],
         check=partial(observer_sequence_check, run=lambda _program, _name: "[]"),
         seeds=lambda: ["reuse1:a"],
         floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"observer-sequence": oracle}, clear=True)
-    status: Final = main(["--oracle", "observer-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)])
-    findings: Final = list(tmp_path.glob("*.json"))
-    payload: Final = json.loads(findings[0].read_text(encoding="utf-8"))
+    status: Final[int] = main(["--oracle", "observer-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)])
+    findings: Final[list[Path]] = list(tmp_path.glob("*.json"))
+    payload: Final[dict[str, str | int]] = json.loads(findings[0].read_text(encoding="utf-8"))
     assert (status, len(findings), payload["detail"], payload["hits"]) == (
         1,
         1,
@@ -1383,21 +1399,21 @@ def test_observer_sequence_cli_emits_missed_edit(mocker: MockerFixture, tmp_path
 
 
 def test_observer_sequence_cli_emits_valid_program_failure(mocker: MockerFixture, tmp_path: Path) -> None:
-    oracle: Final = replace(
+    oracle: Final[Oracle] = replace(
         ORACLES["observer-sequence"],
         check=partial(observer_sequence_check, run=_fuzz_observer_invariants_reject_program),
         seeds=lambda: ["reuse1:a"],
         floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"observer-sequence": oracle}, clear=True)
-    status: Final = main(["--oracle", "observer-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)])
-    findings: Final = list(tmp_path.glob("*.json"))
-    payload: Final = json.loads(findings[0].read_text(encoding="utf-8"))
+    status: Final[int] = main(["--oracle", "observer-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)])
+    findings: Final[list[Path]] = list(tmp_path.glob("*.json"))
+    payload: Final[dict[str, str | int]] = json.loads(findings[0].read_text(encoding="utf-8"))
     assert (status, len(findings), payload["detail"], payload["hits"]) == (1, 1, "raised RuntimeError", 1)
 
 
 def _fuzz_observer_invariants_reject_program(_program: str, _name: str) -> str:
-    message: Final = "valid DOM operation failed"
+    message: Final[str] = "valid DOM operation failed"
     raise RuntimeError(message)
 
 

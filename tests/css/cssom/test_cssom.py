@@ -6,7 +6,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Final
 
 import pytest
-from bench.operations import INPUTS
+from bench.operations import INPUTS, Case
 
 from turbohtml import DocumentFragment, Element, Text, parse, parse_xml
 from turbohtml.build import E
@@ -174,7 +174,7 @@ def _computed_color(css: str) -> str:
     ],
 )
 def test_statement_at_rules_scale_linearly(entry: Callable[[str], str], expected: str, work_steps: WorkSteps) -> None:
-    statement: Final = "@import url(x);"
+    statement: Final[str] = "@import url(x);"
     work_steps.assert_linear(lambda n: partial(entry, f"{statement * n}p {{ color: red }}"), (500, 2000))
     assert entry(f"{statement * 2_000}p {{ color: red }}") == expected
 
@@ -286,10 +286,12 @@ def test_computed_style_has_rule_is_answered_for_each_element_of_one_tree() -> N
 
 def test_computed_style_long_class_value_refreshes_after_change() -> None:
     # the rule's answer about the long class value is kept between elements and must not outlive a change to it
-    pad: Final = "w " * 160
-    document: Final = parse(f'<style>li{{color:blue}}.hit li{{color:red}}</style><ol class="{pad}hit"><li><li></ol>')
-    items: Final = document.select("li")
-    before: Final = [computed_style(item)["color"] for item in items]
+    pad: Final[str] = "w " * 160
+    document: Final[Document] = parse(
+        f'<style>li{{color:blue}}.hit li{{color:red}}</style><ol class="{pad}hit"><li><li></ol>'
+    )
+    items: Final[list[Element]] = document.select("li")
+    before: Final[list[str]] = [computed_style(item)["color"] for item in items]
     document.select("ol")[0].attrs["class"] = pad
     assert (before, [computed_style(item)["color"] for item in items]) == (["red", "red"], ["blue", "blue"])
 
@@ -630,7 +632,7 @@ def test_computed_style_tracks_stylesheet_insertion() -> None:
 
 
 def _fragment_of(child: Node) -> DocumentFragment:
-    fragment: Final = DocumentFragment()
+    fragment: Final[DocumentFragment] = DocumentFragment()
     fragment.append(child)
     return fragment
 
@@ -711,11 +713,11 @@ def _fragment_of(child: Node) -> DocumentFragment:
 def test_computed_style_keeps_sheets_only_across_edits_without_style(
     edit: Callable[[Document], object], expected: str
 ) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         "<head><style id=early>p { color: blue }</style></head>"
         "<body><p></p><i>x</i><b></b><span><style id=late>p { color: red }</style></span></body>"
     )
-    paragraph: Final = document.select_one("p")
+    paragraph: Final[Element | None] = document.select_one("p")
     assert isinstance(paragraph, Element)
     assert computed_style(paragraph)["color"] == "red"
     edit(document)
@@ -723,8 +725,8 @@ def test_computed_style_keeps_sheets_only_across_edits_without_style(
 
 
 def test_computed_style_kept_sheets_match_later_elements() -> None:
-    document: Final = parse("<style>late-tag, .late, #late { color: red }</style><p></p>")
-    paragraph: Final = document.select_one("p")
+    document: Final[Document] = parse("<style>late-tag, .late, #late { color: red }</style><p></p>")
+    paragraph: Final[Element | None] = document.select_one("p")
     assert isinstance(paragraph, Element)
     assert computed_style(paragraph)["color"] == "canvastext"
     for element in (Element("late-tag"), Element("b", {"class": "late"}), Element("b", {"id": "late"})):
@@ -734,7 +736,7 @@ def test_computed_style_kept_sheets_match_later_elements() -> None:
 
 def test_computed_style_keeps_sheets_across_removals_in_linear_time(work_steps: WorkSteps) -> None:
     def hide_all(size: int) -> Callable[[], object]:
-        document: Final = parse(
+        document: Final[Document] = parse(
             f"<style>b {{ display: none }}{'em {margin: 0}' * size}</style><p>kept</p>{'<b></b>' * size}"
         )
 
@@ -1295,8 +1297,8 @@ def test_computed_style_reuses_parent_across_children() -> None:
 
 def test_computed_style_snapshot_survives_later_resolution() -> None:
     document: Final[Document] = parse("<div style='color:red'>a</div><div style='color:blue'>b</div>")
-    first: Final = computed_style(document.select("div")[0])
-    second: Final = computed_style(document.select("div")[1])
+    first: Final[ComputedStyle] = computed_style(document.select("div")[0])
+    second: Final[ComputedStyle] = computed_style(document.select("div")[1])
     assert (first["color"], second["color"], computed_style(document.select("div")[0])["color"]) == (
         "red",
         "blue",
@@ -1318,24 +1320,24 @@ def test_computed_style_snapshot_survives_later_resolution() -> None:
     ],
 )
 def test_computed_style_preserves_alternative_specificity(css: str, expected: str) -> None:
-    document: Final = parse(f"""<style>{css}</style>{'<div class="hit" id="target"></div>' * 3}""")
+    document: Final[Document] = parse(f"""<style>{css}</style>{'<div class="hit" id="target"></div>' * 3}""")
     assert [computed_style(node)["color"] for node in document.select("div")] == [expected] * 3
 
 
 def test_computed_style_keeps_specificity_within_each_sheet() -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         '<style>#target,#missing{color:red}</style><style>.hit{color:blue}</style><div class="hit" id="target"></div>'
     )
     assert computed_style(document.select("div")[0])["color"] == "red"
 
 
 def test_computed_style_rebuilds_specificity_after_selector_change() -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         '<style>.hit,#missing{color:red}div.hit{color:blue}</style><div class="hit" id="target"></div>'
     )
-    node: Final = document.select("div")[0]
-    before: Final = computed_style(node)["color"]
-    text: Final = document.select("style")[0].children[0]
+    node: Final[Element] = document.select("div")[0]
+    before: Final[str] = computed_style(node)["color"]
+    text: Final[Node] = document.select("style")[0].children[0]
     assert isinstance(text, Text)
     text.data = "#target{color:red}div.hit{color:blue}"
     assert (before, computed_style(node)["color"]) == ("blue", "red")
@@ -1343,10 +1345,12 @@ def test_computed_style_rebuilds_specificity_after_selector_change() -> None:
 
 def test_computed_style_rereads_dir_auto_after_text_change() -> None:
     # both rules resolve the paragraph through the div; the answer kept for the first must not outlive the edit
-    document: Final = parse("<style>:dir(ltr){color:blue}p:dir(rtl){color:red}</style><div dir=auto>x<p></p></div>")
-    node: Final = document.select("p")[0]
-    before: Final = computed_style(node)["color"]
-    text: Final = document.select("div")[0].children[0]
+    document: Final[Document] = parse(
+        "<style>:dir(ltr){color:blue}p:dir(rtl){color:red}</style><div dir=auto>x<p></p></div>"
+    )
+    node: Final[Element] = document.select("p")[0]
+    before: Final[str] = computed_style(node)["color"]
+    text: Final[Node] = document.select("div")[0].children[0]
     assert isinstance(text, Text)
     text.data = "א"
     assert (before, computed_style(node)["color"]) == ("blue", "red")
@@ -1368,7 +1372,7 @@ def test_computed_style_rereads_dir_auto_after_text_change() -> None:
     ],
 )
 def test_computed_style_preserves_compound_predicates(selector: str, expected: str) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         f"<!doctype html><style>{selector}{{color:red}}div{{color:blue}}</style>"
         '<div class="hit" id="target"><span></span></div>'
     )
@@ -1380,14 +1384,14 @@ def test_computed_style_preserves_compound_predicates(selector: str, expected: s
     [pytest.param("", "red", id="quirks"), pytest.param("<!doctype html>", "blue", id="standards")],
 )
 def test_computed_style_predicate_order_preserves_quirks(doctype: str, expected: str) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         f'{doctype}<style>:has(span).hit{{color:red}}div{{color:blue}}</style><div class="HIT"><span></span></div>'
     )
     assert computed_style(document.select("div")[0])["color"] == expected
 
 
 def test_computed_style_predicate_order_preserves_foreign_elements() -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         '<!doctype html><style>:has(circle).hit{color:red}g{color:blue}</style><svg><g class="hit"><circle/></g></svg>'
     )
     assert computed_style(document.select("g")[0])["color"] == "red"
@@ -1403,68 +1407,68 @@ def test_computed_style_predicate_order_preserves_foreign_elements() -> None:
     ],
 )
 def test_computed_style_deep_has_scope(selector: str, expected: str) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         f'<style>div{{color:blue}}div{selector}{{color:red}}</style>{"<div>" * 64}<span class="hit"></span>'
         f"{'</div>' * 64}"
     )
-    nodes: Final = tuple(document.select("div"))
+    nodes: Final[tuple[Element, ...]] = tuple(document.select("div"))
     for node in reversed(nodes):
         computed_style(node)
     assert computed_style(nodes[0])["color"] == expected
 
 
 def test_computed_style_has_refreshes_after_attribute_change() -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         f"<style>div{{color:blue}}div:has(.hit){{color:red}}</style>{'<div>' * 64}<span></span>{'</div>' * 64}"
     )
-    outer: Final = document.select("div")[0]
-    target: Final = document.select("span")[0]
-    before: Final = computed_style(outer)["color"]
+    outer: Final[Element] = document.select("div")[0]
+    target: Final[Element] = document.select("span")[0]
+    before: Final[str] = computed_style(outer)["color"]
     target.attrs["class"] = "hit"
     assert (before, computed_style(outer)["color"]) == ("blue", "red")
 
 
 def test_computed_style_has_refreshes_after_insertion() -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         f"<style>div{{color:blue}}div:has(.hit){{color:red}}</style>{'<div>' * 64}<span></span>{'</div>' * 64}"
     )
-    outer: Final = document.select("div")[0]
-    target: Final = document.select("span")[0]
-    before: Final = computed_style(outer)["color"]
+    outer: Final[Element] = document.select("div")[0]
+    target: Final[Element] = document.select("span")[0]
+    before: Final[str] = computed_style(outer)["color"]
     target.append(Element("b", {"class": "hit"}))
     assert (before, computed_style(outer)["color"]) == ("blue", "red")
 
 
 def test_computed_style_has_refreshes_after_removal() -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         f'<style>div{{color:blue}}div:has(.hit){{color:red}}</style>{"<div>" * 64}<span class="hit"></span>'
         f"{'</div>' * 64}"
     )
-    outer: Final = document.select("div")[0]
-    target: Final = document.select("span")[0]
-    before: Final = computed_style(outer)["color"]
+    outer: Final[Element] = document.select("div")[0]
+    target: Final[Element] = document.select("span")[0]
+    before: Final[str] = computed_style(outer)["color"]
     target.extract()
     assert (before, computed_style(outer)["color"]) == ("red", "blue")
 
 
 def test_computed_style_has_refreshes_after_text_change() -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         f"<style>div{{color:blue}}div:has(span:empty){{color:red}}</style>{'<div>' * 64}<span></span>{'</div>' * 64}"
     )
-    outer: Final = document.select("div")[0]
-    target: Final = document.select("span")[0]
-    before: Final = computed_style(outer)["color"]
+    outer: Final[Element] = document.select("div")[0]
+    target: Final[Element] = document.select("span")[0]
+    before: Final[str] = computed_style(outer)["color"]
     target.append(Text("filled"))
     assert (before, computed_style(outer)["color"]) == ("red", "blue")
 
 
 def test_computed_style_has_refreshes_after_stylesheet_change() -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         f"<style>div{{color:blue}}div:has(.hit){{color:red}}</style>{'<div>' * 64}<span></span>{'</div>' * 64}"
     )
-    outer: Final = document.select("div")[0]
-    before: Final = computed_style(outer)["color"]
-    style_text: Final = document.select("style")[0].children[0]
+    outer: Final[Element] = document.select("div")[0]
+    before: Final[str] = computed_style(outer)["color"]
+    style_text: Final[Node] = document.select("style")[0].children[0]
     assert isinstance(style_text, Text)
     style_text.data = "div{color:red}"
     assert (before, computed_style(outer)["color"]) == ("blue", "red")
@@ -1473,12 +1477,12 @@ def test_computed_style_has_refreshes_after_stylesheet_change() -> None:
 def test_computed_style_first_legend_refreshes_after_insert() -> None:
     # both rules ask whether the control's legend is the fieldset's first; the answer is kept between them and must
     # not outlive a legend inserted in front
-    document: Final = parse(
+    document: Final[Document] = parse(
         "<style>input:enabled{color:red}input:disabled{color:blue}</style>"
         "<fieldset disabled><legend><input></legend></fieldset>"
     )
-    control: Final = document.select("input")[0]
-    before: Final = computed_style(control)["color"]
+    control: Final[Element] = document.select("input")[0]
+    before: Final[str] = computed_style(control)["color"]
     document.select("legend")[0].insert_before(Element("legend"))
     assert (before, computed_style(control)["color"]) == ("red", "blue")
 
@@ -1495,19 +1499,19 @@ def test_computed_style_first_legend_refreshes_after_insert() -> None:
     ],
 )
 def test_computed_style_selector_shared_inputs(case_index: int, expected: tuple[str, ...]) -> None:
-    source: Final = INPUTS["computed-style-selectors"]()[case_index][1]
+    source: Final[Case] = INPUTS["computed-style-selectors"]()[case_index][1]
     assert isinstance(source, str)
-    document: Final = parse(source)
+    document: Final[Document] = parse(source)
     assert tuple(computed_style(node)["color"] for node in document.select("div")) == expected
 
 
 def test_computed_style_repeated_missing_has_keeps_memory_flat(retained_bytes: RetainedBytes) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         f"<style>div{{color:blue}}div:has(.absent){{color:red}}</style>{'<div>' * 64}<span></span>{'</div>' * 64}"
     )
-    nodes: Final = tuple(document.select("div"))[:3]
+    nodes: Final[tuple[Element, ...]] = tuple(document.select("div"))[:3]
     _compute_style_rounds(nodes, 1)
-    before: Final = retained_bytes()
+    before: Final[int] = retained_bytes()
     _compute_style_rounds(nodes, 4_096)
     assert retained_bytes() - before < 32_768
     assert tuple(computed_style(node)["color"] for node in nodes) == ("blue",) * 3
@@ -1530,18 +1534,18 @@ def _compute_style_rounds(nodes: tuple[Element, ...], rounds: int) -> None:
 )
 def test_computed_style_has_memo_is_bounded(shape: str, retained_bytes: RetainedBytes) -> None:
     # every :has() argument keys one answer per element, so the memo grows with arguments times elements
-    arguments: Final = 13
-    sheet: Final = {
+    arguments: Final[int] = 13
+    sheet: Final[str] = {
         "rules": ":has(x){}" * arguments,
         "selector-list": f"{','.join([':has(x)'] * arguments)}{{}}",
         "compound": f"{':not(:has(x))' * arguments}{{}}",
         "arguments": f":has({','.join(['x'] * arguments)}){{}}",
     }[shape]
-    elements: Final = (1 << 21) // arguments + 8_192
-    document: Final = parse(f"<style>{sheet}:has(p){{color:red}}</style>{'<div>' * 28}{'<p>' * elements}")
-    root: Final = document.select_one("html")
+    elements: Final[int] = (1 << 21) // arguments + 8_192
+    document: Final[Document] = parse(f"<style>{sheet}:has(p){{color:red}}</style>{'<div>' * 28}{'<p>' * elements}")
+    root: Final[Element | None] = document.select_one("html")
     assert isinstance(root, Element)
-    before: Final = retained_bytes()
+    before: Final[int] = retained_bytes()
     assert computed_style(root)["color"] == "red"
     assert retained_bytes() - before < 1 << 20
 
@@ -1643,11 +1647,11 @@ def test_computed_style_every_sibling_in_linear_time(rule: str, work_steps: Work
 )
 def test_computed_style_sibling_rule_agrees_with_matches(rule: str, climbing: str, order: int) -> None:
     # runs longer than the 128 siblings a walk passes before it keeps a record of the run, on both sides of the one <s>
-    document: Final = parse(
+    document: Final[Document] = parse(
         f"<style>*{{color:blue}}{climbing}{rule}{{color:red}}</style>"
         f"<form><ol>{'<em></em>' * 140}<s></s>{'<em></em>' * 140}<button></button><button></button></ol></form>"
     )
-    nodes: Final = document.select("form, form *")[::order]
+    nodes: Final[list[Element]] = document.select("form, form *")[::order]
     assert [computed_style(node)["color"] for node in nodes] == [
         "red" if node.matches(rule) else "blue" for node in nodes
     ]
@@ -1662,11 +1666,11 @@ def test_computed_style_sibling_rule_agrees_with_matches(rule: str, climbing: st
     ],
 )
 def test_computed_style_has_argument_with_nested_has_agrees_with_matches(rule: str) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         f"<style>*{{color:blue}}{rule}{{color:red}}</style><div><em><b><s></s></b></em><em><x><b></b></x></em></div>"
     )
-    nodes: Final = document.select("em")
-    colors: Final = [computed_style(node)["color"] for node in nodes]
+    nodes: Final[list[Element]] = document.select("em")
+    colors: Final[list[str]] = [computed_style(node)["color"] for node in nodes]
     assert colors == ["red" if node.matches(rule) else "blue" for node in nodes]
     assert "red" in colors
 
@@ -1999,9 +2003,11 @@ def _alternatives(head: str, step: str, counts: range, tail: str = "") -> str:
     ],
 )
 def test_computed_style_sweep_agrees_with_brute_force(rule: str, expected: Callable[[str, int, int], bool]) -> None:
-    html: Final = "".join(_SWEPT_TAGS[letter] for letter in _SWEPT_RUN)
-    nodes: Final = parse(f"<style>*{{color:blue}}{rule}{{color:red}}</style><p>{html}</p>").select("p > *")
-    run: Final = _SWEPT_RUN.lower()
+    html: Final[str] = "".join(_SWEPT_TAGS[letter] for letter in _SWEPT_RUN)
+    nodes: Final[list[Element]] = parse(f"<style>*{{color:blue}}{rule}{{color:red}}</style><p>{html}</p>").select(
+        "p > *"
+    )
+    run: Final[str] = _SWEPT_RUN.lower()
     assert [computed_style(node)["color"] for node in nodes] == [
         "red" if letter == "i" and any(expected(run, anchor, x) for x in _later(run, anchor, "x")) else "blue"
         for anchor, letter in enumerate(run)
@@ -2032,8 +2038,8 @@ def _of_from_end(run: str, anchor: int, element: int, offsets: Callable[[int], b
     ],
 )
 def test_computed_style_sweep_wide_nth_agrees_with_formula(step: int, offset: int) -> None:
-    count: Final = 48
-    nodes: Final = parse(
+    count: Final[int] = 48
+    nodes: Final[list[Element]] = parse(
         f"<style>*{{color:blue}}x:has(~ x:nth-child({step}n{offset:+d} of :scope ~ *)){{color:red}}</style>"
         f"<p>{'<x></x>' * count}</p>"
     ).select("p > x")
@@ -2071,7 +2077,7 @@ def _nth_matches(step: int, offset: int, distance: int) -> bool:
     ],
 )
 def test_computed_style_scope_below_a_sibling(rule: str, color: str) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         f"<style>*{{color:blue}}{rule}{{color:red}}</style>"
         f"<div>{'<i></i>' * 40}<b></b><p><b></b><x><i></i></x></p><s></s><p><x></x></p></div>"
     )
@@ -2087,7 +2093,7 @@ def test_computed_style_scope_below_a_sibling(rule: str, color: str) -> None:
     ],
 )
 def test_computed_style_scope_selector_with_nested_lists(rule: str, red: list[str]) -> None:
-    nodes: Final = parse(
+    nodes: Final[list[Element]] = parse(
         f"<style>{rule}{{background-color:red}}</style><div><i></i><x><b></b><y></y></x><b></b></div>"
     ).select("div *")
     assert [node.tag for node in nodes if computed_style(node)["background-color"] == "red"] == red
@@ -2115,11 +2121,11 @@ def test_computed_style_scope_below_a_sibling_in_linear_time(rule: str, work_ste
 def test_computed_style_scope_climb_past_the_ancestor_memo() -> None:
     # the em sits 40 levels below the section, past the 32 ancestors a walk passes before it keeps a table; the
     # :is(q u) rule puts every rule on the deep matcher
-    document: Final = parse(
+    document: Final[Document] = parse(
         f"<style>*{{color:blue}}:is(q u) b{{color:green}}section:has(:is(:scope > *) em){{color:red}}</style>"
         f"<section>{'<div>' * 40}<em></em>{'</div>' * 40}</section>"
     )
-    section: Final = document.select_one("section")
+    section: Final[Element | None] = document.select_one("section")
     assert isinstance(section, Element)
     assert computed_style(section)["color"] == "red"
 
@@ -2137,9 +2143,9 @@ _UNSWEPT_WALKS: Final[list[pytest.ParameterSet]] = [
 
 @pytest.mark.parametrize("rule", _UNSWEPT_WALKS)
 def test_computed_style_has_walks_past_the_allowance_raise(rule: str) -> None:
-    nodes: Final = parse(f"<style>{rule}{{color:red}}</style><div>{'<i></i><b></b>' * 12_500}<x></x></div>").select(
-        "div > *"
-    )
+    nodes: Final[list[Element]] = parse(
+        f"<style>{rule}{{color:red}}</style><div>{'<i></i><b></b>' * 12_500}<x></x></div>"
+    ).select("div > *")
     with pytest.raises(ValueError, match=r"^the :has\(\) walks of the page's style rules exceed the allowance"):
         list(map(computed_style, nodes))
 
@@ -2161,11 +2167,11 @@ def test_computed_style_has_walks_raise_in_linear_time(rule: str, work_steps: Wo
 
 
 def test_computed_style_has_walks_raise_until_the_document_changes() -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         f"<style>{_UNSWEPT_WALKS[0].values[0]}{{color:red}}</style>"
         f"<div><i></i><s></s><b></b><x></x>{'<i></i><b></b>' * 12_500}</div>"
     )
-    nodes: Final = document.select("div > *")
+    nodes: Final[list[Element]] = document.select("div > *")
     with pytest.raises(ValueError, match="exceed the allowance"):
         list(map(computed_style, nodes))
     with pytest.raises(ValueError, match="exceed the allowance"):
@@ -2175,7 +2181,7 @@ def test_computed_style_has_walks_raise_until_the_document_changes() -> None:
 
 
 def test_computed_style_many_has_rules_on_a_large_page_stay_within_the_allowance() -> None:
-    templates: Final = (
+    templates: Final[tuple[str, ...]] = (
         "li:has(> a.{0})",
         "nav:has(ul li.{0})",
         "tr:has(td.{0}:empty)",
@@ -2189,17 +2195,17 @@ def test_computed_style_many_has_rules_on_a_large_page_stay_within_the_allowance
         "li:has(+ li:is(:scope + .{0}))",
         "p:has(~ p:nth-child(2n of .{0}))",
     )
-    sheet: Final = "".join(
+    sheet: Final[str] = "".join(
         f"{template.format(f'k{index}')}{{background-color:red}}" for template in templates for index in range(8)
     )
-    row: Final = f"<tr>{''.join(f'<td class=k{index}></td>' for index in range(6))}</tr>"
-    items: Final = "".join(f"<li class=k{index % 8}><a class=k{index % 5}></a></li>" for index in range(40))
-    section: Final = (
+    row: Final[str] = f"<tr>{''.join(f'<td class=k{index}></td>' for index in range(6))}</tr>"
+    items: Final[str] = "".join(f"<li class=k{index % 8}><a class=k{index % 5}></a></li>" for index in range(40))
+    section: Final[str] = (
         f"<section><h2 class=k1></h2><p></p><table>{row * 20}</table><ul>{items}</ul>"
         f"<label></label><input type=checkbox class=k2 checked>{'<p class=k3></p>' * 20}</section>"
     )
-    document: Final = parse(f"<style>{sheet}</style><div>{section * 60}<footer class=k4></footer></div>")
-    red: Final = document.select(
+    document: Final[Document] = parse(f"<style>{sheet}</style><div>{section * 60}<footer class=k4></footer></div>")
+    red: Final[list[Element]] = document.select(
         ", ".join(template.format(f"k{index}") for template in templates for index in range(8))
     )
     assert [node for node in document.select("*") if computed_style(node)["background-color"] == "red"] == red
@@ -2209,9 +2215,9 @@ def test_computed_style_sibling_records_past_the_limit() -> None:
     # 399 alternatives over 80 runs keep more records of their walks than the smallest deep memo holds, so the cascade
     # drops them and walks on; the first run holds only the inner walk's record, which puts the one that overflows
     # inside an outer walk whose own record goes with the rest
-    rule: Final = f":is({', '.join(f'.c{index} ~ i ~ em' for index in range(399))})"
-    run: Final = f"{'<i></i>' * 140}{'<b></b>' * 140}<em></em>"
-    document: Final = parse(
+    rule: Final[str] = f":is({', '.join(f'.c{index} ~ i ~ em' for index in range(399))})"
+    run: Final[str] = f"{'<i></i>' * 140}{'<b></b>' * 140}<em></em>"
+    document: Final[Document] = parse(
         f"<style>*{{color:blue}}{rule}{{color:red}}</style><p>{'<i></i>' * 140}<em></em></p>"
         f"{f'<p>{run}</p>' * 78}<p><s class=c7></s>{run}</p>"
     )
@@ -2220,8 +2226,8 @@ def test_computed_style_sibling_records_past_the_limit() -> None:
 
 def test_computed_style_nth_of_counts_grow_past_every_table_size() -> None:
     # each clause keeps its own counts, so the table regrows through every size up to 512 slots with hundreds of owners
-    rules: Final = "".join(f"x ~ p:nth-child(1 of .c{index}){{color:red}}" for index in range(300))
-    node: Final = parse(f"<style>{rules}</style><div><x></x><p class=c0></p></div>").select_one("p")
+    rules: Final[str] = "".join(f"x ~ p:nth-child(1 of .c{index}){{color:red}}" for index in range(300))
+    node: Final[Element | None] = parse(f"<style>{rules}</style><div><x></x><p class=c0></p></div>").select_one("p")
     assert isinstance(node, Element)
     assert computed_style(node)["color"] == "red"
 
@@ -2229,9 +2235,9 @@ def test_computed_style_nth_of_counts_grow_past_every_table_size() -> None:
 def test_computed_style_nth_of_clauses_eight_apart_share_a_home() -> None:
     # the first and ninth clause of one selector number eight apart, so in the eight-slot table the second one counted
     # probes past the first; the seven between sit on q, which no element is, and are never counted
-    between: Final = ", ".join(f"q:nth-child(1 of .c{index})" for index in range(7))
-    rule: Final = f"x ~ :is(p:nth-child(1 of .a), {between}, p:nth-child(2 of .b))"
-    nodes: Final = parse(
+    between: Final[str] = ", ".join(f"q:nth-child(1 of .c{index})" for index in range(7))
+    rule: Final[str] = f"x ~ :is(p:nth-child(1 of .a), {between}, p:nth-child(2 of .b))"
+    nodes: Final[list[Element]] = parse(
         f"<style>{rule}{{color:red}}</style><div><x></x><p class=a></p><p class=b></p><p class=b></p></div>"
     ).select("p")
     assert [computed_style(node)["color"] for node in nodes] == ["red", "canvastext", "red"]
@@ -2248,12 +2254,14 @@ def test_computed_style_nth_of_clauses_eight_apart_share_a_home() -> None:
 )
 def test_computed_style_sibling_rule_refreshes_after_insertion(rule: str, added: tuple[str, ...]) -> None:
     # the answers a sibling rule keeps for every element it styles must not outlive an edit to the run
-    document: Final = parse(f"<style>{rule}{{color:red}}</style><form>{'<em></em>' * 40}<button></button>")
-    nodes: Final = document.select("form > *")
-    before: Final = [(computed_style(node)["color"], node.matches(rule)) for node in nodes]
+    document: Final[Document] = parse(f"<style>{rule}{{color:red}}</style><form>{'<em></em>' * 40}<button></button>")
+    nodes: Final[list[Element]] = document.select("form > *")
+    before: Final[list[tuple[str, bool]]] = [(computed_style(node)["color"], node.matches(rule)) for node in nodes]
     for tag in reversed(added):
         nodes[20].insert_before(Element(tag))
-    after: Final = [(computed_style(node)["color"], node.matches(rule)) for node in document.select("form > *")]
+    after: Final[list[tuple[str, bool]]] = [
+        (computed_style(node)["color"], node.matches(rule)) for node in document.select("form > *")
+    ]
     assert {(color == "red") == matched for color, matched in before + after} == {True}
     assert [color for color, _ in before] != [computed_style(node)["color"] for node in nodes]
 
@@ -2283,34 +2291,36 @@ def test_computed_style_sibling_rule_refreshes_after_insertion(rule: str, added:
 def test_computed_style_sibling_positions(
     selector: str, expected: tuple[str, ...], separator: str, *, order: slice
 ) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         f"""<style>i{{color:blue}}i{selector}{{color:red}}</style>{
             separator.join(('<i class="hit"></i>', "<i></i>", '<i class="hit"></i>', "<i></i>"))
         }"""
     )
-    nodes: Final = document.select("i")
+    nodes: Final[list[Element]] = document.select("i")
     assert tuple(computed_style(node)["color"] for node in nodes[order]) == expected[order]
 
 
 def test_computed_style_nth_offset_near_int_min_matches_nothing() -> None:
     # a = -1 with b = -(INT_MAX - 2): for the third child, index - b is one past INT_MAX
-    document: Final = parse(f"<style>p{{color:blue}}p:nth-child(-n-{2**31 - 3}){{color:red}}</style><i></i><i></i><p>x")
-    paragraph: Final = document.select_one("p")
+    document: Final[Document] = parse(
+        f"<style>p{{color:blue}}p:nth-child(-n-{2**31 - 3}){{color:red}}</style><i></i><i></i><p>x"
+    )
+    paragraph: Final[Element | None] = document.select_one("p")
     assert isinstance(paragraph, Element)
     assert computed_style(paragraph)["color"] == "blue"
 
 
 def test_computed_style_type_positions_in_long_run() -> None:
     # past 32 siblings the cascade indexes the run once for all its elements, and an edit drops that index
-    run: Final = "".join(f"<x-{index % 2}></x-{index % 2}>" for index in range(80))
-    document: Final = parse(
+    run: Final[str] = "".join(f"<x-{index % 2}></x-{index % 2}>" for index in range(80))
+    document: Final[Document] = parse(
         "<style>#p > *{color:blue}#p > :last-of-type{color:red}#p > :nth-of-type(2){color:green}</style>"
         f"<div id=p>{run}</div>"
     )
-    nodes: Final = document.select("#p > *")
-    before: Final = [computed_style(node)["color"] for node in nodes]
+    nodes: Final[list[Element]] = document.select("#p > *")
+    before: Final[list[str]] = [computed_style(node)["color"] for node in nodes]
     nodes[-1].insert_after(Element("x-0"))
-    after: Final = [computed_style(node)["color"] for node in nodes]
+    after: Final[list[str]] = [computed_style(node)["color"] for node in nodes]
     assert (before, after) == (
         ["blue"] * 2 + ["green"] * 2 + ["blue"] * 74 + ["red"] * 2,
         ["blue"] * 2 + ["green"] * 2 + ["blue"] * 75 + ["red"],
@@ -2320,17 +2330,17 @@ def test_computed_style_type_positions_in_long_run() -> None:
 def test_computed_style_type_position_looked_up_backwards() -> None:
     # the cascade remembers the last position it computed; a later call for an earlier sibling past a long run of
     # other types reads the position memo instead of walking the run
-    document: Final = parse(
+    document: Final[Document] = parse(
         f"<style>#p > :nth-of-type(1){{color:red}}</style><div id=p><b></b>{'<i></i>' * 40}<b></b></div>"
     )
-    nodes: Final = document.select("#p > b")
+    nodes: Final[list[Element]] = document.select("#p > b")
     assert [computed_style(node)["color"] for node in nodes[::-1]] == ["canvastext", "red"]
 
 
 def test_computed_style_sibling_positions_after_insertion() -> None:
-    document: Final = parse("<style>i{color:blue}i:nth-child(odd){color:red}</style><i></i><i></i><i></i>")
-    nodes: Final = document.select("i")
-    before: Final = tuple(computed_style(node)["color"] for node in reversed(nodes))
+    document: Final[Document] = parse("<style>i{color:blue}i:nth-child(odd){color:red}</style><i></i><i></i><i></i>")
+    nodes: Final[list[Element]] = document.select("i")
+    before: Final[tuple[str, ...]] = tuple(computed_style(node)["color"] for node in reversed(nodes))
     nodes[0].insert_before(Element("i"))
     assert (before, tuple(computed_style(node)["color"] for node in reversed(nodes))) == (
         ("red", "blue", "red"),
@@ -2354,8 +2364,10 @@ def test_computed_style_sibling_positions_after_insertion() -> None:
     ],
 )
 def test_computed_style_sibling_types(selector: str, expected: tuple[str, ...], order: tuple[int, ...]) -> None:
-    document: Final = parse(f"<style>i{{color:blue}}i{selector}{{color:red}}</style>{'<i></i> <!--gap--> <b></b>' * 4}")
-    nodes: Final = document.select("i")
+    document: Final[Document] = parse(
+        f"<style>i{{color:blue}}i{selector}{{color:red}}</style>{'<i></i> <!--gap--> <b></b>' * 4}"
+    )
+    nodes: Final[list[Element]] = document.select("i")
     assert tuple(computed_style(nodes[index])["color"] for index in order) == tuple(expected[index] for index in order)
 
 
@@ -2368,8 +2380,10 @@ def test_computed_style_sibling_types(selector: str, expected: tuple[str, ...], 
     ],
 )
 def test_computed_style_inherited_sibling_values(order: tuple[int, ...], expected: tuple[str, ...]) -> None:
-    document: Final = parse('<div style="color:red"><i></i><i></i></div><div style="color:blue"><i></i><i></i></div>')
-    nodes: Final = document.select("div,i")
+    document: Final[Document] = parse(
+        '<div style="color:red"><i></i><i></i></div><div style="color:blue"><i></i><i></i></div>'
+    )
+    nodes: Final[list[Element]] = document.select("div,i")
     assert tuple(computed_style(nodes[index])["color"] for index in order) == expected
 
 
@@ -2390,14 +2404,14 @@ def test_computed_style_inherited_sibling_values(order: tuple[int, ...], expecte
 )
 def test_computed_style_foreign_style_sheet_is_its_own_text(html: str, expected: dict[str, str]) -> None:
     # a nested style's text is compiled as that style's own sheet, never appended to the enclosing one
-    style: Final = computed_style(parse(html).select("p")[0])
+    style: Final[ComputedStyle] = computed_style(parse(html).select("p")[0])
     assert {name: style[name] for name in expected} == expected
 
 
 def test_computed_style_style_staircase_stays_within_memory_budget(
     peak_bytes: PeakBytes,
 ) -> None:
-    peak: Final = peak_bytes(
+    peak: Final[int] = peak_bytes(
         "import tracemalloc\n"
         "from turbohtml import parse\n"
         "from turbohtml.cssom import computed_style\n"
@@ -2412,9 +2426,9 @@ def test_computed_style_style_staircase_stays_within_memory_budget(
 
 
 def test_computed_style_html_style_drops_text_of_appended_element() -> None:
-    document: Final = parse("<style>p{color:</style><p></p>")
-    style: Final = document.select_one("style")
-    paragraph: Final = document.select_one("p")
+    document: Final[Document] = parse("<style>p{color:</style><p></p>")
+    style: Final[Element | None] = document.select_one("style")
+    paragraph: Final[Element | None] = document.select_one("p")
     assert isinstance(style, Element)
     assert isinstance(paragraph, Element)
     style.append(Element("b", children=[Text("red}")]))
@@ -2431,11 +2445,11 @@ def test_computed_style_html_style_drops_text_of_appended_element() -> None:
     ],
 )
 def test_computed_style_returns_to_an_ancestor(order: tuple[int, ...]) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         '<div style="color:red"><p><b><i></i></b><b><i></i></b></p><u style="color:blue"><s><i></i></s></u></div>'
     )
-    nodes: Final = document.select("div,p,b,i,u,s")
-    expected: Final = ("red",) * 6 + ("blue",) * 3
+    nodes: Final[list[Element]] = document.select("div,p,b,i,u,s")
+    expected: Final[tuple[str, ...]] = ("red",) * 6 + ("blue",) * 3
     assert tuple(computed_style(nodes[index])["color"] for index in order) == tuple(expected[index] for index in order)
 
 
@@ -2448,12 +2462,12 @@ def _leaves_in_reverse_order(depth: int) -> list[Element]:
 
 
 def _leaves_in_scattered_order(depth: int) -> list[Element]:
-    leaves: Final = _leaves_in_document_order(depth)
+    leaves: Final[list[Element]] = _leaves_in_document_order(depth)
     return [leaves[index * 7919 % depth] for index in range(depth)]
 
 
 def _alternating_branches(depth: int) -> list[Element]:
-    branch: Final = f"{'<d>' * depth}{{}}{'</d>' * depth}"
+    branch: Final[str] = f"{'<d>' * depth}{{}}{'</d>' * depth}"
     return list(parse_xml(f"<r>{branch.format('<b/>')}{branch.format('<i/>')}</r>").select("b, i")) * (depth // 2)
 
 
@@ -2470,7 +2484,7 @@ def test_computed_style_below_a_deep_chain_is_linear(
     calls: Callable[[int], list[Element]], work_steps: WorkSteps
 ) -> None:
     def walk(depth: int) -> Callable[[], object]:
-        nodes: Final = calls(depth)
+        nodes: Final[list[Element]] = calls(depth)
         return lambda: [computed_style(node) for node in nodes]
 
     work_steps.assert_linear(walk, (1500, 5000))
@@ -2483,40 +2497,42 @@ def test_computed_style_in_scattered_order_matches_document_order() -> None:
     def leaf(level: int) -> str:
         return ' style="color:initial;width:inherit"' if level % 5 == 0 else ' style="width:inherit"'
 
-    levels: Final = 1300
-    source: Final = "".join(f"<d{styled(level)}><b{leaf(level)}/>" for level in range(levels)) + "</d>" * levels
-    walked: Final = [_style_items(node) for node in parse_xml(source).select("d, b")]
-    nodes: Final = parse_xml(source).select("d, b")
-    scattered: Final = {
+    levels: Final[int] = 1300
+    source: Final[str] = "".join(f"<d{styled(level)}><b{leaf(level)}/>" for level in range(levels)) + "</d>" * levels
+    walked: Final[list[list[tuple[str, str]]]] = [_style_items(node) for node in parse_xml(source).select("d, b")]
+    nodes: Final[list[Element]] = parse_xml(source).select("d, b")
+    scattered: Final[dict[int, list[tuple[str, str]]]] = {
         index: _style_items(nodes[index]) for index in (step * 7919 % len(nodes) for step in range(len(nodes)))
     }
     assert [scattered[index] for index in range(len(nodes))] == walked
 
 
 def _style_items(node: Element) -> list[tuple[str, str]]:
-    style: Final = computed_style(node)
+    style: Final[ComputedStyle] = computed_style(node)
     return [(name, style[name]) for name in style]
 
 
 def test_computed_style_returns_to_an_element_whose_style_escapes_a_backslash() -> None:
-    document: Final = parse_xml(r'<r><s style="\5c 63olor:red"><b/></s><i/></r>')
-    nodes: Final = document.select("b, i")
+    document: Final[Document] = parse_xml(r'<r><s style="\5c 63olor:red"><b/></s><i/></r>')
+    nodes: Final[list[Element]] = document.select("b, i")
     assert tuple(computed_style(nodes[index])["color"] for index in (0, 1, 0)) == ("canvastext",) * 3
 
 
 def test_computed_style_shares_an_inherited_value_down_a_deep_chain(retained_bytes: RetainedBytes) -> None:
-    depth: Final = 1200
-    color: Final = "x" * 100_000
-    nodes: Final = parse_xml(f'<d style="color:{color}">{"<d><b/>" * depth}{"</d>" * (depth + 1)}').select("b")
-    before: Final = retained_bytes()
+    depth: Final[int] = 1200
+    color: Final[str] = "x" * 100_000
+    nodes: Final[list[Element]] = parse_xml(
+        f'<d style="color:{color}">{"<d><b/>" * depth}{"</d>" * (depth + 1)}'
+    ).select("b")
+    before: Final[int] = retained_bytes()
     for index in range(depth):
         computed_style(nodes[index * 7919 % depth])
     assert retained_bytes() - before < 8 * len(color) * 4
 
 
 def test_computed_style_detached_subtree_then_document() -> None:
-    document: Final = parse('<div style="color:red"><p style="color:blue"><b></b></p><i></i></div>')
-    inner: Final = document.select("b, i")
+    document: Final[Document] = parse('<div style="color:red"><p style="color:blue"><b></b></p><i></i></div>')
+    inner: Final[list[Element]] = document.select("b, i")
     document.select("p")[0].extract()
     assert tuple(computed_style(inner[index])["color"] for index in (0, 1, 0)) == ("blue", "red", "blue")
 
@@ -2530,10 +2546,14 @@ def test_computed_style_detached_subtree_then_document() -> None:
     ],
 )
 def test_computed_style_chain_deeper_than_the_cached_levels(order: tuple[int, ...]) -> None:
-    colors: Final = {0: "red", 250: "blue", 600: "green", 1300: "teal"}
-    opened: Final = "".join(f'<d style="color:{colors[level]}">' if level in colors else "<d>" for level in range(1700))
-    nodes: Final = parse_xml(opened + "</d>" * 1700).select("d")
-    expected: Final = tuple(colors[max(styled for styled in colors if styled <= level)] for level in order)
+    colors: Final[dict[int, str]] = {0: "red", 250: "blue", 600: "green", 1300: "teal"}
+    opened: Final[str] = "".join(
+        f'<d style="color:{colors[level]}">' if level in colors else "<d>" for level in range(1700)
+    )
+    nodes: Final[list[Element]] = parse_xml(opened + "</d>" * 1700).select("d")
+    expected: Final[tuple[str, ...]] = tuple(
+        colors[max(styled for styled in colors if styled <= level)] for level in order
+    )
     assert tuple(computed_style(nodes[level])["color"] for level in order) == expected
 
 
@@ -2633,7 +2653,7 @@ def test_long_rule_chain_applies_when_the_stack_holds_it() -> None:
 
 def test_computed_style_of_clauses_of_two_rules_count_apart() -> None:
     # each rule numbers its 'of S' clauses from 1, and the climbing rule puts both on the deep matcher's one memo
-    document: Final = parse(
+    document: Final[Document] = parse(
         "<style>*{color:blue}:is(:is(q u) v) w{color:green}* a:nth-child(1 of .k){color:red}"
         "* b:nth-child(2 of [d]){color:lime}</style><p><b d></b><a class=k></a><b d></b></p>"
     )
@@ -2641,13 +2661,13 @@ def test_computed_style_of_clauses_of_two_rules_count_apart() -> None:
 
 
 def test_computed_style_of_clauses_of_many_rules_count_apart() -> None:
-    rules: Final = [f"* b:nth-child({index % 3 + 1} of .c{index % 4})" for index in range(16)]
-    classes: Final = "".join(f"<b class=c{index % 4}></b>" for index in range(10))
-    document: Final = parse(
+    rules: Final[list[str]] = [f"* b:nth-child({index % 3 + 1} of .c{index % 4})" for index in range(16)]
+    classes: Final[str] = "".join(f"<b class=c{index % 4}></b>" for index in range(10))
+    document: Final[Document] = parse(
         f"<style>*{{color:blue}}:is(:is(q u) v) w{{color:green}}{''.join(f'{rule}{{color:red}}' for rule in rules)}"
         f"</style><p>{classes}</p>"
     )
-    nodes: Final = document.select("p *")
+    nodes: Final[list[Element]] = document.select("p *")
     assert [computed_style(node)["color"] for node in nodes] == [
         "red" if any(node.matches(rule) for rule in rules) else "blue" for node in nodes
     ]

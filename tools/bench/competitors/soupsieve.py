@@ -41,7 +41,7 @@ def select_has(text: str) -> None:
 
 def _select_default(case: tuple[str, str, int]) -> None:
     if case[0] == ":default" and "<button>" in case[1]:
-        unsupported: Final = "SoupSieve requires explicit type=submit for default buttons"
+        unsupported: Final[str] = "SoupSieve requires explicit type=submit for default buttons"
         raise NotImplementedError(unsupported)
     _select_relative(case)
 

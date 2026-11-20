@@ -42,46 +42,20 @@ from ._match import (
 from ._native import (
     Document,
     Element,
+    matches_many,
     parse,
-)
-from ._native import (
-    matches_many as _matches_many,
-)
-from ._native import (
-    query_add_class as _query_add_class,
-)
-from ._native import (
-    query_attr as _query_attr,
-)
-from ._native import (
-    query_children as _query_children,
-)
-from ._native import (
-    query_closest as _query_closest,
-)
-from ._native import (
-    query_has_class as _query_has_class,
-)
-from ._native import (
-    query_parents as _query_parents,
-)
-from ._native import (
-    query_remove_class as _query_remove_class,
-)
-from ._native import (
-    query_siblings as _query_siblings,
-)
-from ._native import (
-    query_text as _query_text,
-)
-from ._native import (
-    query_toggle_class as _query_toggle_class,
-)
-from ._native import (
-    query_unique as _query_unique,
-)
-from ._native import (
-    select_many as _select_many,
+    query_add_class,
+    query_attr,
+    query_children,
+    query_closest,
+    query_has_class,
+    query_parents,
+    query_remove_class,
+    query_siblings,
+    query_text,
+    query_toggle_class,
+    query_unique,
+    select_many,
 )
 from ._xpath import XPathDepthError, XPathString
 
@@ -106,7 +80,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # each method is a chainab
         elif isinstance(source, Element):
             self._nodes = [source]
         else:
-            self._nodes = _query_unique(source)
+            self._nodes = query_unique(source)
 
     def __call__(self, selector: str) -> Query:
         """
@@ -127,7 +101,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # each method is a chainab
         if len(self._nodes) == 1:
             # the C select() already returns unique results in document order
             return Query._wrap(self._nodes[0].select(selector))
-        return Query._wrap(_select_many(self._nodes, selector))
+        return Query._wrap(select_many(self._nodes, selector))
 
     @classmethod
     def _wrap(cls, nodes: list[Element]) -> Query:
@@ -193,7 +167,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # each method is a chainab
         :param selector: the CSS selector.
         :returns: a query over the elements that match.
         """
-        return Query._wrap(_matches_many(self._nodes, selector))
+        return Query._wrap(matches_many(self._nodes, selector))
 
     def eq(self, index: int) -> Query:
         """
@@ -213,7 +187,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # each method is a chainab
 
         :returns: a query over the parent elements.
         """
-        return Query._wrap(_query_parents(self._nodes))  # a same-class factory
+        return Query._wrap(query_parents(self._nodes))  # a same-class factory
 
     def children(self, selector: str | None = None) -> Query:
         """
@@ -222,7 +196,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # each method is a chainab
         :param selector: an optional CSS selector to keep only matching children.
         :returns: a query over the child elements.
         """
-        result = Query._wrap(_query_children(self._nodes))  # a same-class factory
+        result = Query._wrap(query_children(self._nodes))  # a same-class factory
         return result if selector is None else result.filter(selector)
 
     def siblings(self, selector: str | None = None) -> Query:
@@ -232,7 +206,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # each method is a chainab
         :param selector: an optional CSS selector to keep only matching siblings.
         :returns: a query over the sibling elements.
         """
-        result = Query._wrap(_query_siblings(self._nodes))  # a same-class factory
+        result = Query._wrap(query_siblings(self._nodes))  # a same-class factory
         return result if selector is None else result.filter(selector)
 
     def closest(self, selector: str) -> Query:
@@ -242,7 +216,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # each method is a chainab
         :param selector: the CSS selector.
         :returns: a query over the nearest matching elements.
         """
-        return Query._wrap(_query_closest(self._nodes, selector))  # a same-class factory
+        return Query._wrap(query_closest(self._nodes, selector))  # a same-class factory
 
     def items(self) -> Iterator[Query]:
         """
@@ -268,7 +242,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # each method is a chainab
         :returns: the attribute value when reading, or the query when setting.
         """
         if value is None:
-            return _query_attr(self._nodes, name)
+            return query_attr(self._nodes, name)
         for node in self._nodes:
             node.attrs[name] = value
         return self
@@ -287,7 +261,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # each method is a chainab
         :returns: the combined text when reading, or the query when setting.
         """
         if value is None:
-            return _query_text(self._nodes)
+            return query_text(self._nodes)
         for node in self._nodes:
             node.text = value
         return self
@@ -307,7 +281,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # each method is a chainab
         :param name: the class name.
         :returns: whether any wrapped element carries the class.
         """
-        return _query_has_class(self._nodes, name)
+        return query_has_class(self._nodes, name)
 
     def add_class(self, name: str) -> Query:
         """
@@ -316,7 +290,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # each method is a chainab
         :param name: the class name to add.
         :returns: the query.
         """
-        _query_add_class(self._nodes, name)
+        query_add_class(self._nodes, name)
         return self
 
     def remove_class(self, name: str) -> Query:
@@ -326,7 +300,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # each method is a chainab
         :param name: the class name to remove.
         :returns: the query.
         """
-        _query_remove_class(self._nodes, name)
+        query_remove_class(self._nodes, name)
         return self
 
     def toggle_class(self, name: str) -> Query:
@@ -336,7 +310,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # each method is a chainab
         :param name: the class name to toggle.
         :returns: the query.
         """
-        _query_toggle_class(self._nodes, name)
+        query_toggle_class(self._nodes, name)
         return self
 
 

@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Final, Protocol
 
 from ._html import (
     ElementView,
+    elementtree_element,
+    elementtree_subelement,
 )
 from ._html import ElementXPath as XPath
 from ._html import (
@@ -13,9 +15,6 @@ from ._html import (
 )
 from ._html import (
     elementtree_document_fromstring as document_fromstring,
-)
-from ._html import (
-    elementtree_element as _elementtree_element,
 )
 from ._html import (
     elementtree_fragment_fromstring as fragment_fromstring,
@@ -31,9 +30,6 @@ from ._html import (
 )
 from ._html import (
     elementtree_strip_tags as strip_tags,
-)
-from ._html import (
-    elementtree_subelement as _elementtree_subelement,
 )
 from ._html import elementtree_to_lxml as to_lxml
 from ._html import (
@@ -60,9 +56,9 @@ class SubElementFactory(Protocol):  # simplint: ignore[unexported-public-name]  
 
 
 #: The ElementTree element class, built over the turbohtml tree.
-Element: Final[ElementFactory] = _elementtree_element
+Element: Final[ElementFactory] = elementtree_element
 #: The ElementTree subelement factory, building children of an :class:`Element`.
-SubElement: Final[SubElementFactory] = _elementtree_subelement
+SubElement: Final[SubElementFactory] = elementtree_subelement
 
 __all__ = [
     "Element",

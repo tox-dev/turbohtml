@@ -33,16 +33,10 @@ __lazy_modules__ = [f"{__spec__.parent}._html"]  # ty: ignore[missing-union-attr
 from typing import TYPE_CHECKING
 
 from ._html import (
-    xpath_literal as _xpath_literal,
-)
-from ._html import (
-    xslt_compile as _xslt_compile,
-)
-from ._html import (
-    xslt_resolve_imports as _xslt_resolve_imports,
-)
-from ._html import (
-    xslt_transform as _xslt_transform,
+    xpath_literal,
+    xslt_compile,
+    xslt_resolve_imports,
+    xslt_transform,
 )
 
 if TYPE_CHECKING:
@@ -107,9 +101,9 @@ class Transform:
         import_root: str | Path | None = None,
     ) -> None:
         """Compile an immutable stylesheet snapshot."""
-        self._compiled = _xslt_compile(
+        self._compiled = xslt_compile(
             stylesheet,
-            _xslt_resolve_imports(stylesheet, base_url, allow_imports, import_root),
+            xslt_resolve_imports(stylesheet, base_url, allow_imports, import_root),
         )
 
     def __call__(self, source: Node, /, **params: str) -> str:
@@ -124,7 +118,7 @@ class Transform:
         :raises RuntimeError: on an ``xsl:message`` with ``terminate="yes"``.
         :returns: the transformed document serialized under the stylesheet's ``xsl:output`` method.
         """
-        return _xslt_transform(self._compiled, source, params or None)
+        return xslt_transform(self._compiled, source, params or None)
 
 
 def strparam(value: str, /) -> str:
@@ -138,7 +132,7 @@ def strparam(value: str, /) -> str:
     :raises TypeError: if ``value`` is not a str.
     :returns: an XPath expression that evaluates to ``value``.
     """
-    return _xpath_literal(value)
+    return xpath_literal(value)
 
 
 __all__ = [

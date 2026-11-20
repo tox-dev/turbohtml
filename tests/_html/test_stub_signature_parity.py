@@ -105,7 +105,7 @@ def test_stub_signature_matches_runtime(name: str) -> None:
     for stub_param, live_param in zip(stub.positional, live.positional, strict=True):
         _assert_default(stub_param.default, live_param.default)
         # a positional-only name is synthesized by C; pin it only where both sides make it keyword-addressable
-        keyword_addressable: Final = stub_param.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD is live_param.kind
+        keyword_addressable: Final[bool] = stub_param.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD is live_param.kind
         assert not keyword_addressable or stub_param.name == live_param.name, (
             "a keyword-addressable positional was renamed"
         )

@@ -27,12 +27,8 @@ from itertools import starmap
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from ._html import (
-    conformance_check as _conformance_check,
-)
-from ._html import (
-    conformance_filter as _conformance_filter,
-)
-from ._html import (
+    conformance_check,
+    conformance_filter,
     parse,
 )
 
@@ -63,7 +59,7 @@ def check(document: Document | Node) -> ConformanceReport:
     :param document: a tree parsed with :func:`turbohtml.parse` (or an element within one).
     :returns: the :class:`ConformanceReport` with the verdict and every message.
     """
-    valid, findings = _conformance_check(document)
+    valid, findings = conformance_check(document)
     return ConformanceReport(valid, tuple(starmap(ConformanceMessage, findings)))
 
 
@@ -92,17 +88,17 @@ class ConformanceReport(NamedTuple):
     @property
     def errors(self) -> tuple[ConformanceMessage, ...]:
         """Only the ``"error"`` messages -- the findings that make the document invalid."""
-        return _conformance_filter(self.messages, "error")
+        return conformance_filter(self.messages, "error")
 
     @property
     def warnings(self) -> tuple[ConformanceMessage, ...]:
         """Only the ``"warning"`` messages -- the authoring recommendations."""
-        return _conformance_filter(self.messages, "warning")
+        return conformance_filter(self.messages, "warning")
 
     @property
     def infos(self) -> tuple[ConformanceMessage, ...]:
         """Only the ``"info"`` messages -- the advisory notes."""
-        return _conformance_filter(self.messages, "info")
+        return conformance_filter(self.messages, "info")
 
 
 class ConformanceMessage(NamedTuple):

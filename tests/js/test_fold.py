@@ -7,7 +7,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Final
 
 import pytest
-from bench.operations import INPUTS
+from bench.operations import INPUTS, Case
 
 from turbohtml.clean import JSMinify, minify_js
 
@@ -1384,10 +1384,10 @@ def test_concat_chain_frees_the_lexemes_it_supersedes(operand: str) -> None:
     # every `+` of a chain joins the whole prefix again; keeping each replaced prefix until the call returned made a
     # chain of n literals hold n/2 copies of its value
     tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")  # PyPy has none
-    source: Final = f"x={'+'.join([operand] * 90)}"
+    source: Final[str] = f"x={'+'.join([operand] * 90)}"
     tracing.start()
     try:
-        result: Final = minify_js(source)
+        result: Final[str] = minify_js(source)
         peak: Final[int] = tracing.get_traced_memory()[1]
     finally:
         tracing.stop()
@@ -1465,7 +1465,7 @@ def test_undefined_folds_where_resolution_proves_global(source: str, expected: s
 
 
 def test_undefined_kept_without_mangling_when_shadowed() -> None:
-    source: Final = "f(typeof undefined,function(undefined){return undefined}(3))"
+    source: Final[str] = "f(typeof undefined,function(undefined){return undefined}(3))"
     assert minify_js(source, JSMinify(mangle=False)) == source
 
 
@@ -1491,7 +1491,7 @@ def test_concat_matches_node(source: str) -> None:
 
 @pytest.mark.skipif(_NODE is None, reason="node not available")
 def test_raw_line_separators_in_strings_match_node() -> None:
-    snippet: Final = f"var s='a{_LS}b'+'{_PS}';console.log(s.length,s.charCodeAt(1),s.charCodeAt(3))"
+    snippet: Final[str] = f"var s='a{_LS}b'+'{_PS}';console.log(s.length,s.charCodeAt(1),s.charCodeAt(3))"
     assert _run(snippet) == _run(minify_js(snippet))
 
 
@@ -1499,10 +1499,12 @@ def test_raw_line_separators_in_strings_match_node() -> None:
     "count", [pytest.param(1, id="single"), pytest.param(17, id="heap"), pytest.param(512, id="long")]
 )
 def test_guard_chain_growth_preserves_return_order(count: int) -> None:
-    source: Final = (
+    source: Final[str] = (
         f"function f(x){{{''.join(f'if(x==={index})return g({index});' for index in range(count))}return g(-1)}}"
     )
-    expected: Final = f"function f(a){{return {''.join(f'a==={index}?g({index}):' for index in range(count))}g(-1)}}"
+    expected: Final[str] = (
+        f"function f(a){{return {''.join(f'a==={index}?g({index}):' for index in range(count))}g(-1)}}"
+    )
     assert minify_js(source) == expected
 
 
@@ -1542,7 +1544,7 @@ def test_guard_chain_growth_preserves_unfolded_statements(source: str, expected:
     [pytest.param(JSMinify(), id="mangle"), pytest.param(JSMinify(mangle=False), id="fold-only")],
 )
 def test_guard_chain_nesting_is_capped(guard: str, options: JSMinify) -> None:
-    minified: Final = minify_js(f"function f(){{{guard * 3_000}return 2}}", options)
+    minified: Final[str] = minify_js(f"function f(){{{guard * 3_000}return 2}}", options)
     assert minified.count("if(") == 2_104  # the guards past the cap stay statements
     assert minify_js(minified, options) == minified
 
@@ -1561,20 +1563,20 @@ def test_guard_chain_nesting_cap_spans_nested_functions(opening: str, closing: s
     body = "return 2"
     for delay in range(11, 0, -1):
         body = "if(!c)return 4;" * 880 + "if(!c)return 4;x();" * delay + opening + body + closing
-    minified: Final = minify_js(f"function f(){{{body}}}")
+    minified: Final[str] = minify_js(f"function f(){{{body}}}")
     assert minify_js(minified) == minified  # the parser takes it back: no chain nests past its cap
 
 
 @pytest.mark.skipif(_NODE is None, reason="node not available")
 def test_guard_chain_past_the_cap_preserves_behavior(tmp_path: Path) -> None:
-    guards: Final = "".join(
+    guards: Final[str] = "".join(
         f"if(x==={index})return g({index});if(!(x!=={index + 1}))return-{index};" for index in range(0, 2000, 2)
     )
-    calls: Final = "console.log([0,1,2,999,1100,1101,1998,1999,2000].map(f).join())"
-    source: Final = f"function g(v){{return v+1}}function f(x){{{guards}return g(-2)}}{calls}"
-    minified: Final = minify_js(source)
+    calls: Final[str] = "console.log([0,1,2,999,1100,1101,1998,1999,2000].map(f).join())"
+    source: Final[str] = f"function g(v){{return v+1}}function f(x){{{guards}return g(-2)}}{calls}"
+    minified: Final[str] = minify_js(source)
     assert 0 < minified.count("if(") < 2000  # some guards folded, the rest stayed statements
-    script: Final = tmp_path / "guard_chain.js"
+    script: Final[Path] = tmp_path / "guard_chain.js"
     assert _run_file(script, minified) == _run_file(script, source)
 
 
@@ -1588,16 +1590,16 @@ def _run_file(script: Path, code: str) -> str:
 
 def test_logical_groups_do_not_join_past_the_nesting_cap() -> None:
     # the parser meters each parenthesised group on its own; rotated into one spine they would nest once per operand
-    group: Final = "&&".join(["b"] * 650)
-    groups: Final = "&&".join([f"({group})"] * 6)
-    minified: Final = minify_js(f"x={groups}")
+    group: Final[str] = "&&".join(["b"] * 650)
+    groups: Final[str] = "&&".join([f"({group})"] * 6)
+    minified: Final[str] = minify_js(f"x={groups}")
     assert (minified.count("("), minified.count("&&")) == (5, 3899)
 
 
 def test_logical_groups_join_up_to_the_nesting_cap() -> None:
-    group: Final = "||".join(["a"] * 100)
-    groups: Final = "||".join([f"({group})"] * 40)
-    minified: Final = minify_js(f"x={groups}")
+    group: Final[str] = "||".join(["a"] * 100)
+    groups: Final[str] = "||".join([f"({group})"] * 40)
+    minified: Final[str] = minify_js(f"x={groups}")
     assert (minified.count("("), minified.count("||")) == (32, 3999)
 
 
@@ -1606,7 +1608,7 @@ def test_function_inline_does_not_stack_nesting() -> None:
     body = "return 1"
     for number in range(14, 0, -1):
         body = f"function f{number}(){{{body}}}return {'[' * 600}f{number}{']' * 600}"
-    minified: Final = minify_js(f"function o(){{{body}}}")
+    minified: Final[str] = minify_js(f"function o(){{{body}}}")
     assert (minified.count("function("), minify_js(minified)) == (1, minified)
 
 
@@ -1614,8 +1616,8 @@ def test_function_inline_under_a_short_expression_still_nests() -> None:
     body = "return 1"
     for number in range(11, 0, -1):
         body = f"function f{number}(){{{body}}}return {'[' * 3}f{number}{']' * 3}"
-    opened: Final = "return[[[function(){" * 11
-    closed: Final = "}]]]" * 11
+    opened: Final[str] = "return[[[function(){" * 11
+    closed: Final[str] = "}]]]" * 11
     assert minify_js(f"function o(){{{body}}}") == f"function o(){{{opened}return 1{closed}}}"
 
 
@@ -1627,7 +1629,7 @@ def test_labeled_function_declaration_is_not_measured_for_inlining() -> None:
 @pytest.mark.parametrize("count", [pytest.param(2, id="small"), pytest.param(1000, id="long")])
 @pytest.mark.parametrize("nested", [pytest.param(False, id="calls"), pytest.param(True, id="sequences")])
 def test_sequence_growth_preserves_call_order(count: int, *, nested: bool) -> None:
-    expressions: Final = [f"f({index}),g({index})" if nested else f"f({index})" for index in range(count)]
+    expressions: Final[list[str]] = [f"f({index}),g({index})" if nested else f"f({index})" for index in range(count)]
     assert minify_js(";".join(expressions)) == ",".join(expressions)
 
 
@@ -1802,10 +1804,12 @@ def test_declaration_reads_preserve_behavior(source: str, expected: str) -> None
     ],
 )
 def test_single_use_initializers_preserve_call_order(case: int, count: int) -> None:
-    source: Final = INPUTS["minify-js-single-use"]()[case][1]
+    source: Final[Case] = INPUTS["minify-js-single-use"]()[case][1]
     assert isinstance(source, str)
-    program: Final = f"{source};const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
-    expected: Final = list(range(count))
+    program: Final[str] = (
+        f"{source};const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
+    )
+    expected: Final[list[int]] = list(range(count))
     assert _run(minify_js(program)) == f"{json.dumps([expected, expected], separators=(',', ':'))}\n"
 
 
@@ -1819,10 +1823,12 @@ def test_single_use_initializers_preserve_call_order(case: int, count: int) -> N
     ],
 )
 def test_propagation_unlink_preserves_call_order(case: int, count: int) -> None:
-    source: Final = INPUTS["minify-js-unlink"]()[case][1]
+    source: Final[Case] = INPUTS["minify-js-unlink"]()[case][1]
     assert isinstance(source, str)
-    program: Final = f"{source};const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
-    expected: Final = (
+    program: Final[str] = (
+        f"{source};const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
+    )
+    expected: Final[str] = (
         f"""{
             json.dumps(
                 [[value for index in range(count) for value in (index, index % 10, index % 10)], list(range(count))],
@@ -1848,20 +1854,24 @@ def test_propagation_unlink_preserves_call_order(case: int, count: int) -> None:
     ],
 )
 def test_var_initialization_benchmark_order(case: int, rows: list[list[int | None]]) -> None:
-    source: Final = INPUTS["minify-js-var-initialization"]()[case][1]
+    source: Final[Case] = INPUTS["minify-js-var-initialization"]()[case][1]
     assert isinstance(source, str)
-    program: Final = f"{source};const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
-    expected: Final = f"{json.dumps(rows, separators=(',', ':'))}\n"
+    program: Final[str] = (
+        f"{source};const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
+    )
+    expected: Final[str] = f"{json.dumps(rows, separators=(',', ':'))}\n"
     assert (_run(program), _run(minify_js(program))) == (expected, expected)
 
 
 @pytest.mark.skipif(_NODE is None, reason="node not available")
 @pytest.mark.parametrize(("case", "count"), [pytest.param(0, 256, id="many"), pytest.param(1, 96, id="few")])
 def test_unused_declarators_preserve_call_order(case: int, count: int) -> None:
-    source: Final = INPUTS["minify-js-unused-declarations"]()[case][1]
+    source: Final[Case] = INPUTS["minify-js-unused-declarations"]()[case][1]
     assert isinstance(source, str)
-    program: Final = f"{source};const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
-    expected: Final = f"{json.dumps([[], list(range(count))], separators=(',', ':'))}\n"
+    program: Final[str] = (
+        f"{source};const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
+    )
+    expected: Final[str] = f"{json.dumps([[], list(range(count))], separators=(',', ':'))}\n"
     assert (_run(program), _run(minify_js(program))) == (expected, expected)
 
 
@@ -2080,8 +2090,8 @@ def test_fold_keeps_unreachable_lexical_declaration(source: str, expected: str) 
 def test_fold_keeps_dead_branch_whose_hoisting_if_the_pass_appended(count: int) -> None:
     # the first dead branch leaves a remembered answer behind, the booleans each fold into a new node (enough of them
     # outgrow the node arena), and the `if` split from its else is a node appended after both
-    source: Final = f"if(0){{var z}}x=[{','.join(['true'] * count)}];L:if(0)if(a){{var v;break L}}else b()"
-    expected: Final = f"if(0)var z;x=[{','.join(['!0'] * count)}];a:if(0){{if(a){{var v;break a}}b()}}"
+    source: Final[str] = f"if(0){{var z}}x=[{','.join(['true'] * count)}];L:if(0)if(a){{var v;break L}}else b()"
+    expected: Final[str] = f"if(0)var z;x=[{','.join(['!0'] * count)}];a:if(0){{if(a){{var v;break a}}b()}}"
     assert minify_js(source) == expected
 
 
@@ -2099,7 +2109,7 @@ def test_fold_scans_a_kept_nest_once_per_pass(nest: Callable[[int], str], work_s
 def test_fold_forgets_a_hoist_that_left_with_a_spliced_else() -> None:
     # the dead branch is scanned first and remembers that the inner `if` holds a hoisted function; the else that held
     # it is then spliced out behind the `if`, which must not keep counting as the declaration the cut stops at
-    source: Final = "function f(){if(0){return 2;if(q)throw 3;else{a();while(b){function g(){}}}}}"
+    source: Final[str] = "function f(){if(0){return 2;if(q)throw 3;else{a();while(b){function g(){}}}}}"
     assert minify_js(source, JSMinify(mangle=False)) == "function f(){if(0){return 2;for(;b;){function g(){}}}}"
 
 

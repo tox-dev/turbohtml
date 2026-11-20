@@ -29,7 +29,7 @@ def _pipeline(count: int) -> partial[Node]:
 def transform_node(node: Node, /, *steps: Callable[[Node], Node | None]) -> Node:
     # Mirror root replacement and error handling without native dispatch.
     if not isinstance(node, Node):
-        message: Final = "node must be a Node"
+        message: Final[str] = "node must be a Node"
         raise TypeError(message)
     for index, step in enumerate(steps, 1):
         if (result := step(node)) is None:

@@ -21,7 +21,7 @@ from .reference_targets import reference_targets
 from .stylesheet_targets import stylesheet_targets
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterator, Sequence
 
     from .atheris_registry import Target
 
@@ -33,7 +33,9 @@ def _is_private(name: str) -> bool:
 
 def public_modules(package: str) -> tuple[str, ...]:
     # List the modules with no underscore in their path that declare ``__all__``, so a new one joins the gap check.
-    walked: Final = pkgutil.walk_packages(importlib.import_module(package).__path__, f"{package}.")
+    walked: Final[Iterator[pkgutil.ModuleInfo]] = pkgutil.walk_packages(
+        importlib.import_module(package).__path__, f"{package}."
+    )
     return tuple(
         sorted(
             name
@@ -48,19 +50,19 @@ MODULES: Final[tuple[str, ...]] = public_modules("turbohtml")
 
 def main(argv: Sequence[str] | None = None) -> int:
     # LibFuzzer receives its flags after the target and corpus arguments.
-    parser: Final = argparse.ArgumentParser(description=__doc__)
+    parser: Final[argparse.ArgumentParser] = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", required=True, choices=tuple(target.name for target in public_targets()))
     parser.add_argument("--encoding", default="UTF-8")
     parser.add_argument("--sniff", action="store_true")
     parser.add_argument("--corpus", required=True, type=Path)
-    parsed: Final = parser.parse_known_args(argv)
-    arguments: Final = parsed[0]
-    flags: Final = parsed[1]
-    targets: Final = public_targets(arguments.encoding, sniff=arguments.sniff)
+    parsed: Final[tuple[argparse.Namespace, list[str]]] = parser.parse_known_args(argv)
+    arguments: Final[argparse.Namespace] = parsed[0]
+    flags: Final[list[str]] = parsed[1]
+    targets: Final[tuple[Target, ...]] = public_targets(arguments.encoding, sniff=arguments.sniff)
     if arguments.target == "javascript":
         initialize_javascript()
     arguments.corpus.mkdir(parents=True, exist_ok=True)
-    manifest: Final = {
+    manifest = {
         "target": arguments.target,
         "exports": sorted(export for export, owner in owner_inventory().items() if owner == arguments.target),
         "corpus": str(arguments.corpus),
@@ -74,7 +76,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def public_targets(encoding: str = "UTF-8", *, sniff: bool = False) -> tuple[Target, ...]:
     # Each group owns separate modules and qualified re-export aliases.
-    targets: Final = (
+    targets: Final[tuple[Target, ...]] = (
         parser_targets()
         + reference_targets()
         + content_targets()

@@ -37,7 +37,7 @@ def verdicts(
     negative_control: bool,
     reference_labels: bool,
 ) -> Iterator[Verdict]:
-    schema_hash: Final = hashlib.sha256(case.schema.encode()).hexdigest()
+    schema_hash: Final[str] = hashlib.sha256(case.schema.encode()).hexdigest()
     yield Verdict(
         seed=case.seed,
         sha256=schema_hash,
@@ -55,14 +55,16 @@ def verdicts(
         actual=reference is not None,
     )
     for document, expected in case.documents:
-        document_hash: Final = hashlib.sha256((f"{case.schema}\\0{document}").encode()).hexdigest()
-        actual: Final = None if ours is None else ours.is_valid(parse_xml(document))
-        reference_actual: Final = (
+        document_hash: Final[str] = hashlib.sha256((f"{case.schema}\\0{document}").encode()).hexdigest()
+        actual: Final[bool | None] = None if ours is None else ours.is_valid(parse_xml(document))
+        reference_actual: Final[bool | None] = (
             None
             if reference is None
             else reference.validate(lxml.etree.fromstring(document.encode(), reference_parser()))
         )
-        expected_result: Final = reference_actual if reference_labels and reference_actual is not None else expected
+        expected_result: Final[bool] = (
+            reference_actual if reference_labels and reference_actual is not None else expected
+        )
         yield Verdict(
             seed=case.seed,
             sha256=document_hash,
@@ -109,18 +111,18 @@ def run(
     compare: _Compare,
 ) -> int:
     # Keep compiler and validation findings in the exit status.
-    parser: Final = argparse.ArgumentParser(description=description)
+    parser: Final[argparse.ArgumentParser] = argparse.ArgumentParser(description=description)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--cases", type=int, default=32)
     parser.add_argument("--negative-control", action="store_true")
     parser.add_argument("--mutate", action="store_true")
     parser.add_argument("--broken-references", action="store_true")
-    arguments: Final = parser.parse_args(argv)
+    arguments: Final[argparse.Namespace] = parser.parse_args(argv)
     if not 1 <= arguments.cases <= 256:
         parser.error("--cases must be between 1 and 256")
     if arguments.broken_references and not arguments.mutate:
         parser.error("--broken-references requires --mutate")
-    pool: Final = tuple(generate(seed).schema for seed in pool_seeds)
+    pool: Final[tuple[str, ...]] = tuple(generate(seed).schema for seed in pool_seeds)
     findings = 0
     rows = 0
     for seed in range(arguments.seed, arguments.seed + arguments.cases):

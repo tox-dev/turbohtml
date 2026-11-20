@@ -100,10 +100,10 @@ def _tokenizer_cases() -> list[pytest.ParameterSet]:
 
 @pytest.mark.parametrize("case", _tokenizer_cases())
 def test_tokenizer_conformance(case: _TokenizerCase, storage_kind: int) -> None:
-    text: Final = case[0]
-    errors: Final = case[4]
-    result: Final = _tokenize_states(text, case[1], case[2], storage_kind)
-    check_positions: Final = all(ord(character) <= 0xFFFF for character in text)
+    text: Final[str] = case[0]
+    errors: Final[list[tuple[str, int, int]]] = case[4]
+    result = _tokenize_states(text, case[1], case[2], storage_kind)
+    check_positions: Final[bool] = all(ord(character) <= 0xFFFF for character in text)
     assert (
         [list(token) for token in result[0]],
         [code for code, _, _ in result[1]],

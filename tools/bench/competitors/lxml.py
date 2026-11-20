@@ -41,7 +41,7 @@ def _parse_encoded(case: tuple[str, bytes]) -> None:
 
 def stream(text: str) -> None:
     # Include parser setup and closing in the 4,096-character feed workload.
-    parser: Final = lxml_etree.HTMLParser()
+    parser: Final[lxml_etree.HTMLParser[lxml_etree._Element]] = lxml_etree.HTMLParser()
     for start in range(0, len(text), 4096):
         parser.feed(text[start : start + 4096])
     parser.close()
@@ -63,7 +63,7 @@ _VALIDATORS: Final[dict[str, lxml_etree.XMLSchema]] = {}
 def validate(case: tuple[str, str]) -> None:
     # Validate a parsed XML document against an XSD schema with lxml's etree.XMLSchema (compiled once).
     schema, document = case
-    etree: Final = lxml_etree
+    etree = lxml_etree
     validator = _VALIDATORS.get(schema)
     if validator is None:
         validator = _VALIDATORS[schema] = etree.XMLSchema(etree.fromstring(schema.encode()))
@@ -180,7 +180,7 @@ def canonicalize(text: str) -> None:
 
 def canonicalize_deep(case: tuple[str, int]) -> None:
     text, repeats = case
-    tree: Final = _parsed(text)
+    tree: Final[HtmlElement] = _parsed(text)
     for _ in range(repeats):
         lxml_etree.tostring(tree, method="c14n")
 
@@ -430,14 +430,14 @@ def transform_compile(case: tuple[str, str]) -> None:
 @functools.cache
 def _xslt_compiled(sheet: str, source: str):  # ruff:ignore[missing-return-type-private-function]  # lxml has no types
     # Keep construction and source parsing outside application timing.
-    document: Final = lxml_etree.fromstring(sheet.encode())
+    document: Final[lxml_etree._Element] = lxml_etree.fromstring(sheet.encode())
     if any(
         "current()" in number.get(attribute, "")
         for number in document.iter("{http://www.w3.org/1999/XSL/Transform}number")
         for attribute in ("count", "from")
     ):
         # XSLT 1.0 section 12.4 forbids current() in patterns; libxslt gives this fixture different semantics.
-        unsupported: Final = "XSLT 1.0 forbids current() in patterns; libxslt numbering differs from turbohtml"
+        unsupported: Final[str] = "XSLT 1.0 forbids current() in patterns; libxslt numbering differs from turbohtml"
         raise NotImplementedError(unsupported)
     return lxml_etree.XSLT(document), lxml_etree.fromstring(source.encode())
 
@@ -489,7 +489,7 @@ def htmlparser(text: str) -> None:
 
 
 def _serialize_inner(text: str) -> str:
-    body: Final = _body(text)
+    body: Final[HtmlElement] = _body(text)
     return escape(body.text or "", quote=False) + "".join(
         lxml_html.tostring(child, encoding="unicode") for child in body
     )
@@ -505,7 +505,7 @@ def _encode_inner(text: str) -> bytes:
 
 
 def _serialize_inner_indent(text: str) -> str:
-    body: Final = _body(text)
+    body: Final[HtmlElement] = _body(text)
     return escape(body.text or "", quote=False) + "".join(
         lxml_html.tostring(child, encoding="unicode", pretty_print=True) for child in body
     )

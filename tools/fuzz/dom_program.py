@@ -19,7 +19,7 @@ _TAGS: Final[tuple[str, ...]] = ("p", "span", "section", "div")
 
 def dom_program_generate(rng: random.Random) -> str:
     # Seed occupied registers before random mutation opcodes.
-    prefix: Final = bytes((0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0))
+    prefix: Final[bytes] = bytes((0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0))
     return (prefix + bytes(rng.randrange(256) for _ in range(rng.randrange(1, 49) * 4))).hex()
 
 
@@ -31,12 +31,12 @@ def dom_program_controls() -> dict[str, bool]:
 def dom_program_check(text: str, run: Callable[[bytes], tuple[str, ...]] | None = None) -> str | None:
     # Keep the expected state independent of DOM mutation methods.
     if len(text) > _MAX_BYTES * 2:
-        msg: Final = "DOM program exceeds the input limit"
+        msg: Final[str] = "DOM program exceeds the input limit"
         raise UnsupportedDomProgramError(msg)
     try:
-        program: Final = bytes.fromhex(text)
+        program: Final[bytes] = bytes.fromhex(text)
     except ValueError as error:
-        msg: Final = "DOM program must contain hexadecimal bytes"
+        msg: Final[str] = "DOM program must contain hexadecimal bytes"
         raise UnsupportedDomProgramError(msg) from error
     return (
         None if (run or run_dom_program)(program) == _expected(program) else "DOM program differs from its value model"
@@ -50,10 +50,10 @@ class UnsupportedDomProgramError(ValueError):
 
 def run_dom_program(program: bytes) -> tuple[str, ...]:
     # Bound state growth while preserving public live-node operands.
-    root: Final = Element("main")
+    root: Final[Element] = Element("main")
     nodes: Final[list[Element]] = []
-    strings: Final = ["", "alpha", "beta", "gamma"]
-    integers: Final = [0, 1, 2, 3]
+    strings: Final[list[str]] = ["", "alpha", "beta", "gamma"]
+    integers: Final[list[int]] = [0, 1, 2, 3]
     trace: Final[list[str]] = [_observe(root, nodes)]
     for opcode, first, second, third in _instructions(program):
         if opcode == 8:
@@ -62,7 +62,7 @@ def run_dom_program(program: bytes) -> tuple[str, ...]:
             integers[first % 4] = second
         elif opcode == 0:
             if len(nodes) < _MAX_NODES:
-                node: Final = Element(_TAGS[first % len(_TAGS)])
+                node: Final[Element] = Element(_TAGS[first % len(_TAGS)])
                 root.append(node)
                 nodes.append(node)
         elif nodes:
@@ -72,7 +72,7 @@ def run_dom_program(program: bytes) -> tuple[str, ...]:
 
 
 def _observe(root: Element, nodes: list[Element]) -> str:
-    children: Final = cast("list[Element]", list(root.children))
+    children: Final[list[Element]] = cast("list[Element]", list(root.children))
     return json.dumps((
         root.html,
         [
@@ -92,7 +92,7 @@ def _observe(root: Element, nodes: list[Element]) -> str:
 
 
 def _instructions(program: bytes) -> list[tuple[int, int, int, int]]:
-    bounded: Final = program[:_MAX_BYTES]
+    bounded: Final[bytes] = program[:_MAX_BYTES]
     max_steps = 64
     return [
         (bounded[index] % 10, bounded[index + 1], bounded[index + 2], bounded[index + 3])
@@ -119,9 +119,9 @@ def _apply(root: Element, node: Element, opcode: int, text: str, integer: int) -
 def _expected(program: bytes) -> tuple[str, ...]:
     nodes: Final[list[_Item]] = []
     order: Final[list[_Item]] = []
-    strings: Final = ["", "alpha", "beta", "gamma"]
-    integers: Final = [0, 1, 2, 3]
-    trace: Final = [_model_snapshot(order, nodes)]
+    strings: Final[list[str]] = ["", "alpha", "beta", "gamma"]
+    integers: Final[list[int]] = [0, 1, 2, 3]
+    trace: Final[list[str]] = [_model_snapshot(order, nodes)]
     for opcode, first, second, third in _instructions(program):
         if opcode == 8:
             strings[first % 4] = chr(97 + second % 26) * (third % 9)
@@ -129,7 +129,7 @@ def _expected(program: bytes) -> tuple[str, ...]:
             integers[first % 4] = second
         elif opcode == 0:
             if len(nodes) < _MAX_NODES:
-                item: Final = _Item(tag=_TAGS[first % len(_TAGS)])
+                item: Final[_Item] = _Item(tag=_TAGS[first % len(_TAGS)])
                 nodes.append(item)
                 order.append(item)
         elif nodes:
@@ -139,7 +139,7 @@ def _expected(program: bytes) -> tuple[str, ...]:
 
 
 def _model_snapshot(order: list[_Item], nodes: list[_Item]) -> str:
-    markup: Final = "".join(
+    markup: Final[str] = "".join(
         f"""<{item.tag}{f' data-x="{item.attribute}"' if item.attribute is not None else ""}>{item.text}</{item.tag}>"""
         for item in order
     )
@@ -174,15 +174,15 @@ def _model_apply(order: list[_Item], item: _Item, opcode: int, text: str, intege
         order.remove(item)
         order.append(item)
     elif opcode == 6:
-        position: Final = integer % (len(order) + 1)
-        old: Final = order.index(item)
+        position: Final[int] = integer % (len(order) + 1)
+        old: Final[int] = order.index(item)
         order.remove(item)
         order.insert(position - int(old < position), item)
 
 
 def dom_program_seeds() -> list[str]:
     # Ensure every supported opcode executes with live operands.
-    prefix: Final = bytes((0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0))
+    prefix: Final[bytes] = bytes((0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0))
     return [
         (prefix + bytes((opcode, operand, operand + 1, operand + 2))).hex()
         for opcode in range(10)

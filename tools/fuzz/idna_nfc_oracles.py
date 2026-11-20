@@ -39,9 +39,9 @@ def idna_nfc_check(case: str, normalize: Callable[[str], str] = normalize_url) -
     variant, separator, affix = case.partition(":")
     if not separator or variant not in _LABELS or _IDNA_NFC_CHECK_PATTERN.fullmatch(affix) is None:
         raise UnsupportedIdnaNfcCaseError(case)
-    source: Final = affix + _LABELS[variant]
-    composed: Final = unicodedata.normalize("NFC", source)
-    expected: Final = f"https://xn--{composed.encode('punycode').decode('ascii')}.example/"
+    source: Final[str] = affix + _LABELS[variant]
+    composed: Final[str] = unicodedata.normalize("NFC", source)
+    expected: Final[str] = f"https://xn--{composed.encode('punycode').decode('ascii')}.example/"
     for label in (source, composed, unicodedata.normalize("NFD", source)):
         try:
             output = normalize(f"https://{label}.example/")
@@ -50,7 +50,7 @@ def idna_nfc_check(case: str, normalize: Callable[[str], str] = normalize_url) -
         if output != expected:
             return "canonical host differs from independent target"
     try:
-        repeated: Final = normalize(expected)
+        repeated: Final[str] = normalize(expected)
     except ValueError:
         return "rejects canonical host output"
     return None if repeated == expected else "canonical host changes on repeat"

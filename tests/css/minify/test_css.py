@@ -204,11 +204,11 @@ def test_minify_css_large_rule_merges_unique_longhands(source: str, expected: st
 
 
 def test_minify_css_large_rules_keep_outline_fallback(large_rule_prefix: str) -> None:
-    source: Final = (
+    source: Final[str] = (
         f"a{{{large_rule_prefix};outline-width:1px;outline-style:solid;outline-color:red}}"
         f"b{{{large_rule_prefix};outline-width:0;outline-width:2px;outline-style:dashed;outline-color:blue}}"
     )
-    expected: Final = (
+    expected: Final[str] = (
         f"a{{{large_rule_prefix};outline:1px solid red}}"
         f"b{{{large_rule_prefix};outline-width:0;outline-width:2px;outline-style:dashed;outline-color:blue}}"
     )
@@ -575,7 +575,7 @@ def test_minify_css_hash_color_context(source: str, expected: str) -> None:
     ],
 )
 def test_minify_css_transparent_hex_keeps_rgb(source: str, expected: str) -> None:
-    result: Final = minify_css(source)
+    result: Final[str] = minify_css(source)
     assert (result, minify_css(result)) == (expected, expected)
 
 
@@ -590,17 +590,17 @@ def test_minify_css_transparent_hex_keeps_rgb(source: str, expected: str) -> Non
     ],
 )
 def test_minify_css_hash_with_escape_keeps_spelling(source: str, expected: str) -> None:
-    result: Final = minify_css(source)
+    result: Final[str] = minify_css(source)
     assert (result, minify_css(result)) == (expected, expected)
 
 
 @pytest.mark.parametrize("seed", range(400))
 def test_minify_css_hash_with_escape_keeps_value(seed: int) -> None:
     rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
-    hash_escapes: Final = ("\\5c", "\\\\", "\\41", "\\66 ", "\\}", "\\ ")
+    hash_escapes: Final[tuple[str, ...]] = ("\\5c", "\\\\", "\\41", "\\66 ", "\\}", "\\ ")
     pairs = "".join(rng.choice(["0", "f", "A", *hash_escapes]) * 2 for _ in range(rng.randint(1, 4)))
     source = f"p{{color:#{pairs}{rng.choice(hash_escapes)}}}q{{x:y}}"
-    result: Final = minify_css(source)
+    result: Final[str] = minify_css(source)
     assert minify_css(result) == result
     assert result.endswith("q{x:y}")
     ((_, source_value),) = _hash_tokens(source)
@@ -610,18 +610,18 @@ def test_minify_css_hash_with_escape_keeps_value(seed: int) -> None:
 
 
 def _hash_tokens(css: str) -> list[tuple[str, str]]:
-    parser: Final = pytest.importorskip("tinycss2")
+    parser: Final[ModuleType] = pytest.importorskip("tinycss2")
     rule = next(node for node in parser.parse_stylesheet(css) if node.type == "qualified-rule")
     declaration = next(node for node in parser.parse_declaration_list(rule.content) if node.type == "declaration")
     return [(parser.serialize([token]), token.value) for token in declaration.value if token.type == "hash"]
 
 
 def test_minify_css_large_dedup_remains_a_fixpoint() -> None:
-    source: Final = (
+    source: Final[str] = (
         f"a{{x:0;{''.join(f'p{index}:0;' for index in range(15))}x:1;x:0;"
         f"{''.join(f'p{index}:0;' for index in range(15))}}}"
     )
-    result: Final = minify_css(source)
+    result: Final[str] = minify_css(source)
     assert result == minify_css(result)
     assert result.count("x:0") == 1
 
@@ -659,7 +659,7 @@ def test_minify_css_merges_after_dedup(source: str, expected: str) -> None:
     ],
 )
 def test_minify_css_translucent_rgb_percentage_preserves_precision(source: str, expected: str) -> None:
-    result: Final = minify_css(source)
+    result: Final[str] = minify_css(source)
     assert (result, minify_css(result)) == (expected, expected)
 
 
@@ -1149,7 +1149,7 @@ def test_minify_css_escaped_delimiter_ends_a_name(source: str, expected: str) ->
 def test_minify_css_inline_escaped_delimiter_keeps_url_token() -> None:
     # glued to `a\,`, `url(` would name a function `a\,url(`, whose `/*` opens a comment that swallows the next string's
     # opening quote and leaves the rest of that string as declarations
-    source: Final = r'b:f(a\, url(x/*));c:"*/));d:e;y:"'
+    source: Final[str] = r'b:f(a\, url(x/*));c:"*/));d:e;y:"'
     assert minify_css_inline(source) == source
 
 
@@ -1326,7 +1326,7 @@ def test_minify_css_background_position_delimiters(value: str, expected: str) ->
     ],
 )
 def test_minify_css_keeps_invalid_background_position_order(property_name: str, value: str) -> None:
-    source: Final = f"a{{{property_name}:{value}}}"
+    source: Final[str] = f"a{{{property_name}:{value}}}"
     assert minify_css(source) == source
 
 
@@ -1610,13 +1610,13 @@ def test_minify_css_leading_combinator_keeps_every_rule(seed: int) -> None:
 def test_minify_css_same_selector_merge_is_bounded() -> None:
     # folding a whole same-selector run into one rule re-renders a body that grows per rule, O(rules^2) in time and
     # arena memory; the capped merge keeps the largest output rule the same size however many rules come in
-    large: Final = _max_decls_per_rule(16 * 256)
+    large: Final[int] = _max_decls_per_rule(16 * 256)
     assert _max_decls_per_rule(4 * 256) == large
     assert large < 4 * 256
 
 
 def _max_decls_per_rule(rule_count: int) -> int:
-    out: Final = minify_css("".join(f"a{{--p{index}:{index}}}" for index in range(rule_count)))
+    out: Final[str] = minify_css("".join(f"a{{--p{index}:{index}}}" for index in range(rule_count)))
     return max(body.count(":") for body in _MAX_DECLS_PER_RULE_PATTERN.findall(out))
 
 
@@ -1632,8 +1632,8 @@ _MAX_DECLS_PER_RULE_PATTERN: Final[re.Pattern[str]] = re.compile(r"\{([^}]*)\}")
 )
 def test_minify_css_same_selector_merge_is_bounded_by_target_length(rules: str, tail: str) -> None:
     # a merge re-minifies the whole target, so a rule under 1/64 of its length stays apart however often it repeats
-    body: Final = ";".join(f"--p{index}:0" for index in range(64))
-    result: Final = minify_css(f"a{{{body}}}{rules}")
+    body: Final[str] = ";".join(f"--p{index}:0" for index in range(64))
+    result: Final[str] = minify_css(f"a{{{body}}}{rules}")
     assert (result, minify_css(result)) == (f"a{{{body}{tail}", result)
 
 
@@ -1642,12 +1642,12 @@ def test_minify_css_same_selector_merge_below_the_cap_bounds_memory() -> None:
     # re-minified the whole body and kept one more copy of it in the pool until the call returned
     # PyPy has no tracemalloc.
     tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
-    body: Final = ";".join(["b:c", *(f"p{index}:v" for index in range(1000))])
-    repeated: Final = "a{b:c}" * 3000
+    body: Final[str] = ";".join(["b:c", *(f"p{index}:v" for index in range(1000))])
+    repeated: Final[str] = "a{b:c}" * 3000
     tracing.start()
     try:
-        result: Final = minify_css(f"a{{{body}}}{repeated}")
-        peak: Final = tracing.get_traced_memory()[1]
+        result: Final[str] = minify_css(f"a{{{body}}}{repeated}")
+        peak: Final[int] = tracing.get_traced_memory()[1]
     finally:
         tracing.stop()
     assert (len(body) < 10 * 1024, result, peak < 16 * 1024 * 1024) == (True, f"a{{{body}}}a{{b:c}}", True), peak
@@ -1660,12 +1660,12 @@ def test_minify_css_same_selector_merge_releases_its_scratch() -> None:
     value = "1px"
     for _ in range(30):
         value = f"min({value},2px)"
-    body: Final = ";".join(f"p{index:02d}:{value}" for index in range(12))
-    repeated: Final = f"a{{p00:{value};p01:{value}}}" * 300
-    source: Final = f"a{{{body}}}{repeated}"
+    body: Final[str] = ";".join(f"p{index:02d}:{value}" for index in range(12))
+    repeated: Final[str] = f"a{{p00:{value};p01:{value}}}" * 300
+    source: Final[str] = f"a{{{body}}}{repeated}"
     tracing.start()
     try:
-        result: Final = minify_css(source)
+        result: Final[str] = minify_css(source)
         peak: Final[int] = tracing.get_traced_memory()[1]
     finally:
         tracing.stop()
@@ -1688,9 +1688,9 @@ def test_minify_css_nested_media_merge_is_bounded_and_stable(between: str) -> No
     # joining two same-query blocks minifies their text again, and that pass joins the twins nested in them one level
     # down, so twins at each of 48 levels cost 1128 passes over the innermost rules, and every pass left a copy of them
     # per enclosing list in the arena (68 MiB here); past eight levels the twins stay apart, on the next pass too
-    source: Final = nested_media(between)
-    result: Final = minify_css(source)
-    blocks: Final = [result.count(f"@media m{level}{{") for level in (7, 8)]
+    source: Final[str] = nested_media(between)
+    result: Final[str] = minify_css(source)
+    blocks: Final[list[int]] = [result.count(f"@media m{level}{{") for level in (7, 8)]
     assert (blocks, minify_css(result)) == ([1, 10], result)
 
 
@@ -1711,7 +1711,7 @@ def nested_media(between: str) -> str:
     ],
 )
 def test_minify_css_nested_media_merge_peak_is_bounded(between: str, peak_bytes: PeakBytes) -> None:
-    script: Final = (
+    script: Final[str] = (
         f"{inspect.getsource(nested_media)}\n"
         "import sys\n"
         "import tracemalloc\n"
@@ -2255,7 +2255,7 @@ def test_minify_css_spec_fixes(source: str, expected: str) -> None:
     ],
 )
 def test_minify_css_closes_nested_blocks_at_eof(source: str, expected: str) -> None:
-    first: Final = minify_css(source)
+    first: Final[str] = minify_css(source)
     assert (first, minify_css(first)) == (expected, expected)
 
 
@@ -2301,7 +2301,7 @@ def test_minify_css_closes_nested_blocks_at_eof(source: str, expected: str) -> N
     ],
 )
 def test_minify_css_selector_roles(source: str, expected: str) -> None:
-    result: Final = minify_css(source)
+    result: Final[str] = minify_css(source)
     assert (result, minify_css(result)) == (expected, expected)
 
 
@@ -2318,7 +2318,7 @@ def test_minify_css_selector_roles(source: str, expected: str) -> None:
     ],
 )
 def test_minify_css_selector_names_keep_case(source: str, expected: str) -> None:
-    result: Final = minify_css(source)
+    result: Final[str] = minify_css(source)
     assert (result, minify_css(result)) == (expected, expected)
 
 
@@ -2462,7 +2462,7 @@ def test_minify_css_inline_custom_property_block(source: str, expected: str) -> 
 )
 def test_minify_css_inline_reads_an_item_to_its_semicolon(source: str, expected: str) -> None:
     # a style="" value sits in no block and holds no nested rule, so neither a {} block nor a `}` ends an item there
-    first: Final = minify_css_inline(source)
+    first: Final[str] = minify_css_inline(source)
     assert (first, minify_css_inline(first)) == (expected, expected)
 
 
@@ -2771,7 +2771,7 @@ def test_minify_css_inline_backslash_before_newline() -> None:
 def test_minify_css_inline_url_comment_keeps_later_declarations() -> None:
     # the url() ends after its comment, so `background` stays inside the `color` string and cannot override the
     # longhand before it
-    source: Final = 'background-image:url("c"/*)"*/);color:";top:0;background:none;x:"'
+    source: Final[str] = 'background-image:url("c"/*)"*/);color:";top:0;background:none;x:"'
     assert minify_css_inline(source) == source
 
 
@@ -3246,17 +3246,15 @@ def test_minify_css_inline_bang_in_function_is_written_once(source: str, expecte
     assert minify_css_inline(once) == once
 
 
-_INLINE_FUNCTION_WORDS: Final[tuple[str, ...]] = (
-    "1", "-", "+", "x", ",", "(", "*", "/", "2px", "rgb(1,2,3)", "u+", "?", ";", "b:", "calc(", "min(", "max(",
-    "clamp(", "var(--a,",
-)  # fmt: skip
-
-
 @pytest.mark.parametrize("shape", ["calc(", "min(", "max(", "clamp(", "var(--a,"])
 @pytest.mark.parametrize("seed", range(2000))
 def test_minify_css_inline_bang_in_function_is_a_fixed_point(shape: str, seed: int) -> None:
     rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
-    words = [f"width:{shape}", *(rng.choice(_INLINE_FUNCTION_WORDS) for _ in range(rng.randint(0, 12)))]
+    inline_function_words: tuple[str, ...] = (
+        "1", "-", "+", "x", ",", "(", "*", "/", "2px", "rgb(1,2,3)", "u+", "?", ";", "b:", "calc(", "min(", "max(",
+        "clamp(", "var(--a,",
+    )  # fmt: skip
+    words = [f"width:{shape}", *(rng.choice(inline_function_words) for _ in range(rng.randint(0, 12)))]
     words.extend(")" for _ in range(rng.randint(0, 3)))
     source, count = _words_with_bangs(words, rng)
     once = minify_css_inline(source)
@@ -3653,9 +3651,18 @@ def test_minify_css_inline_takes_baseline() -> None:
     assert minify_css_inline("top:0;right:0;bottom:0;left:0", _NEWLY) == "inset:0"
 
 
-# each shape nests one bracket kind, paired with the deepest count the minifier still descends into; the unterminated
-# shapes never close, so the bail reaches end-of-input with no matching brace to consume
-_NESTING_SHAPES: Final[str] = """
+@pytest.mark.parametrize(
+    "mode",
+    [
+        # without the cap the recursive grammar, calc and function parsers overflow the C stack
+        pytest.param("past-cap", id="past-cap-on-the-main-thread"),
+        # a 128 KiB thread holds the deepest supported nesting only while each level's C frames stay small
+        pytest.param("at-cap", id="at-cap-on-a-128-kib-thread"),
+    ],
+)
+def test_minify_css_survives_deep_nesting(mode: str) -> None:
+    # Each shape uses the deepest supported nesting for one bracket kind. Unterminated shapes reach end-of-input.
+    nesting_shapes: str = """
 import sys
 import threading
 
@@ -3685,21 +3692,8 @@ else:
     for name, (build, deepest) in SHAPES.items():
         print(name, results[name] == minify_css(build(deepest)))
 """
-
-
-@pytest.mark.parametrize(
-    "mode",
-    [
-        # without the cap the recursive grammar, calc and function parsers overflow the C stack
-        pytest.param("past-cap", id="past-cap-on-the-main-thread"),
-        # a 128 KiB thread holds the deepest supported nesting only while each level's C frames stay small
-        pytest.param("at-cap", id="at-cap-on-a-128-kib-thread"),
-    ],
-)
-def test_minify_css_survives_deep_nesting(mode: str) -> None:
-    # a regression aborts the interpreter, so each mode runs every shape in one child
-    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]
-        [sys.executable, "-c", _NESTING_SHAPES, mode], capture_output=True, text=True, timeout=120, check=False
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # a stack overflow aborts the child
+        [sys.executable, "-c", nesting_shapes, mode], capture_output=True, text=True, timeout=120, check=False
     )
     shape_names = (
         "blocks",
@@ -4072,9 +4066,9 @@ def test_minify_css_merged_media_is_a_fixed_point(source: str, expected: str) ->
     [pytest.param(0, id="media256"), pytest.param(1, id="media100"), pytest.param(2, id="media1000")],
 )
 def test_minify_css_merge_shared_inputs_media(case_index: int) -> None:
-    source: Final = cast("str", INPUTS["minify-css-merges"]()[case_index][1])
-    count: Final = (256, 100, 1_000)[case_index]
-    expected: Final = f"@media screen{{{','.join(f'.a{index}' for index in range(count))}{{color:red}}}}"
+    source: Final[str] = cast("str", INPUTS["minify-css-merges"]()[case_index][1])
+    count: Final[int] = (256, 100, 1_000)[case_index]
+    expected: Final[str] = f"@media screen{{{','.join(f'.a{index}' for index in range(count))}{{color:red}}}}"
     assert minify_css(source) == expected
 
 
@@ -4083,9 +4077,9 @@ def test_minify_css_merge_shared_inputs_media(case_index: int) -> None:
     [pytest.param(3, id="selectors256"), pytest.param(4, id="selectors100"), pytest.param(5, id="selectors1000")],
 )
 def test_minify_css_merge_shared_inputs_selectors(case_index: int) -> None:
-    source: Final = cast("str", INPUTS["minify-css-merges"]()[case_index][1])
-    count: Final = (256, 100, 1_000)[case_index % 3]
-    expected: Final = f"{','.join(f'.a{index}' for index in range(count))}{{color:red}}"
+    source: Final[str] = cast("str", INPUTS["minify-css-merges"]()[case_index][1])
+    count: Final[int] = (256, 100, 1_000)[case_index % 3]
+    expected: Final[str] = f"{','.join(f'.a{index}' for index in range(count))}{{color:red}}"
     assert minify_css(source) == expected
 
 
@@ -4094,7 +4088,7 @@ def test_minify_css_merge_shared_inputs_selectors(case_index: int) -> None:
     [pytest.param(6, id="different-media"), pytest.param(7, id="comments")],
 )
 def test_minify_css_merge_shared_inputs_unchanged(case_index: int) -> None:
-    source: Final = cast("str", INPUTS["minify-css-merges"]()[case_index][1])
+    source: Final[str] = cast("str", INPUTS["minify-css-merges"]()[case_index][1])
     assert minify_css(source) == source
 
 
@@ -4102,8 +4096,8 @@ def test_minify_css_merge_shared_inputs_unchanged(case_index: int) -> None:
     "case", [pytest.param(0, id="long-values"), pytest.param(1, id="short-values"), pytest.param(2, id="single-pair")]
 )
 def test_minify_css_overlapping_rule_benchmark(case: int) -> None:
-    source: Final = cast("str", INPUTS["minify-css-conflicts"]()[case][1])
-    first_pair: Final = source[: source.index("}", source.index("}") + 1) + 1]
+    source: Final[str] = cast("str", INPUTS["minify-css-conflicts"]()[case][1])
+    first_pair: Final[str] = source[: source.index("}", source.index("}") + 1) + 1]
     assert minify_css(source) == first_pair
 
 
@@ -4139,17 +4133,19 @@ _BENCHMARK_MINIFIERS: Final[list[pytest.ParameterSet]] = [
     ],
 )
 def test_merge_benchmark_preserves_fixture_cascade(module: str, case: int, media: str) -> None:
-    minimize: Final = cast("Callable[[str], str]", pytest.importorskip(module).minify_css)
-    source: Final = cast("str", INPUTS["minify-css-merges"]()[case][1])
-    count: Final = (256, 100, 1_000, 256, 100, 1_000, 200, 200)[case]
-    expected: Final = {(media, f".a{index}"): {"color": "red"} for index in range(count)}
+    minimize: Final[Callable[[str], str]] = cast("Callable[[str], str]", pytest.importorskip(module).minify_css)
+    source: Final[str] = cast("str", INPUTS["minify-css-merges"]()[case][1])
+    count: Final[int] = (256, 100, 1_000, 256, 100, 1_000, 200, 200)[case]
+    expected: Final[dict[tuple[str, str], dict[str, str]]] = {
+        (media, f".a{index}"): {"color": "red"} for index in range(count)
+    }
     assert _merge_fixture_cascade(minimize(source)) == expected
 
 
 @pytest.mark.oracle
 def _merge_fixture_cascade(source: str, media: str = "all") -> dict[tuple[str, str], dict[str, str]]:
-    parser: Final = pytest.importorskip("tinycss2")
-    colors: Final = pytest.importorskip("tinycss2.color3")
+    parser: Final[ModuleType] = pytest.importorskip("tinycss2")
+    colors: Final[ModuleType] = pytest.importorskip("tinycss2.color3")
     result: Final[dict[tuple[str, str], dict[str, str]]] = {}
     for rule_index, rule in enumerate(parser.parse_stylesheet(source, skip_comments=True, skip_whitespace=True)):
         if rule.type == "at-rule":
@@ -4159,7 +4155,7 @@ def _merge_fixture_cascade(source: str, media: str = "all") -> dict[tuple[str, s
                 continue
             assert rule.lower_at_keyword == "media"
             assert rule.content is not None
-            condition: Final = parser.serialize(rule.prelude).strip()
+            condition: Final[str] = parser.serialize(rule.prelude).strip()
             assert media == "all"
             assert condition in {"screen", "print"}
             for key, nested_properties in _merge_fixture_cascade(parser.serialize(rule.content), condition).items():
@@ -4178,7 +4174,7 @@ def _merge_fixture_cascade(source: str, media: str = "all") -> dict[tuple[str, s
                 assert _MERGE_FIXTURE_CASCADE_PATTERN.fullmatch(declaration.name)
             declarations[declaration.name] = value
         for raw_selector in parser.serialize(rule.prelude).split(","):
-            selector: Final = raw_selector.strip()
+            selector: Final[str] = raw_selector.strip()
             assert _MERGE_FIXTURE_CASCADE_PATTERN_2.fullmatch(selector)
             result.setdefault((media, selector), {}).update(declarations)
     return result
@@ -4186,9 +4182,11 @@ def _merge_fixture_cascade(source: str, media: str = "all") -> dict[tuple[str, s
 
 @pytest.mark.parametrize("module", _BENCHMARK_MINIFIERS)
 def test_merge_benchmark_preserves_alternating_media(module: str) -> None:
-    minimize: Final = cast("Callable[[str], str]", pytest.importorskip(module).minify_css)
-    source: Final = cast("str", INPUTS["minify-css-merges"]()[6][1])
-    expected: Final = {(("print", "screen")[index % 2], f".a{index}"): {"color": "red"} for index in range(200)}
+    minimize: Final[Callable[[str], str]] = cast("Callable[[str], str]", pytest.importorskip(module).minify_css)
+    source: Final[str] = cast("str", INPUTS["minify-css-merges"]()[6][1])
+    expected: Final[dict[tuple[str, str], dict[str, str]]] = {
+        (("print", "screen")[index % 2], f".a{index}"): {"color": "red"} for index in range(200)
+    }
     assert _merge_fixture_cascade(minimize(source)) == expected
 
 
@@ -4204,9 +4202,9 @@ def test_merge_benchmark_preserves_alternating_media(module: str) -> None:
 def test_merge_benchmark_preserves_conflicting_declarations(
     module: str, case: int, properties: int, value_length: int
 ) -> None:
-    minimize: Final = cast("Callable[[str], str]", pytest.importorskip(module).minify_css)
-    source: Final = cast("str", INPUTS["minify-css-conflicts"]()[case][1])
-    expected: Final = {
+    minimize: Final[Callable[[str], str]] = cast("Callable[[str], str]", pytest.importorskip(module).minify_css)
+    source: Final[str] = cast("str", INPUTS["minify-css-conflicts"]()[case][1])
+    expected: Final[dict[tuple[str, str], dict[str, str]]] = {
         ("all", f".{name}"): {f"--{name}{index}": f"f({value * value_length})" for index in range(properties)}
         for name, value in (("a", "x"), ("b", "y"))
     }
@@ -4223,8 +4221,8 @@ _MERGE_FIXTURE_CASCADE_PATTERN_2: Final[re.Pattern[str]] = re.compile(r"\.[ab][0
     "order", [pytest.param(slice(None), id="sorted"), pytest.param(slice(None, None, -1), id="reversed")]
 )
 def test_minify_css_unicode_range_order(count: int, *, order: slice) -> None:
-    ranges: Final = [f"U+{index * 2:X}" for index in range(count)]
-    source: Final = ",".join(ranges[order])
+    ranges: Final[list[str]] = [f"U+{index * 2:X}" for index in range(count)]
+    source: Final[str] = ",".join(ranges[order])
     assert minify_css(f"@font-face{{unicode-range:{source}}}") == (f"@font-face{{unicode-range:{','.join(ranges)}}}")
 
 
@@ -4251,8 +4249,8 @@ def test_minify_css_unicode_range_union(ranges: tuple[str, ...], expected: str) 
     ],
 )
 def test_minify_css_unicode_range_keeps_split_tokens(value: str) -> None:
-    source: Final = f"@font-face{{font-family:x; unicode-range:{value};src: url(a)}}"
-    expected: Final = f"@font-face{{font-family:x;unicode-range:{value};src:url(a)}}"
+    source: Final[str] = f"@font-face{{font-family:x; unicode-range:{value};src: url(a)}}"
+    expected: Final[str] = f"@font-face{{font-family:x;unicode-range:{value};src:url(a)}}"
     assert (minify_css(source), minify_css(minify_css(source))) == (expected, expected)
 
 
@@ -4334,8 +4332,8 @@ def test_number_outside_formatter_bounds_keeps_whole_token(value: str) -> None:
 
 @pytest.mark.parametrize("depth", [pytest.param(4, id="small"), pytest.param(64, id="deep")])
 def test_nested_function_spacing(depth: int) -> None:
-    argument: Final = f"{'var(--x, ' * depth}1px{')' * depth}"
-    expected: Final = f"width:{'var(--x,' * depth}1px{')' * depth}"
+    argument: Final[str] = f"{'var(--x, ' * depth}1px{')' * depth}"
+    expected: Final[str] = f"width:{'var(--x,' * depth}1px{')' * depth}"
     assert (minify_css(f"a {{ width: {argument}; }}"), minify_css_inline(f" width: {argument}; ")) == (
         f"a{{{expected}}}",
         expected,
@@ -4357,7 +4355,7 @@ def test_nested_function_spacing(depth: int) -> None:
     ],
 )
 def test_minify_css_preserves_duplicate_border_styles(property_name: str, value: str) -> None:
-    source: Final = f"a{{{property_name}:{value}}}"
+    source: Final[str] = f"a{{{property_name}:{value}}}"
     assert minify_css(source) == source
 
 
@@ -4375,7 +4373,7 @@ def test_minify_css_preserves_duplicate_border_styles(property_name: str, value:
     ],
 )
 def test_minify_css_preserves_duplicate_border_widths(property_name: str, value: str) -> None:
-    source: Final = f"a{{{property_name}:{value}}}"
+    source: Final[str] = f"a{{{property_name}:{value}}}"
     assert minify_css(source) == source
 
 
@@ -4490,7 +4488,7 @@ def test_minify_css_drops_single_border_style_default(property_name: str, value:
     ],
 )
 def test_minify_css_preserves_split_decoration_lines(value: str) -> None:
-    source: Final = f"a{{text-decoration:{value}}}"
+    source: Final[str] = f"a{{text-decoration:{value}}}"
     assert minify_css(source) == source
 
 
@@ -4529,7 +4527,7 @@ def test_minify_css_box_shadow_length_order(value: str, expected: str) -> None:
 @pytest.mark.parametrize("property_name", ["border", "border-top", "outline", "column-rule"])
 @pytest.mark.parametrize("value", ["none inherit", "inherit none", "medium initial", "unset none", "none revert-layer"])
 def test_minify_css_keeps_mixed_border_wide_keyword(property_name: str, value: str) -> None:
-    source: Final = f"a{{{property_name}:{value}}}"
+    source: Final[str] = f"a{{{property_name}:{value}}}"
     assert minify_css(source) == source
 
 
@@ -4598,8 +4596,8 @@ def test_minify_css_reduces_border_without_wide_keyword(property_name: str, valu
     ],
 )
 def test_text_emphasis_defaults_preserve_validity(value: str, expected: str) -> None:
-    source: Final = f"a{{text-emphasis:{value};color:#ff0000}}"
-    output: Final = f"a{{text-emphasis:{expected};color:red}}"
+    source: Final[str] = f"a{{text-emphasis:{value};color:#ff0000}}"
+    output: Final[str] = f"a{{text-emphasis:{expected};color:red}}"
     assert minify_css(source) == output
 
 
@@ -4665,7 +4663,7 @@ _CALC_BOUNDARY: Final[list[pytest.ParameterSet]] = [
 
 @pytest.mark.parametrize(("source", "expected"), _CALC_BOUNDARY)
 def test_calc_unwrap_keeps_token_boundary(source: str, expected: str) -> None:
-    once: Final = minify_css(source)
+    once: Final[str] = minify_css(source)
     assert once == expected
     assert minify_css(once) == once
 
@@ -4695,14 +4693,14 @@ def test_calc_unwrap_keeps_token_boundary_over_generated_neighbors(seed: int) ->
         ",",
     ))
     number = rng.choice(("9", "1px", ".5em", "-1", "50%", "2.5", "+3"))
-    once: Final = minify_css(f"a{{b:x({left}calc({number}){right})}}")
+    once: Final[str] = minify_css(f"a{{b:x({left}calc({number}){right})}}")
     assert minify_css(once) == once
     assert _value_shape(once) == _value_shape(f"a{{b:x({left} {number} {right})}}")
 
 
 def _value_shape(source: str) -> list[_Shape]:
-    rule: Final = tinycss2.parse_stylesheet(source, skip_comments=True, skip_whitespace=True)[0]
-    declaration: Final = tinycss2.parse_declaration_list(rule.content, skip_comments=True, skip_whitespace=True)[0]
+    rule = tinycss2.parse_stylesheet(source, skip_comments=True, skip_whitespace=True)[0]
+    declaration = tinycss2.parse_declaration_list(rule.content, skip_comments=True, skip_whitespace=True)[0]
     return _token_shape(declaration.value)
 
 
@@ -4921,8 +4919,8 @@ def test_minify_css_preserves_color_number_units(value: str, expected: str) -> N
     ],
 )
 def test_text_decoration_defaults_preserve_validity(value: str, expected: str) -> None:
-    source: Final = f"a {{ text-decoration: {value}; color: #ff0000 }}"
-    output: Final = f"a{{text-decoration:{expected};color:red}}"
+    source: Final[str] = f"a {{ text-decoration: {value}; color: #ff0000 }}"
+    output: Final[str] = f"a{{text-decoration:{expected};color:red}}"
     assert minify_css(source) == output
 
 
@@ -4997,9 +4995,9 @@ def test_minify_css_preserves_reversed_unicode_ranges(value: str, expected: str)
 
 @pytest.mark.parametrize("count", [65, 1024])
 def test_minify_css_unicode_range_nearly_reversed_sorts(count: int) -> None:
-    ranges: Final = [f"U+{index * 2:X}" for index in range(count)]
-    nearly_reversed: Final = ranges[::-1]
-    middle: Final = count // 2
+    ranges: Final[list[str]] = [f"U+{index * 2:X}" for index in range(count)]
+    nearly_reversed: Final[list[str]] = ranges[::-1]
+    middle: Final[int] = count // 2
     nearly_reversed[middle], nearly_reversed[middle + 1] = nearly_reversed[middle + 1], nearly_reversed[middle]
     assert minify_css(f"@font-face{{unicode-range:{','.join(nearly_reversed)}}}") == (
         f"@font-face{{unicode-range:{','.join(ranges)}}}"
@@ -5249,7 +5247,7 @@ def test_minify_css_border_color_equal_values(value: str, expected: str) -> None
     ],
 )
 def test_minify_css_border_color_preserves_repeated_substitutions(value: str, expected: str) -> None:
-    source: Final = f"a{{border-color:{value}}}"
+    source: Final[str] = f"a{{border-color:{value}}}"
     assert minify_css(source) == f"a{{border-color:{expected}}}"
 
 
@@ -5436,12 +5434,12 @@ def test_identical_body_merge_respects_selector_validity(source: str, expected: 
 
 
 def test_identical_body_merge_with_malformed_selector_on_hashed_path() -> None:
-    filler: Final = "".join(f".x{index}{{--v{index}:{index}}}" for index in range(40))
+    filler: Final[str] = "".join(f".x{index}{{--v{index}:{index}}}" for index in range(40))
     assert minify_css(f"{filler}p {{ color: red }} ] {{ color: red }}") == f"{filler}p{{color:red}}]{{color:red}}"
 
 
 def test_identical_body_merge_with_malformed_selector_is_fixed_point() -> None:
-    first: Final = minify_css("p { color: red } q { color: red } ] { color: red }")
+    first: Final[str] = minify_css("p { color: red } q { color: red } ] { color: red }")
     assert minify_css(first) == first
 
 
@@ -5504,7 +5502,7 @@ def test_identical_body_merge_with_malformed_selector_is_fixed_point() -> None:
     ],
 )
 def test_font_substitutions(source: str, expected: str) -> None:
-    first: Final = minify_css(source)
+    first: Final[str] = minify_css(source)
     assert (first, minify_css(first)) == (expected,) * 2
 
 
@@ -5573,7 +5571,7 @@ def test_font_substitutions(source: str, expected: str) -> None:
     ],
 )
 def test_position_substitutions(source: str, expected: str) -> None:
-    first: Final = minify_css(source)
+    first: Final[str] = minify_css(source)
     assert (first, minify_css(first)) == (expected,) * 2
 
 
@@ -5609,8 +5607,8 @@ def test_position_substitutions(source: str, expected: str) -> None:
     ],
 )
 def test_functional_universal_roles(namespace: str, prefix: str, selector: str, expected: str) -> None:
-    source: Final = f"{namespace} {selector} {{ color : red }}"
-    first: Final = minify_css(source)
+    source: Final[str] = f"{namespace} {selector} {{ color : red }}"
+    first: Final[str] = minify_css(source)
     assert (first, minify_css(first)) == (f"{prefix}{expected}{{color:red}}",) * 2
 
 
@@ -6233,7 +6231,7 @@ _OVERFLOW_EXPONENT: Final[str] = "999999999999999999999"
     ],
 )
 def test_empty_declarations(source: str, expected: str) -> None:
-    first: Final = minify_css(source)
+    first: Final[str] = minify_css(source)
     assert (first, minify_css(first)) == (expected, expected)
 
 
@@ -6246,7 +6244,7 @@ def test_empty_declarations(source: str, expected: str) -> None:
     ],
 )
 def test_empty_inline_declarations(source: str, expected: str) -> None:
-    first: Final = minify_css_inline(source)
+    first: Final[str] = minify_css_inline(source)
     assert (first, minify_css_inline(first)) == (expected, expected)
 
 
@@ -6335,7 +6333,7 @@ def test_background_invalid_identifier_preserves_other_longhands(
     ],
 )
 def test_background_invalid_identifier_hashed_dedup(tail: str, expected: str) -> None:
-    filler: Final = "".join(f"--v{index}:{index};" for index in range(40))
+    filler: Final[str] = "".join(f"--v{index}:{index};" for index in range(40))
     assert minify_css(f"p{{ {filler}{tail} }}") == f"p{{{filler}{expected}}}"
 
 
@@ -6386,7 +6384,7 @@ def test_background_invalid_identifier_hashed_dedup(tail: str, expected: str) ->
     ],
 )
 def test_filter_drop_shadow_preserves_offsets(source: str, expected: str) -> None:
-    first: Final = minify_css(source)
+    first: Final[str] = minify_css(source)
     assert (first, minify_css(first)) == (expected, expected)
 
 
@@ -6443,7 +6441,7 @@ def test_filter_math_folds_constant_calc(source: str, expected: str) -> None:
 
 
 def test_filter_math_folds_constant_calc_at_any_depth() -> None:
-    nested: Final = minify_css(f"a{{filter:{'blur(' * 150}calc(1px + 2px){')' * 150}}}")
+    nested: Final[str] = minify_css(f"a{{filter:{'blur(' * 150}calc(1px + 2px){')' * 150}}}")
     assert nested == f"a{{filter:{'blur(' * 150}3px{')' * 150}}}"
 
 
@@ -6485,7 +6483,7 @@ def test_filter_nested_functions_keep_their_recovery(nested: str, recovery: str)
 @pytest.mark.parametrize("name", ["min", "drop-shadow"])
 def test_filter_nested_functions_scale_linearly(name: str, work_steps: WorkSteps) -> None:
     work_steps.assert_linear(lambda d: partial(minify_css, f"a{{filter:{f'{name}(' * d}{')' * d}}}"), (1000, 4000))
-    nested: Final = f"a{{filter:{f'{name}(' * 4_000}{')' * 4_000}}}"
+    nested: Final[str] = f"a{{filter:{f'{name}(' * 4_000}{')' * 4_000}}}"
     assert minify_css(nested) == nested
 
 
@@ -6576,24 +6574,24 @@ def test_legacy_filter_math_is_unchanged() -> None:
     ],
 )
 def test_box_merge_unsupported_edge(property_name: str, edge: str) -> None:
-    source: Final = (
+    source: Final[str] = (
         f"a {{ {property_name}-top: 1px; {property_name}-right: 2px; "
         f"{property_name}-bottom: 3px; {property_name}-left: {edge} }}"
     )
-    expected: Final = (
+    expected: Final[str] = (
         f"a{{{property_name}-top:1px;{property_name}-right:2px;{property_name}-bottom:3px;{property_name}-left:{edge}}}"
     )
-    first: Final = minify_css(source)
+    first: Final[str] = minify_css(source)
     assert (first, minify_css(first)) == (expected, expected)
 
 
 @pytest.mark.parametrize("property_name", [pytest.param("margin", id="margin"), pytest.param("padding", id="padding")])
 def test_box_merge_empty_edge(property_name: str) -> None:
-    source: Final = (
+    source: Final[str] = (
         f"a{{{property_name}-top:1px;{property_name}-right:2px;{property_name}-bottom:3px;{property_name}-left:}}"
     )
-    expected: Final = f"a{{{property_name}-top:1px;{property_name}-right:2px;{property_name}-bottom:3px}}"
-    first: Final = minify_css(source)
+    expected: Final[str] = f"a{{{property_name}-top:1px;{property_name}-right:2px;{property_name}-bottom:3px}}"
+    first: Final[str] = minify_css(source)
     assert (first, minify_css(first)) == (expected, expected)
 
 
@@ -6667,13 +6665,13 @@ def test_box_merge_empty_edge(property_name: str) -> None:
     ],
 )
 def test_box_merge_supported_edges(property_name: str, edges: tuple[str, ...], expected: str) -> None:
-    source: Final = f"""a{{{
+    source: Final[str] = f"""a{{{
         ";".join(
             f"{property_name}-{side}:{value}"
             for side, value in zip(("top", "right", "bottom", "left"), edges, strict=True)
         )
     }}}"""
-    first: Final = minify_css(source)
+    first: Final[str] = minify_css(source)
     assert (first, minify_css(first)) == (f"a{{{property_name}:{expected}}}",) * 2
 
 
@@ -6698,7 +6696,7 @@ def test_box_merge_supported_edges(property_name: str, edges: tuple[str, ...], e
     ],
 )
 def test_box_and_border_cascade_fallback(source: str, expected: str) -> None:
-    first: Final = minify_css(source)
+    first: Final[str] = minify_css(source)
     assert (first, minify_css(first)) == (expected, expected)
 
 

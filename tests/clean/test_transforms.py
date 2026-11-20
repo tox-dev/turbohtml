@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Final, assert_type, cast
 
 import pytest
 
-from turbohtml import Comment, Document, Element, Node, Text, parse, parse_fragment, parse_xml
+from turbohtml import Comment, Document, Element, Node, ShadowRoot, Text, parse, parse_fragment, parse_xml
 from turbohtml.clean import collapse_whitespace_node, sanitize_node, strip_comments_node, transform_node
 from turbohtml.mutations import MutationObserver
 
@@ -30,39 +30,39 @@ if TYPE_CHECKING:
     ],
 )
 def test_collapse_text(source: str, expected: str) -> None:
-    root: Final = parse_fragment(source)
+    root: Final[Element] = parse_fragment(source)
     assert assert_type(collapse_whitespace_node(root), Element).inner_html == expected
 
 
 @pytest.mark.parametrize("tag", ["pre", "textarea", "listing", "title", "script", "style", "xmp", "plaintext"])
 def test_collapse_preserves_context(tag: str) -> None:
-    root: Final = Element(tag, children=[Text("  a\n b  ")])
+    root: Final[Element] = Element(tag, children=[Text("  a\n b  ")])
     collapse_whitespace_node(root)
     assert root.text == "  a\n b  "
 
 
 def test_collapse_preserves_ancestor() -> None:
-    root: Final = Element("pre", children=[Element("span", children=[Text("  a  ")])])
+    root: Final[Element] = Element("pre", children=[Element("span", children=[Text("  a  ")])])
     collapse_whitespace_node(root.children[0])
     assert root.text == "  a  "
 
 
 def test_collapse_adjacent_text_identity() -> None:
-    root: Final = Element("p", children=[Text("a "), Text(""), Text(" \tb"), Text("  ")])
-    children: Final = tuple(root.children)
+    root: Final[Element] = Element("p", children=[Text("a "), Text(""), Text(" \tb"), Text("  ")])
+    children: Final[tuple[Node, ...]] = tuple(root.children)
     collapse_whitespace_node(root)
     assert (tuple(root.children), tuple(child.text for child in children)) == (children, ("a ", "", "b", " "))
 
 
 def test_collapse_empty_replacement() -> None:
-    root: Final = Element("p", children=[Text(" "), Text("  ")])
+    root: Final[Element] = Element("p", children=[Text(" "), Text("  ")])
     collapse_whitespace_node(root)
     assert tuple(child.text for child in root.children) == (" ", "")
 
 
 def test_collapse_observer_and_idempotence() -> None:
-    root: Final = Element("p", children=[Text(" a  b ")])
-    observer: Final = MutationObserver()
+    root: Final[Element] = Element("p", children=[Text(" a  b ")])
+    observer: Final[MutationObserver] = MutationObserver()
     observer.observe(root, subtree=True, character_data=True, character_data_old_value=True)
     collapse_whitespace_node(root)
     assert [(record.old_value, record.target.text) for record in observer.take_records()] == [(" a  b ", " a b ")]
@@ -75,8 +75,8 @@ def test_collapse_observer_and_idempotence() -> None:
     [pytest.param("a  b", id="ascii"), pytest.param("中  文", id="ucs2"), pytest.param("😀  🎉", id="ucs4")],
 )
 def test_collapse_source_observer(text: str) -> None:
-    root: Final = parse_fragment(f"<p>{text}</p>")
-    observer: Final = MutationObserver()
+    root: Final[Element] = parse_fragment(f"<p>{text}</p>")
+    observer: Final[MutationObserver] = MutationObserver()
     observer.observe(root, subtree=True, character_data=True, character_data_old_value=True)
     collapse_whitespace_node(root)
     assert [(record.old_value, record.target.text) for record in observer.take_records()] == [
@@ -94,13 +94,13 @@ def test_collapse_source_observer(text: str) -> None:
     ],
 )
 def test_collapse_preserves_unchanged_source(text: str) -> None:
-    root: Final = parse_fragment(f"<p>{text}</p>", source_locations=True)
+    root: Final[Element] = parse_fragment(f"<p>{text}</p>", source_locations=True)
     collapse_whitespace_node(root)
     assert root.to_source() == f"<div><p>{text}</p></div>"
 
 
 def test_collapse_xml_rejected() -> None:
-    root: Final = parse_xml("<p>  a  </p>")
+    root: Final[Document] = parse_xml("<p>  a  </p>")
     with pytest.raises(ValueError, match="HTML tree"):
         collapse_whitespace_node(root)
     assert root.text == "  a  "
@@ -108,7 +108,7 @@ def test_collapse_xml_rejected() -> None:
 
 @pytest.mark.parametrize("operation", [collapse_whitespace_node, strip_comments_node])
 def test_clean_identity(operation: Callable[[Node], Node]) -> None:
-    root: Final = parse_fragment("<p>  a  <!--x--></p>")
+    root: Final[Element] = parse_fragment("<p>  a  <!--x--></p>")
     assert operation(root) is root
 
 
@@ -121,8 +121,8 @@ def test_transform_invalid_root(
 
 
 def test_strip_comments_retains_references() -> None:
-    root: Final = parse_fragment("<!--a--><p>x<!--b--><b>y</b><!--c--></p><!--d-->")
-    comments: Final = [node for node in root.descendants if isinstance(node, Comment)]
+    root: Final[Element] = parse_fragment("<!--a--><p>x<!--b--><b>y</b><!--c--></p><!--d-->")
+    comments: Final[list[Comment]] = [node for node in root.descendants if isinstance(node, Comment)]
     strip_comments_node(root)
     assert (root.inner_html, [(node.parent, node.data) for node in comments]) == (
         "<p>x<b>y</b></p>",
@@ -131,47 +131,47 @@ def test_strip_comments_retains_references() -> None:
 
 
 def test_strip_comments_observed() -> None:
-    root: Final = parse_fragment("a<!--b-->c")
-    observer: Final = MutationObserver()
+    root: Final[Element] = parse_fragment("a<!--b-->c")
+    observer: Final[MutationObserver] = MutationObserver()
     observer.observe(root, child_list=True)
     strip_comments_node(root)
     assert [tuple(node.html for node in record.removed_nodes) for record in observer.take_records()] == [("<!--b-->",)]
 
 
 def test_strip_comments_keeps_context() -> None:
-    root: Final = Comment("keep")
+    root: Final[Comment] = Comment("keep")
     assert assert_type(strip_comments_node(root), Comment) is root
 
 
 def test_transform_empty() -> None:
-    root: Final = Text("a")
+    root: Final[Text] = Text("a")
     assert assert_type(transform_node(root), Text) is root
 
 
 def test_transform_stage_returning_its_root_keeps_identity() -> None:
-    root: Final = Element("p", children=[Text("a")])
+    root: Final[Element] = Element("p", children=[Text("a")])
     assert transform_node(root, strip_comments_node, lambda node: node) is root
 
 
 def test_transform_stage_returning_a_new_node_replaces_the_root() -> None:
-    result: Final = transform_node(Text("a"), lambda _node: Text("b"))
+    result: Final[Text] = transform_node(Text("a"), lambda _node: Text("b"))
     assert (type(result), result.text) == (Text, "b")
 
 
 def test_transform_native_mutator() -> None:
-    root: Final = Element("p", children=[Text("a"), Text("b")])
+    root: Final[Element] = Element("p", children=[Text("a"), Text("b")])
     assert assert_type(transform_node(root, Element.normalize), Element).inner_html == "ab"
     assert len(root.children) == 1
 
 
 def test_transform_copy_before_mutating() -> None:
-    root: Final = parse_fragment("<b>  a  </b><!--x-->")
+    root: Final[Element] = parse_fragment("<b>  a  </b><!--x-->")
     result: Final[Element] = assert_type(transform_node(root, sanitize_node, collapse_whitespace_node), Element)
     assert (root.inner_html, result.inner_xml) == ("<b>  a  </b><!--x-->", "<b> a </b>")
 
 
 def test_transform_order() -> None:
-    root: Final = Element("p", children=[Text("a "), Comment("x"), Text(" b")])
+    root: Final[Element] = Element("p", children=[Text("a "), Comment("x"), Text(" b")])
     assert transform_node(root, strip_comments_node, collapse_whitespace_node).inner_html == "a b"
 
 
@@ -187,12 +187,12 @@ def test_transform_replaces_node_type() -> None:
 
 
 def test_transform_partial() -> None:
-    root: Final = Text("  a  ")
+    root: Final[Text] = Text("  a  ")
     assert transform_node(root, partial(collapse_whitespace_node)).text == " a "
 
 
 def test_transform_callable_object() -> None:
-    root: Final = Text("  a  ")
+    root: Final[Text] = Text("  a  ")
     assert transform_node(root, partial(collapse_whitespace_node).__call__).text == " a "
 
 
@@ -209,45 +209,42 @@ def test_transform_invalid_result(*, result: str | int | tuple[()] | bool) -> No
     def stage(_node: Node) -> str | int | tuple[()] | bool:
         return result
 
-    operation: Final = cast("Callable[..., object]", transform_node)
     with pytest.raises(TypeError, match="stage 1 returned"):
-        operation(Text("a"), stage)
+        transform_node(Text("a"), cast("Callable[[Node], Node]", stage))
 
 
 def test_transform_failure_keeps_mutations() -> None:
-    failure: Final = ValueError("stage failed")
+    failure: Final[ValueError] = ValueError("stage failed")
 
     def fail(_node: Node) -> Node:
         raise failure
 
-    root: Final = parse_fragment("a<!--x-->")
+    root: Final[Element] = parse_fragment("a<!--x-->")
     with pytest.raises(ValueError, match="stage failed") as caught:
         transform_node(root, strip_comments_node, fail)
     assert (root.inner_html, caught.value) == ("a", failure)
 
 
 def test_transform_noncallable() -> None:
-    operation: Final = cast("Callable[..., object]", transform_node)
     with pytest.raises(TypeError, match="not callable"):
-        operation(Text("a"), 1)
+        transform_node(Text("a"), cast("Callable[[Node], Node]", 1))
 
 
 def test_transform_requires_root() -> None:
-    operation: Final = cast("Callable[..., object]", transform_node)
     with pytest.raises(TypeError, match="requires a node"):
-        operation()
+        cast("Callable[[], Node]", transform_node)()
 
 
 def test_collapse_foreign_ancestor() -> None:
-    root: Final = parse_fragment("<svg><foreignObject><p>  a  </p></foreignObject></svg>")
-    paragraph: Final = root.find_all("p")[0]
+    root: Final[Element] = parse_fragment("<svg><foreignObject><p>  a  </p></foreignObject></svg>")
+    paragraph: Final[Element] = root.find_all("p")[0]
     collapse_whitespace_node(paragraph)
     assert paragraph.text == "  a  "
 
 
 def test_clean_shadow_boundary() -> None:
-    root: Final = Element("div", children=[Text("  a  "), Comment("remove")])
-    shadow: Final = root.attach_shadow()
+    root: Final[Element] = Element("div", children=[Text("  a  "), Comment("remove")])
+    shadow: Final[ShadowRoot] = root.attach_shadow()
     shadow.set_inner_html("  b  <!--keep-->")
     transform_node(root, strip_comments_node, collapse_whitespace_node)
     assert (root.inner_html, shadow.inner_html) == (" a ", "  b  <!--keep-->")
@@ -265,7 +262,7 @@ def test_clean_shadow_boundary() -> None:
     ],
 )
 def test_strip_comments_context(parse_tree: Callable[[str], Node], source: str, expected: str) -> None:
-    root: Final = parse_tree(source)
+    root: Final[Node] = parse_tree(source)
     strip_comments_node(root)
     assert root.inner_html == expected
 
@@ -278,7 +275,7 @@ def test_strip_comments_context(parse_tree: Callable[[str], Node], source: str, 
     ],
 )
 def test_clean_concurrent_tree(operation: Callable[[Node], Node], expected: str) -> None:
-    root: Final = parse_fragment("<p>alpha   beta<!--x--></p>")
+    root: Final[Element] = parse_fragment("<p>alpha   beta<!--x--></p>")
     with ThreadPoolExecutor(max_workers=4) as executor:
-        results: Final = tuple(executor.map(operation, repeat(root, 32)))
+        results: Final[tuple[Node, ...]] = tuple(executor.map(operation, repeat(root, 32)))
     assert (all(result is root for result in results), root.inner_html) == (True, expected)

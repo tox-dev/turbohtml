@@ -13,10 +13,10 @@ class _Attrs(Protocol):
 def fill_equality_pair(left: _Attrs, right: _Attrs, count: int, variant: str) -> None:
     right["data-seed"] = ""
     del right["data-seed"]
-    names: Final = [f"data-{index}" for index in range(count)]
+    names: Final[list[str]] = [f"data-{index}" for index in range(count)]
     for name in names:
         left[name] = "é水😀"
-    order: Final = names[count // 2 :] + names[: count // 2] if variant == "rotated" else names
+    order: Final[list[str]] = names[count // 2 :] + names[: count // 2] if variant == "rotated" else names
     for name in reversed(order) if variant == "reversed" else order:
         right[name] = "é水😀"
     if variant == "early-value":

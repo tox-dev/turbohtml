@@ -6,10 +6,11 @@ from typing import TYPE_CHECKING, Final, cast
 import pytest
 from bench.operations import INPUTS
 
-from turbohtml import Element, Node, parse, parse_fragment
+from turbohtml import Document, Element, Node, parse, parse_fragment
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from types import ModuleType
 
 
 @pytest.fixture
@@ -188,8 +189,8 @@ def test_huge_colspan_is_clamped(rows: Callable[[str], list[list[str]]]) -> None
 
 
 def test_rowspan_beyond_colspan_limit(rows: Callable[[str], list[list[str]]]) -> None:
-    body: Final = f"<tr><td rowspan=1002>A</td><td>0</td></tr>{'<tr><td>x</td></tr>' * 1001}"
-    grid: Final = rows(f"<table>{body}</table>")
+    body: Final[str] = f"<tr><td rowspan=1002>A</td><td>0</td></tr>{'<tr><td>x</td></tr>' * 1001}"
+    grid: Final[list[list[str]]] = rows(f"<table>{body}</table>")
     assert grid == [["A", "0"], *[["A", "x"] for _ in range(1001)]]
 
 
@@ -333,7 +334,7 @@ def test_records_inside_a_cell_are_cell_content(records: Callable[[str], list[di
 
 def test_nested_tables_up_to_the_text_limit_are_kept() -> None:
     # the two outermost tables are not charged; the 100 inside them repeat exactly the 16,000,000 characters allowed
-    text: Final = "x" * 160_000
+    text: Final[str] = "x" * 160_000
     assert parse(f"{'<table><tr><td>' * 102}{text}").tables() == [[[text]]] * 102
 
 
@@ -348,9 +349,9 @@ def test_nested_tables_past_the_text_limit_are_read_one_at_a_time(nested_past_te
 
 
 def test_tables_that_are_not_nested_are_not_charged_for_text() -> None:
-    text: Final = "x" * 8_000_001
-    nested: Final = "<table><tr><td><table><tr><td>y</table></table>"
-    flat: Final = f"<table><tr><td>{text}</table>"
+    text: Final[str] = "x" * 8_000_001
+    nested: Final[str] = "<table><tr><td><table><tr><td>y</table></table>"
+    flat: Final[str] = f"<table><tr><td>{text}</table>"
     assert parse(f"{nested}{flat}{flat}<div>{nested}</div>").tables() == [
         [["y"]],
         [["y"]],
@@ -363,15 +364,15 @@ def test_tables_that_are_not_nested_are_not_charged_for_text() -> None:
 
 def test_tables_called_inside_a_table_does_not_count_it_as_enclosing() -> None:
     # the table holding the cell is not an enclosing table of this call, so only 99 tables are charged
-    text: Final = "x" * 160_001
-    cell: Final = parse(f"<table><tr><td>{'<table><tr><td>' * 101}{text}").select("td")[0]
+    text: Final[str] = "x" * 160_001
+    cell: Final[Element] = parse(f"<table><tr><td>{'<table><tr><td>' * 101}{text}").select("td")[0]
     assert cell.tables() == [[[text]]] * 101
 
 
 def test_tables_nested_inside_one_table_are_not_charged() -> None:
     # tables nested in exactly one other table are disjoint, so their combined text is not limited
-    cell: Final = "x" * 100_000
-    inner: Final = f"<table><tr><td>{cell}</table>"
+    cell: Final[str] = "x" * 100_000
+    inner: Final[str] = f"<table><tr><td>{cell}</table>"
     assert parse(f"<table><tr><td>{inner * 170}</table>").tables()[1:] == [[[cell]]] * 170
 
 
@@ -400,7 +401,7 @@ def test_records_on_a_non_table_raises_type_error(non_table_div: Element) -> Non
 
 def test_padding_up_to_the_spare_slot_limit_is_kept(rows: Callable[[str], list[list[str]]]) -> None:
     # 2,000 cells pay for their own slots; padding 2,000 empty rows to that width adds exactly the 4,000,000 allowed.
-    grid: Final = rows(f"<table><tr>{'<td>x' * 2000}{'<tr>' * 2000}</table>")
+    grid: Final[list[list[str]]] = rows(f"<table><tr>{'<td>x' * 2000}{'<tr>' * 2000}</table>")
     assert grid == [["x"] * 2000, *[[""] * 2000] * 2000]
 
 
@@ -427,7 +428,7 @@ def test_document_beyond_the_spare_slot_limit_raises(html: str) -> None:
 
 
 def test_tables_share_one_spare_slot_limit() -> None:
-    table: Final = f"<table><tr>{'<td colspan=1000 rowspan=0>x' * 3}{'<tr>' * 999}</table>"
+    table: Final[str] = f"<table><tr>{'<td colspan=1000 rowspan=0>x' * 3}{'<tr>' * 999}</table>"
     assert [(len(grid), len(grid[0])) for grid in parse(table).tables()] == [(1000, 3000)]
     with pytest.raises(ValueError, match=_SPARE_SLOT_LIMIT_MESSAGE):
         parse(table * 2).tables()
@@ -437,15 +438,17 @@ def test_tables_share_one_spare_slot_limit() -> None:
     "text", [pytest.param("x" * 4096, id="long"), pytest.param("é猫😀", id="wide"), pytest.param("", id="empty")]
 )
 def test_table_span_snapshot_survives_tree_mutation(text: str) -> None:
-    document: Final = parse(f"<table><tr><td rowspan=2 colspan=3> {text} </td></tr><tr></tr></table>")
-    table: Final = document.select("table")[0]
-    result: Final = table.rows()
+    document: Final[Document] = parse(f"<table><tr><td rowspan=2 colspan=3> {text} </td></tr><tr></tr></table>")
+    table: Final[Element] = document.select("table")[0]
+    result: Final[list[list[str]]] = table.rows()
     document.select("td")[0].text = "changed"
     assert result == [[text] * 3, [text] * 3]
 
 
 def test_table_span_rows_are_independent() -> None:
-    result: Final = parse("<table><tr><td rowspan=2 colspan=2>x</td></tr><tr></tr></table>").select("table")[0].rows()
+    result: Final[list[list[str]]] = (
+        parse("<table><tr><td rowspan=2 colspan=2>x</td></tr><tr></tr></table>").select("table")[0].rows()
+    )
     result[0][0] = "changed"
     assert result == [["changed", "x"], ["x", "x"]]
 
@@ -455,12 +458,12 @@ def test_table_span_rows_are_independent() -> None:
     [pytest.param(0, 128, 69_000, 1, id="large-span"), pytest.param(1, 1, 16, 80, id="ordinary")],
 )
 def test_table_span_rows_benchmark(case: int, columns: int, size: int, tables: int) -> None:
-    source: Final = cast("tuple[str, str]", INPUTS["tables-spans"]()[case][1])[1]
+    source: Final[str] = cast("tuple[str, str]", INPUTS["tables-spans"]()[case][1])[1]
     assert parse(source).tables() == [[["header"] * columns, ["x" * size] * columns]] * tables
 
 
 def test_table_span_records_benchmark() -> None:
-    source: Final = cast("tuple[str, str]", INPUTS["tables-spans"]()[2][1])[1]
+    source: Final[str] = cast("tuple[str, str]", INPUTS["tables-spans"]()[2][1])[1]
     assert parse(source).select("table")[0].records() == [{"header": "x" * 68_500}]
 
 
@@ -470,8 +473,8 @@ def test_table_span_records_benchmark() -> None:
 )
 @pytest.mark.oracle
 def test_table_span_header_rows_differ(case: int, columns: int, size: int, tables: int) -> None:
-    pandas: Final = pytest.importorskip("pandas")
-    source: Final = cast("tuple[str, str]", INPUTS["tables-spans"]()[case][1])[1]
+    pandas: Final[ModuleType] = pytest.importorskip("pandas")
+    source: Final[str] = cast("tuple[str, str]", INPUTS["tables-spans"]()[case][1])[1]
     assert (
         parse(source).tables(),
         [frame.to_numpy().tolist() for frame in pandas.read_html(io.StringIO(source))],
@@ -483,8 +486,8 @@ def test_table_span_header_rows_differ(case: int, columns: int, size: int, table
 
 @pytest.mark.oracle
 def test_table_span_duplicate_headers_differ() -> None:
-    pandas: Final = pytest.importorskip("pandas")
-    source: Final = cast("tuple[str, str]", INPUTS["tables-spans"]()[2][1])[1]
+    pandas: Final[ModuleType] = pytest.importorskip("pandas")
+    source: Final[str] = cast("tuple[str, str]", INPUTS["tables-spans"]()[2][1])[1]
     assert (
         parse(source).select("table")[0].records(),
         pandas.read_html(io.StringIO(source), header=0)[0].to_dict("records"),

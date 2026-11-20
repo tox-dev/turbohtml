@@ -27,7 +27,7 @@ _XML_CONTENT: Final[str] = '<doc xmlns="urn:data" value="a&amp;b"><b>hello &amp;
     ],
 )
 def test_feed_atom_xml_media_content_retains_markup(media_type: str, expected: str) -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><entry>'
         f'<content type="{media_type}"><doc xmlns="urn:data" value="a&amp;b">'
         "<b>hello &amp; bye</b><empty/></doc></content></entry></feed>"
@@ -67,7 +67,9 @@ def test_feed_atom_xml_media_content_retains_markup(media_type: str, expected: s
     ],
 )
 def test_feed_atom_markup_drops_disproportionate_inherited_namespace_copies(content: str, expected: str) -> None:
-    xml: Final = f'<feed xmlns="http://www.w3.org/2005/Atom" xmlns:p="{"u" * 3000}"><entry>{content}</entry></feed>'
+    xml: Final[str] = (
+        f'<feed xmlns="http://www.w3.org/2005/Atom" xmlns:p="{"u" * 3000}"><entry>{content}</entry></feed>'
+    )
     result = feed(xml)
     assert result is not None
     assert result.entries[0].content == expected
@@ -83,8 +85,8 @@ def test_feed_atom_markup_drops_disproportionate_inherited_namespace_copies(cont
     ],
 )
 def test_feed_atom_markup_keeps_inherited_namespace_copy_within_the_construct_base(content: str) -> None:
-    name: Final = "u" * 512
-    xml: Final = f'<feed xmlns="http://www.w3.org/2005/Atom" xmlns:p="{name}"><entry>{content}</entry></feed>'
+    name: Final[str] = "u" * 512
+    xml: Final[str] = f'<feed xmlns="http://www.w3.org/2005/Atom" xmlns:p="{name}"><entry>{content}</entry></feed>'
     result = feed(xml)
     assert result is not None
     assert result.entries[0].content == f'<p:b xmlns:p="{name}">x</p:b>'
@@ -101,8 +103,8 @@ def test_feed_atom_markup_keeps_inherited_namespace_copy_within_the_construct_ba
 )
 def test_feed_atom_markup_inherited_namespace_copies_stay_bounded_across_entries(content: str) -> None:
     # every entry keeps its content, so a base granted afresh to each construct must not multiply across entries
-    entries: Final = 2000
-    xml: Final = (
+    entries: Final[int] = 2000
+    xml: Final[str] = (
         f'<feed xmlns="http://www.w3.org/2005/Atom" xmlns:p="{"u" * 3000}">'
         f"{f'<entry>{content}</entry>' * entries}</feed>"
     )
@@ -121,7 +123,7 @@ def test_feed_atom_markup_inherited_namespace_copies_stay_bounded_across_entries
 )
 @pytest.mark.parametrize("size", [1000, 2000, 3000])
 def test_feed_atom_markup_inherited_namespace_copies_stay_bounded(content: str, size: int) -> None:
-    xml: Final = (
+    xml: Final[str] = (
         f'<feed xmlns="http://www.w3.org/2005/Atom" xmlns:p="{"u" * size}"><entry>'
         f"{content.format('<p:b/>' * size)}</entry></feed>"
     )

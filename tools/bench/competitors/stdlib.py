@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import functools
-from html import escape as _html_escape
-from html import unescape as _html_unescape
+import html
 from html.parser import HTMLParser
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
@@ -19,12 +18,12 @@ _REQUIREMENTS: Final[tuple[()]] = ()
 
 def escape(text: str) -> None:
     # Escape text with the standard library's html.escape.
-    _html_escape(text)
+    html.escape(text)
 
 
 def unescape(text: str) -> None:
     # Resolve character references with the standard library's html.unescape.
-    _html_unescape(text)
+    html.unescape(text)
 
 
 # The codec each label resolved to before turbohtml decoded natively. None of them is the spec's decoder: cp932 carries

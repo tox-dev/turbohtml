@@ -34,7 +34,7 @@ def _javascript(data: bytes) -> None:
 
 def javascript_observation(data: bytes, printer: Callable[[str, JSMinify], str] = minify_js) -> str:
     # Keep independent source rejection ahead of minifier findings.
-    source: Final = data.decode("utf-8")
+    source: Final[str] = data.decode("utf-8")
     if _NAMES.read(source) is None:
         raise OutOfScopeError
 

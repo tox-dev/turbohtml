@@ -25,7 +25,7 @@ from turbohtml.clean import Linkify, linkify_node, strip_comments_node
 from turbohtml.transform import Transform
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Sequence
+    from collections.abc import Callable, Iterable, Iterator, Sequence
 
     from work_steps import WorkSteps
 
@@ -146,9 +146,9 @@ def test_assigned_elements_drops_text_nodes(slotted: tuple[Element, ShadowRoot])
 
 @pytest.mark.parametrize("content", [pytest.param("", id="empty"), pytest.param("text", id="text-only")])
 def test_assigned_elements_without_elements(content: str) -> None:
-    host: Final = Element("div")
+    host: Final[Element] = Element("div")
     host.set_inner_html(content)
-    root: Final = host.attach_shadow()
+    root: Final[ShadowRoot] = host.attach_shadow()
     root.set_inner_html("<slot></slot>")
     assert _element(root.select_one("slot")).assigned_elements() == []
 
@@ -371,9 +371,9 @@ def test_set_inner_html_replaces_content() -> None:
 
 
 def test_iter_elements_survives_set_inner_html_clearing_siblings() -> None:
-    root: Final = Element("div").attach_shadow("open")
+    root: Final[ShadowRoot] = Element("div").attach_shadow("open")
     root.set_inner_html("<a></a><b></b><c></c>")
-    iterator: Final = root.iter_elements()
+    iterator: Final[Iterator[Element]] = root.iter_elements()
     assert _element(next(iterator)).tag == "a"
     root.set_inner_html("x")  # clears the pending siblings; the walk must revalidate, not crash
     assert _tags(iterator) == ["b"]
@@ -691,19 +691,19 @@ def test_fragment_context_that_is_not_a_valid_host_keeps_a_template() -> None:
     ],
 )
 def test_flattened_assignment_order(mode: str, light: str, shadow: str, expected: list[str]) -> None:
-    host: Final = Element("div")
+    host: Final[Element] = Element("div")
     host.set_inner_html(light)
-    root: Final = host.attach_shadow(mode)
+    root: Final[ShadowRoot] = host.attach_shadow(mode)
     root.set_inner_html(shadow)
     assert [node.serialize() for node in host.flattened_children] == expected
 
 
 def test_flattened_assignment_updates_after_edit() -> None:
-    host: Final = Element("div")
+    host: Final[Element] = Element("div")
     host.set_inner_html('<b slot="a">one</b><i slot="b">two</i>')
-    root: Final = host.attach_shadow()
+    root: Final[ShadowRoot] = host.attach_shadow()
     root.set_inner_html('<slot name="a"></slot><slot name="b"></slot>')
-    before: Final = host.flattened_children
+    before: Final[list[Node]] = host.flattened_children
     host.set_inner_html('<u slot="b">new</u>')
     root.set_inner_html('<slot name="b"></slot><slot name="a">fallback</slot>')
     assert (
@@ -713,30 +713,30 @@ def test_flattened_assignment_updates_after_edit() -> None:
 
 
 def test_flattened_assignment_many_names() -> None:
-    host: Final = Element("div")
+    host: Final[Element] = Element("div")
     host.set_inner_html("".join(f'<i slot="name-{index}">{index}</i>' for index in range(1000)))
-    root: Final = host.attach_shadow()
+    root: Final[ShadowRoot] = host.attach_shadow()
     root.set_inner_html("".join(f'<slot name="name-{index}">fallback</slot>' for index in reversed(range(1000))))
     assert [node.text for node in host.flattened_children] == [str(index) for index in reversed(range(1000))]
 
 
 def test_flattened_children_follow_a_slot_assigned_into_a_nested_shadow_tree() -> None:
-    outer: Final = Element("div")
+    outer: Final[Element] = Element("div")
     outer.set_inner_html('<p slot="x">X</p>')
-    outer_root: Final = outer.attach_shadow()
+    outer_root: Final[ShadowRoot] = outer.attach_shadow()
     outer_root.set_inner_html('<section><slot name="x" slot="b"></slot></section>')
-    inner: Final = _element(outer_root.select_one("section"))
+    inner: Final[Element] = _element(outer_root.select_one("section"))
     inner.attach_shadow().set_inner_html('<slot name="a"></slot><slot name="b"></slot>')
     assert [node.serialize() for node in inner.flattened_children] == ['<p slot="x">X</p>']
 
 
 def test_assigned_slot_of_every_child_stays_linear(work_steps: WorkSteps) -> None:
     def read_every_child(count: int) -> Callable[[], object]:
-        host: Final = Element("div")
+        host: Final[Element] = Element("div")
         host.set_inner_html("<p></p>" * count)
-        root: Final = host.attach_shadow()
+        root: Final[ShadowRoot] = host.attach_shadow()
         root.set_inner_html(f"{'<p></p>' * count}<slot></slot>")
-        children: Final = host.children
+        children: Final[Sequence[Node]] = host.children
         return lambda: [child.assigned_slot for child in children]
 
     work_steps.assert_linear(read_every_child, (500, 2000))
@@ -744,11 +744,11 @@ def test_assigned_slot_of_every_child_stays_linear(work_steps: WorkSteps) -> Non
 
 def test_assigned_slot_after_unrelated_attribute_edits_stays_linear(work_steps: WorkSteps) -> None:
     def edit_then_read(count: int) -> Callable[[], object]:
-        host: Final = Element("div")
+        host: Final[Element] = Element("div")
         host.set_inner_html("<p></p>" * count)
-        root: Final = host.attach_shadow()
+        root: Final[ShadowRoot] = host.attach_shadow()
         root.set_inner_html(f"{'<p></p>' * count}<slot></slot>")
-        paragraphs: Final = host.select("p")
+        paragraphs: Final[list[Element]] = host.select("p")
 
         def edit_and_read() -> list[Node | None]:
             slots: list[Node | None] = []
@@ -772,11 +772,11 @@ def test_assigned_slot_after_unrelated_attribute_edits_stays_linear(work_steps: 
 )
 def test_slot_reads_across_a_shadow_tree_stay_linear(read: Callable[[Element], object], work_steps: WorkSteps) -> None:
     def read_each_paragraph(count: int) -> Callable[[], object]:
-        host: Final = Element("div")
+        host: Final[Element] = Element("div")
         host.set_inner_html("<p></p>" * count)
-        root: Final = host.attach_shadow()
+        root: Final[ShadowRoot] = host.attach_shadow()
         root.set_inner_html('<p><slot name="unused"></slot></p>' * count)
-        paragraphs: Final = root.select("p")
+        paragraphs: Final[list[Element]] = root.select("p")
         return lambda: [read(paragraph) for paragraph in paragraphs]
 
     work_steps.assert_linear(read_each_paragraph, (500, 2000))
@@ -784,12 +784,12 @@ def test_slot_reads_across_a_shadow_tree_stay_linear(read: Callable[[Element], o
 
 def test_slot_names_that_collide_stay_linear(work_steps: WorkSteps) -> None:
     def read_every_child(count: int) -> Callable[[], object]:
-        names: Final = _colliding_names(count)
-        host: Final = Element("div")
+        names: Final[list[str]] = _colliding_names(count)
+        host: Final[Element] = Element("div")
         host.set_inner_html("".join(f'<b slot="{name}"></b>' for name in names))
-        root: Final = host.attach_shadow()
+        root: Final[ShadowRoot] = host.attach_shadow()
         root.set_inner_html("".join(f'<slot name="{name}"></slot>' for name in names))
-        children: Final = host.select("b")
+        children: Final[list[Element]] = host.select("b")
         return lambda: ([child.assigned_slot for child in children], host.flattened_children)
 
     work_steps.assert_linear(read_every_child, (200, 800))
@@ -809,24 +809,24 @@ def _colliding_names(count: int) -> list[str]:
 
 
 def test_slot_names_that_collide_find_their_own_slots() -> None:
-    names: Final = _colliding_names(200)
-    host: Final = Element("div")
+    names: Final[list[str]] = _colliding_names(200)
+    host: Final[Element] = Element("div")
     host.set_inner_html("".join(f'<b slot="{name}"></b>' for name in names))
-    root: Final = host.attach_shadow()
+    root: Final[ShadowRoot] = host.attach_shadow()
     root.set_inner_html("".join(f'<slot name="{name}"></slot>' for name in names))
-    children: Final = host.select("b")
-    slots: Final = root.select("slot")
+    children: Final[list[Element]] = host.select("b")
+    slots: Final[list[Element]] = root.select("slot")
     for _ in range(2):  # the second read copies a bucket
         assert [child.assigned_slot for child in children] == slots
     assert host.flattened_children == children
 
 
 def test_flattened_children_alternate_between_two_shadow_trees() -> None:
-    outer: Final = Element("div")
+    outer: Final[Element] = Element("div")
     outer.set_inner_html('<p slot="x">b</p><p>a</p>')
-    outer_root: Final = outer.attach_shadow()
+    outer_root: Final[ShadowRoot] = outer.attach_shadow()
     outer_root.set_inner_html('<div><slot slot="inner" name="x"></slot></div>')
-    inner: Final = _element(outer_root.select_one("div"))
+    inner: Final[Element] = _element(outer_root.select_one("div"))
     inner.attach_shadow().set_inner_html('<slot name="inner"></slot>')
     assert [node.text for node in inner.flattened_children] == ["b"]
 
@@ -838,9 +838,9 @@ _SCANS_BEFORE_CACHE: Final[int] = 65
 
 
 def test_assigned_slot_resumes_the_slot_walk() -> None:
-    host: Final = Element("div")
+    host: Final[Element] = Element("div")
     host.set_inner_html('<i slot="a"></i><i slot="b"></i>text<i slot="missing"></i><i></i>')
-    root: Final = host.attach_shadow()
+    root: Final[ShadowRoot] = host.attach_shadow()
     root.set_inner_html(
         f'{_PADDING}<slot name="a"></slot><p><slot name="a"></slot></p><slot name="b"></slot><slot></slot>'
     )
@@ -849,7 +849,7 @@ def test_assigned_slot_resumes_the_slot_walk() -> None:
     _start_slot_cache(plain)
     # each read walks on from where the last one stopped: to the first a, past its duplicate to the end of the tree for
     # a name no slot has, and after that not at all
-    order: Final = [named, missing, other, text, missing, plain, named]
+    order: Final[list[Node]] = [named, missing, other, text, missing, plain, named]
     assert [node.assigned_slot for node in order] == [first, None, second, default, None, default, first]
 
 
@@ -859,48 +859,52 @@ def _start_slot_cache(child: Node) -> None:
 
 
 def test_assigned_nodes_of_every_slot_match_on_every_read() -> None:
-    host: Final = Element("div")
-    names: Final = "".join(f'<i slot="name-{index}">{index}</i>' for index in range(8))
+    host: Final[Element] = Element("div")
+    names: Final[str] = "".join(f'<i slot="name-{index}">{index}</i>' for index in range(8))
     host.set_inner_html(
         f'<!--skipped--><i slot="a">1</i>text<i slot="missing">2</i><i slot="b">3</i><i slot="a">4</i>{names}'
     )
-    root: Final = host.attach_shadow()
-    slots: Final = "".join(f'<slot name="{name}"></slot>' for name in ("b", *(f"name-{index}" for index in range(8))))
+    root: Final[ShadowRoot] = host.attach_shadow()
+    slots: Final[str] = "".join(
+        f'<slot name="{name}"></slot>' for name in ("b", *(f"name-{index}" for index in range(8)))
+    )
     root.set_inner_html(
         f'{_PADDING}<slot name="a"></slot><slot name="empty"></slot><slot name="a"></slot><p><slot></slot></p>{slots}'
     )
-    expected: Final = [["1", "4"], [], [], ["text"], ["3"], *([str(index)] for index in range(8))]
-    scanned: Final = [[node.text for node in slot.assigned_nodes()] for slot in root.select("slot")]
+    expected: Final[list[list[str]]] = [["1", "4"], [], [], ["text"], ["3"], *([str(index)] for index in range(8))]
+    scanned: Final[list[list[str]]] = [[node.text for node in slot.assigned_nodes()] for slot in root.select("slot")]
     _start_slot_cache(host.select("i")[0])
     # the cache's first read buckets the host's children, and the rest copy a bucket
-    cached: Final = [[[node.text for node in slot.assigned_nodes()] for slot in root.select("slot")] for _ in range(2)]
+    cached: Final[list[list[list[str]]]] = [
+        [[node.text for node in slot.assigned_nodes()] for slot in root.select("slot")] for _ in range(2)
+    ]
     assert (scanned, cached) == (expected, [expected] * 2)
 
 
 def test_assigned_nodes_of_a_slot_outside_a_shadow_tree() -> None:
-    slot: Final = Element("slot")
+    slot: Final[Element] = Element("slot")
     # one read in every 64 takes the sampled path, which has to stop at a slot with no shadow root above it
     assert [slot.assigned_nodes() for _ in range(_SCANS_BEFORE_CACHE)] == [[]] * _SCANS_BEFORE_CACHE
 
 
 def test_assigned_nodes_of_a_host_holding_only_comments() -> None:
-    host: Final = Element("div")
+    host: Final[Element] = Element("div")
     host.set_inner_html("<!--comment-->" * 32)
-    root: Final = host.attach_shadow()
+    root: Final[ShadowRoot] = host.attach_shadow()
     root.set_inner_html("<slot>fallback</slot>")
-    slot: Final = root.select("slot")[0]
+    slot: Final[Element] = root.select("slot")[0]
     # the comments make each scan long, so the last read goes through the slot cache
     assert [slot.assigned_nodes() for _ in range(_SCANS_BEFORE_CACHE + 1)] == [[]] * (_SCANS_BEFORE_CACHE + 1)
 
 
 def test_normalize_reassigns_merged_text() -> None:
-    host: Final = Element("div", children=[Text("a"), Text(""), Text("b")])
-    root: Final = host.attach_shadow()
+    host: Final[Element] = Element("div", children=[Text("a"), Text(""), Text("b")])
+    root: Final[ShadowRoot] = host.attach_shadow()
     root.set_inner_html(f"{_PADDING}<slot></slot>")
-    slot: Final = root.select("slot")[0]
+    slot: Final[Element] = root.select("slot")[0]
     _start_slot_cache(host.children[0])
     # the read buckets the host's children in the slot cache, which normalize then has to drop
-    before: Final = [node.text for node in slot.assigned_nodes()]
+    before: Final[list[str]] = [node.text for node in slot.assigned_nodes()]
     host.normalize()
     assert (before, [node.text for node in slot.assigned_nodes()], slot.assigned_nodes()) == (
         ["a", "", "b"],
@@ -910,13 +914,13 @@ def test_normalize_reassigns_merged_text() -> None:
 
 
 def test_linkify_node_reassigns_the_text_it_splits() -> None:
-    host: Final = Element("div")
+    host: Final[Element] = Element("div")
     host.set_inner_html("see http://example.com now")
-    root: Final = host.attach_shadow()
+    root: Final[ShadowRoot] = host.attach_shadow()
     root.set_inner_html(f"{_PADDING}<slot></slot>")
-    slot: Final = root.select("slot")[0]
+    slot: Final[Element] = root.select("slot")[0]
     _start_slot_cache(host.children[0])
-    before: Final = [node.text for node in slot.assigned_nodes()]
+    before: Final[list[str]] = [node.text for node in slot.assigned_nodes()]
     # a vetoed link stays text, so no attribute write announces that three Text nodes replaced the one
     linkify_node(host, Linkify(callbacks=[lambda link: None]))  # ruff:ignore[unused-lambda-argument]  # the callback vetoes every link
     assert (before, [node.text for node in slot.assigned_nodes()], slot.assigned_nodes()) == (
@@ -927,27 +931,27 @@ def test_linkify_node_reassigns_the_text_it_splits() -> None:
 
 
 def test_linkify_node_reassigns_the_anchor_it_unwraps() -> None:
-    host: Final = Element("div")
+    host: Final[Element] = Element("div")
     host.set_inner_html('<a href="http://example.com/" slot="named">text</a>')
-    root: Final = host.attach_shadow()
+    root: Final[ShadowRoot] = host.attach_shadow()
     root.set_inner_html(f'{_PADDING}<slot name="named"></slot><slot></slot>')
     named, default = root.select("slot")
     _start_slot_cache(host.children[0])
-    before: Final = (_tags(named.assigned_nodes()), default.assigned_nodes())
-    veto: Final = Linkify(callbacks=[lambda link: None], process_existing=True)  # ruff:ignore[unused-lambda-argument]  # the callback vetoes every link
+    before: Final[tuple[list[str], list[Node]]] = (_tags(named.assigned_nodes()), default.assigned_nodes())
+    veto: Final[Linkify] = Linkify(callbacks=[lambda link: None], process_existing=True)  # ruff:ignore[unused-lambda-argument]  # the callback vetoes every link
     linkify_node(host, veto)
     assert (before, named.assigned_nodes(), default.assigned_nodes()) == ((["a"], []), [], list(host.children))
 
 
 def test_transform_keeps_shadow_assignments_matching_the_source() -> None:
-    document: Final = parse("<div> <b>x</b> </div>")
-    host: Final = _element(document.find("div"))
-    root: Final = host.attach_shadow()
+    document: Final[Document] = parse("<div> <b>x</b> </div>")
+    host: Final[Element] = _element(document.find("div"))
+    root: Final[ShadowRoot] = host.attach_shadow()
     root.set_inner_html(f"{_PADDING}<slot></slot>")
-    slot: Final = root.select("slot")[0]
+    slot: Final[Element] = root.select("slot")[0]
     _start_slot_cache(host.children[1])
     assert slot.assigned_nodes() == list(host.children)
-    stylesheet: Final = Transform(
+    stylesheet: Final[Transform] = Transform(
         parse_xml(
             '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
             '<xsl:strip-space elements="*"/><xsl:output method="text"/>'
@@ -959,31 +963,31 @@ def test_transform_keeps_shadow_assignments_matching_the_source() -> None:
 
 
 def test_assigned_slot_resumes_after_comments_are_stripped() -> None:
-    host: Final = Element("div")
+    host: Final[Element] = Element("div")
     host.set_inner_html('<b slot="early"></b><i slot="late"></i>')
-    root: Final = host.attach_shadow()
+    root: Final[ShadowRoot] = host.attach_shadow()
     root.set_inner_html(f'{_PADDING}<slot name="early"></slot><!--next--><slot name="late"></slot>')
     _start_slot_cache(host.children[0])
     # stripping comments drops no cache, so the walk that found the first slot must not be resting on the comment
-    before: Final = host.children[0].assigned_slot
+    before: Final[Element | None] = host.children[0].assigned_slot
     strip_comments_node(root)
     assert [before, host.children[1].assigned_slot] == root.select("slot")
 
 
 def test_assigned_slot_follows_edits_in_every_host() -> None:
-    section: Final = Element("section")
+    section: Final[Element] = Element("section")
     section.set_inner_html("<div><b>x</b><i>y</i></div>" * 6)
     for host in section.select("div"):
         host.attach_shadow().set_inner_html(f'{_PADDING}<slot name="named"></slot><slot></slot>')
-    children: Final = section.select("b, i")
+    children: Final[list[Element]] = section.select("b, i")
 
     def names() -> list[str | list[str] | None]:
         return [_element(child.assigned_slot).attrs.get("name") for child in children]
 
     _start_slot_cache(children[0])
-    before: Final = names()
+    before: Final[list[str | list[str] | None]] = names()
     children[3].attrs["slot"] = "named"
-    renamed: Final = names()
+    renamed: Final[list[str | list[str] | None]] = names()
     _start_slot_cache(children[0])
     _shadow(section.select("div")[4].shadow_root).select("slot")[1].extract()
     assert (before, renamed, [child.assigned_slot is None for child in children]) == (
@@ -994,7 +998,7 @@ def test_assigned_slot_follows_edits_in_every_host() -> None:
 
 
 def test_shadow_flatten_keeps_sibling_fallback_order() -> None:
-    shadow: Final = Element("div").attach_shadow("open")
+    shadow: Final[ShadowRoot] = Element("div").attach_shadow("open")
     shadow.set_inner_html(f"<slot>{''.join(f'<slot>{index}</slot>' for index in range(100))}</slot>")
     assert [node.text for node in shadow.select("slot")[0].assigned_nodes(flatten=True)] == [
         str(index) for index in range(100)
@@ -1018,7 +1022,7 @@ def test_renaming_first_slot_reassigns_children() -> None:
     root: Final[ShadowRoot] = host.attach_shadow("open")
     root.set_inner_html('<slot name="target"></slot><slot name="target"></slot>')
     first, second = root.select("slot")
-    before: Final = (first.assigned_nodes(), second.assigned_nodes())
+    before: Final[tuple[list[Node], list[Node]]] = (first.assigned_nodes(), second.assigned_nodes())
     first.attrs["name"] = "other"
     assert (before, first.assigned_nodes(), second.assigned_nodes()) == (
         ([host.children[0]], []),
@@ -1033,7 +1037,7 @@ def test_editing_child_slot_reassigns_children() -> None:
     root: Final[ShadowRoot] = host.attach_shadow("open")
     root.set_inner_html('<slot name="target"></slot><slot></slot>')
     named, default = root.select("slot")
-    before: Final = named.assigned_nodes()
+    before: Final[list[Node]] = named.assigned_nodes()
     del host.select("span")[0].attrs["slot"]
     assert (before, named.assigned_nodes(), default.assigned_nodes()) == (
         [host.children[0]],
@@ -1062,8 +1066,8 @@ def test_unassigned_slot_keeps_fallback(content: str) -> None:
 @pytest.mark.parametrize("mode", ["open", "closed"])
 @pytest.mark.parametrize("depth", [1, 80])
 def test_shadow_adoption_preserves_aliases(mode: str, depth: int) -> None:
-    host: Final = Element("div", children=[Element("span"), Text("light")])
-    children: Final = host.children
+    host: Final[Element] = Element("div", children=[Element("span"), Text("light")])
+    children: Final[Sequence[Node]] = host.children
     roots: Final[list[tuple[Element, ShadowRoot, Element, int]]] = []
     current = host
     for _ in range(depth):
@@ -1073,7 +1077,7 @@ def test_shadow_adoption_preserves_aliases(mode: str, depth: int) -> None:
         assert child is not None
         roots.append((current, root, child, hash(root)))
         current = child
-    target: Final = Element("main")
+    target: Final[Element] = Element("main")
     target.append(host)
     assert host.children == children
     for owner, root, child, saved_hash in roots:
@@ -1090,17 +1094,17 @@ _SLOT_READS: Final[list[pytest.ParameterSet]] = [
 
 @pytest.mark.parametrize(("read_result", "kind"), _SLOT_READS)
 def test_shadow_results_during_adoption(read_result: Callable[[Element], Sequence[Node]], kind: type[Node]) -> None:
-    host: Final = Element("div")
+    host: Final[Element] = Element("div")
     for index in range(32):
         host.append(Element("span", children=[Text(str(index))]))
         host.append(Text(" "))
-    expected: Final = [node for node in host.children if isinstance(node, kind)]
-    root: Final = host.attach_shadow()
+    expected: Final[list[Node]] = [node for node in host.children if isinstance(node, kind)]
+    root: Final[ShadowRoot] = host.attach_shadow()
     root.set_inner_html("<slot></slot>")
-    slot: Final = root.find("slot")
+    slot: Final[Element | None] = root.find("slot")
     assert slot is not None
-    targets: Final = (Element("main"), Element("section"))
-    start: Final = Barrier(2)
+    targets: Final[tuple[Element, Element]] = (Element("main"), Element("section"))
+    start: Final[Barrier] = Barrier(2)
 
     def read() -> None:
         start.wait()
@@ -1108,7 +1112,7 @@ def test_shadow_results_during_adoption(read_result: Callable[[Element], Sequenc
             assert read_result(slot) == expected
 
     with ThreadPoolExecutor(max_workers=1) as pool:
-        reader: Final = pool.submit(read)
+        reader = pool.submit(read)
         start.wait()
         for index in range(200):
             targets[index % 2].append(host)
@@ -1125,11 +1129,11 @@ def test_shadow_results_during_adoption(read_result: Callable[[Element], Sequenc
     ],
 )
 def test_shadow_adoption_preserves_content(markup: str, make_target: Callable[[], Element | None]) -> None:
-    host: Final = Element("div")
-    root: Final = host.attach_shadow()
+    host: Final[Element] = Element("div")
+    root: Final[ShadowRoot] = host.attach_shadow()
     root.set_inner_html(markup)
-    children: Final = root.children
-    target: Final = make_target()
+    children: Final[Sequence[Node]] = root.children
+    target: Final[Element | None] = make_target()
     assert target is not None
     target.append(host)
     assert (root.inner_html, root.children, root.host) == (markup, children, host)
@@ -1143,26 +1147,26 @@ def test_shadow_adoption_preserves_content(markup: str, make_target: Callable[[]
     ],
 )
 def test_fragment_adopts_shadow_hosts(make_fragment: Callable[[], DocumentFragment]) -> None:
-    fragment: Final = make_fragment()
-    host: Final = Element("div", children=[Element("span")])
+    fragment: Final[DocumentFragment] = make_fragment()
+    host: Final[Element] = Element("div", children=[Element("span")])
     fragment.append(host)
-    root: Final = host.attach_shadow()
+    root: Final[ShadowRoot] = host.attach_shadow()
     root.set_inner_html("<slot></slot>")
-    slot: Final = root.find("slot")
+    slot: Final[Element | None] = root.find("slot")
     assert slot is not None
-    child: Final = host.children[0]
-    target: Final = Element("main")
+    child: Final[Node] = host.children[0]
+    target: Final[Element] = Element("main")
     target.append(fragment)
     assert (target.children, host.shadow_root, root.host, slot.assigned_nodes()) == ((host,), root, host, [child])
 
 
 def test_shadow_adoption_preserves_declarative_flags() -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         "<div><template shadowrootmode=open shadowrootdelegatesfocus shadowrootclonable>x</template></div>"
     )
-    host: Final = document.find("div")
+    host: Final[Element | None] = document.find("div")
     assert host is not None
-    root: Final = host.shadow_root
+    root: Final[ShadowRoot | None] = host.shadow_root
     assert root is not None
     Element("main").append(host)
     assert (root.mode, root.delegates_focus, root.clonable, root.text) == ("open", True, True, "x")
@@ -1174,19 +1178,19 @@ def test_shadow_adoption_preserves_declarative_flags() -> None:
 def test_shadow_results_survive_collection_adoption(
     read_result: Callable[[Element], Sequence[Node]], kind: type[Node], offset: int
 ) -> None:
-    thresholds: Final = gc.get_threshold()
+    thresholds: Final[tuple[int, int, int]] = gc.get_threshold()
     assert gc.isenabled()
     gc.disable()
     gc.collect()
-    document: Final = parse("<div>text<span>hello</span></div>")
-    host: Final = document.find("div")
+    document: Final[Document] = parse("<div>text<span>hello</span></div>")
+    host: Final[Element | None] = document.find("div")
     assert host is not None
-    expected: Final = [child for child in host.children if isinstance(child, kind)]
-    root: Final = host.attach_shadow()
+    expected: Final[list[Node]] = [child for child in host.children if isinstance(child, kind)]
+    root: Final[ShadowRoot] = host.attach_shadow()
     root.set_inner_html("<slot></slot>")
-    slot: Final = root.find("slot")
+    slot: Final[Element | None] = root.find("slot")
     assert slot is not None
-    target: Final = Element("main")
+    target: Final[Element] = Element("main")
     changed = False
 
     def adopt(phase: str, _info: dict[str, int]) -> None:
@@ -1201,7 +1205,7 @@ def test_shadow_results_survive_collection_adoption(
     try:
         gc.set_threshold(gc.get_count()[0] + offset, thresholds[1], thresholds[2])
         gc.enable()
-        result: Final = read_result(slot)
+        result: Final[Sequence[Node]] = read_result(slot)
         gc.collect()
     finally:
         gc.disable()
@@ -1462,13 +1466,13 @@ def test_slot_cache_follows_slot_attribute_edits(
     edit: Callable[[Element, Element, Element], object],
     expected: tuple[str | None, str | None, list[str], list[str]],
 ) -> None:
-    host: Final = Element("div")
+    host: Final[Element] = Element("div")
     host.set_inner_html('<span slot="a">one</span><span slot="b">two</span>')
-    root: Final = host.attach_shadow()
+    root: Final[ShadowRoot] = host.attach_shadow()
     root.set_inner_html(f'{_PADDING}<slot name="a"></slot><slot name="b"></slot>')
     first, second = root.select("slot")
     one, two = host.select("span")
-    labels: Final = {"one": one, "two": two, "first": first, "second": second}
+    labels: Final[dict[str, Element]] = {"one": one, "two": two, "first": first, "second": second}
 
     def label(node: Node | None) -> str | None:
         return next((name for name, known in labels.items() if known == node), None)

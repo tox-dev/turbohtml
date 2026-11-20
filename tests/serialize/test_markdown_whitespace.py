@@ -95,7 +95,7 @@ def test_pre_line_collapses_spaces_and_preserves_lines() -> None:
 
 
 def test_css_whitespace_round_trip() -> None:
-    markdown: Final = parse('<p style="white-space:pre-wrap">one\ntwo</p>').to_markdown()
+    markdown: Final[str] = parse('<p style="white-space:pre-wrap">one\ntwo</p>').to_markdown()
     assert MarkdownIt().render(markdown) == "<pre><code>one\ntwo\n</code></pre>\n"
 
 
@@ -149,12 +149,12 @@ def test_css_whitespace_table_cell(attributes: str, expected: str) -> None:
 
 @pytest.mark.parametrize("title", ["a  b", "  a", "a  ", "a  |b", "a   b"])
 def test_cell_link_title_space_run_reads_back(title: str) -> None:
-    markdown: Final = parse(f'<table><td><a href="x" title="{title}">y</a>').to_markdown()
+    markdown: Final[str] = parse(f'<table><td><a href="x" title="{title}">y</a>').to_markdown()
     assert f'title="{title}"' in MarkdownIt().enable("table").render(markdown)
 
 
 def test_css_whitespace_deep_tree() -> None:
-    source: Final = f'<div style="white-space:pre">{"<span>" * 1000}one\ntwo{"</span>" * 1000}</div>'
+    source: Final[str] = f'<div style="white-space:pre">{"<span>" * 1000}one\ntwo{"</span>" * 1000}</div>'
     assert parse(source).to_markdown() == "```\none\ntwo\n```"
 
 
@@ -168,14 +168,14 @@ def test_css_whitespace_stripped_table() -> None:
 
 
 def test_css_whitespace_empty_text_node() -> None:
-    element: Final = Element("div", {"style": "white-space:pre"})
+    element: Final[Element] = Element("div", {"style": "white-space:pre"})
     element.append(Text(""))
     element.append(Text("one\ntwo"))
     assert element.to_markdown() == "```\none\ntwo\n```"
 
 
 def test_css_whitespace_does_not_format_selected_script() -> None:
-    element: Final = parse('<script style="white-space:pre">hidden</script>').find("script")
+    element: Final[Element | None] = parse('<script style="white-space:pre">hidden</script>').find("script")
     assert element is not None
     assert element.to_markdown() == "hidden"
 
@@ -306,7 +306,7 @@ _SETEXT: Final[Markdown.Headings] = Markdown.Headings(style="setext")
     ],
 )
 def test_css_whitespace_inline_pre_never_opens_a_line(source: str, options: Markdown, expected: str) -> None:
-    markdown: Final = parse(source).to_markdown(options)
+    markdown: Final[str] = parse(source).to_markdown(options)
     assert markdown == expected
     # a line that starts with <pre is an HTML block, whose whole line is raw HTML (CommonMark 4.6)
     assert "<i>" not in MarkdownIt("commonmark").render(markdown)
@@ -321,6 +321,6 @@ def test_css_whitespace_inline_pre_never_opens_a_line(source: str, options: Mark
     ],
 )
 def test_css_whitespace_selected_subtree(source: str) -> None:
-    element: Final = parse(source).find("span")
+    element: Final[Element | None] = parse(source).find("span")
     assert element is not None
     assert element.to_markdown() == "```\none\ntwo\n```"

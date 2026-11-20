@@ -3,13 +3,13 @@ from __future__ import annotations
 import pytest
 
 from turbohtml import parse
-from turbohtml._html import boilerplate as _boilerplate
+from turbohtml._html import boilerplate
 
 
 def test_a_unit_outside_the_content_body_is_boilerplate() -> None:
     root = parse("<p>orphan</p>").root
     assert root is not None
-    assert _boilerplate(root, None, 0, 1.0, True)[0][1] is True  # ruff:ignore[boolean-positional-value-in-call]  # positional C binding
+    assert boilerplate(root, None, 0, 1.0, True)[0][1] is True  # ruff:ignore[boolean-positional-value-in-call]  # positional C binding
 
 
 @pytest.mark.parametrize(
@@ -21,11 +21,11 @@ def test_a_unit_outside_the_content_body_is_boilerplate() -> None:
 )
 def test_the_binding_rejects_bad_arguments(args: tuple[str | int | float | bool | None, ...]) -> None:
     with pytest.raises(TypeError):
-        _boilerplate(*args)  # ty: ignore[invalid-argument-type]  # tests the C argument guard
+        boilerplate(*args)  # ty: ignore[invalid-argument-type]  # tests the C argument guard
 
 
 def test_the_binding_rejects_a_content_that_is_not_an_element() -> None:
     root = parse("<p>x</p>").root
     assert root is not None
     with pytest.raises(TypeError):
-        _boilerplate(root, "notanelement", 0, 1.0, True)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]  # positional C binding
+        boilerplate(root, "notanelement", 0, 1.0, True)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]  # positional C binding

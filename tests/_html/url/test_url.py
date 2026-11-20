@@ -999,33 +999,6 @@ _PY_WHITESPACE: Final[frozenset[str]] = frozenset(
 )
 
 
-# Pieces that reach every scrub branch: whitespace str.split() removes but the edge C0 strip alone would not (NBSP, NEL,
-# a separator), a non-whitespace C0 control that survives in the middle, and the CDATA, markup, and escape shapes.
-_PIECES: Final[tuple[str, ...]] = (
-    "https://x.example/p",
-    "https://x.example",
-    " ",
-    "\t",
-    "\n",
-    "\xa0",
-    "\x85",
-    "\x1c",
-    "\x01",
-    "<![CDATA[",
-    "]]>",
-    "<",
-    ">",
-    '"',
-    "&amp;",
-    "/&",
-    "&",
-    "a",
-    "//double",
-    "?q=1",
-    "#f",
-)
-
-
 def test_scrub_matches_oracle_over_corpus() -> None:
     for url in _scrub_corpus():
         assert _url_scrub(url) == _oracle_scrub(url), repr(url)
@@ -1067,8 +1040,32 @@ def _scrub_corpus() -> list[str]:
         "https://x.example/&?#\x01>",
         "trailing&",
     }
+    # Include whitespace removed by str.split(), C0 controls that survive inside a URL, and markup delimiters.
+    pieces = (
+        "https://x.example/p",
+        "https://x.example",
+        " ",
+        "\t",
+        "\n",
+        "\xa0",
+        "\x85",
+        "\x1c",
+        "\x01",
+        "<![CDATA[",
+        "]]>",
+        "<",
+        ">",
+        '"',
+        "&amp;",
+        "/&",
+        "&",
+        "a",
+        "//double",
+        "?q=1",
+        "#f",
+    )
     for length in range(4):
-        seen.update("".join(combo) for combo in itertools.product(_PIECES, repeat=length))
+        seen.update("".join(combo) for combo in itertools.product(pieces, repeat=length))
     return sorted(seen)
 
 
@@ -1076,13 +1073,14 @@ def _oracle_scrub(url: str) -> str:
     remainder = "".join(char for char in url.strip(_C0_AND_SPACE) if char not in "\t\n\r")
     if remainder.startswith("<![CDATA["):
         remainder = remainder.removeprefix("<![CDATA[").removesuffix("]]>")
-    kept: Final = len(_THROUGH_AUTHORITY.findall(remainder)[0])  # the pattern matches at the start, if only emptily
+    kept: Final[int] = len(
+        _THROUGH_AUTHORITY.findall(remainder)[0]
+    )  # the pattern matches at the start, if only emptily
     head, *cut = _MARKUP_DELIMITER.split(remainder[:kept], maxsplit=1)
     if not cut or (remainder[len(head)] == '"' and _HOST_TEXT.search(cut[0])):
         head = remainder[:kept] + _MARKUP_DELIMITER.split(remainder[kept:], maxsplit=1)[0]
     remainder = head.replace("&amp;", "&")
-    trimmed: Final = remainder.rstrip(_C0_AND_SPACE)
-    if trimmed != remainder:
+    if (trimmed := remainder.rstrip(_C0_AND_SPACE)) != remainder:
         remainder = trimmed
         if remainder.endswith("/&?#"):
             remainder = remainder[:-2]
@@ -1556,7 +1554,7 @@ def test_variant_key_rejects_non_str() -> None:
 def test_url_split_ends_special_authority_at_backslash(url: str, host: str, path: str) -> None:
     # a browser ends a special-scheme authority at '\', so the host is the span before it, not the userinfo trick's
     # tail; _url_split is the only observer, since no public API reports the split host and path
-    split: Final = _url_split(url)
+    split: Final[tuple[str, str, str, str, str, str, str, str, bool, int]] = _url_split(url)
     assert (split[6], split[2]) == (host, path)
 
 
@@ -1567,5 +1565,5 @@ def test_url_split_ends_special_authority_at_backslash(url: str, host: str, path
 def test_url_split_keeps_backslash_host_for_non_special_scheme(scheme: str) -> None:
     # a non-special scheme does not treat '\' as a separator, so it stays urllib-compatible; _url_split is the only
     # observer, since no public API reports the split host
-    url: Final = f"{scheme}://evil\\@good.example/"
+    url: Final[str] = f"{scheme}://evil\\@good.example/"
     assert _url_split(url)[6] == urlsplit(url).hostname

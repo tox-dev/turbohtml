@@ -23,11 +23,13 @@ _Value: TypeAlias = tuple[str, ...] | float | bool | str
 
 def main(argv: Sequence[str] | None = None) -> int:
     # Keep automated batches finite and findings distinct from agreement.
-    parser: Final = argparse.ArgumentParser(description="Compare bounded anchored XPath queries with libxml2.")
+    parser: Final[argparse.ArgumentParser] = argparse.ArgumentParser(
+        description="Compare bounded anchored XPath queries with libxml2."
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--cases", type=int, default=32)
     parser.add_argument("--negative-control", action="store_true")
-    arguments: Final = parser.parse_args(argv)
+    arguments: Final[argparse.Namespace] = parser.parse_args(argv)
     if not 1 <= arguments.cases <= 256:
         parser.error("--cases must be between 1 and 256")
     findings = 0
@@ -44,8 +46,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 def compare(case: Case, *, negative_control: bool = False) -> Iterator[Verdict]:
     # Rectify against the complete selection to retain position and size context.
     ours, reference = contexts(case.xml)
-    query: Final = _rectify(reference, case)
-    case_hash: Final = hashlib.sha256((f"{case.xml}\0{case.target}\0{case.predicate}").encode()).hexdigest()
+    query: Final[str] = _rectify(reference, case)
+    case_hash: Final[str] = hashlib.sha256((f"{case.xml}\0{case.target}\0{case.predicate}").encode()).hexdigest()
     for expression in (
         query,
         f"{query}/@id",
@@ -54,7 +56,7 @@ def compare(case: Case, *, negative_control: bool = False) -> Iterator[Verdict]:
         f"boolean({query})",
         f"string({query})",
     ):
-        ours_expression: Final = (
+        ours_expression: Final[str] = (
             f"not({expression})" if negative_control and expression.startswith("boolean(") else expression
         )
         yield Verdict(
@@ -70,20 +72,22 @@ def compare(case: Case, *, negative_control: bool = False) -> Iterator[Verdict]:
 def contexts(xml: str) -> tuple[Element, LxmlElement]:
     # lxml has no document-node context and evaluates from the root element, where a relative expression selects one
     # node fewer than from the document. Both engines start at the root element, so their answers are comparable.
-    parser: Final = lxml.etree.XMLParser(resolve_entities=False, no_network=True)
-    reference: Final = lxml.etree.fromstring(xml.encode(), parser)
-    ours: Final = parse_xml(xml).root
+    parser: Final[lxml.etree.XMLParser[lxml.etree._Element]] = lxml.etree.XMLParser(
+        resolve_entities=False, no_network=True
+    )
+    reference: Final[lxml.etree._Element] = lxml.etree.fromstring(xml.encode(), parser)
+    ours: Final[Element | None] = parse_xml(xml).root
     assert ours is not None  # ruff: ignore[assert]  # the generator always writes a root element
     return ours, reference
 
 
 def _rectify(reference: lxml.etree._Element, case: Case) -> str:
-    target: Final = reference.xpath(f"//*[@id='{case.target}']")[0]
-    prefix: Final = f"//{target.tag}"
-    predicate: Final = f"boolean({case.predicate})"
-    initial: Final = f"{prefix}[{predicate}]"
+    target = reference.xpath(f"//*[@id='{case.target}']")[0]
+    prefix: Final[str] = f"//{target.tag}"
+    predicate: Final[str] = f"boolean({case.predicate})"
+    initial: Final[str] = f"{prefix}[{predicate}]"
     try:
-        selected: Final = reference.xpath(initial)
+        selected = reference.xpath(initial)
     except lxml.etree.XPathError:
         return initial
     return initial if case.target in [node.get("id") for node in selected] else f"{prefix}[not({predicate})]"
@@ -91,7 +95,7 @@ def _rectify(reference: lxml.etree._Element, case: Case) -> str:
 
 def _evaluate(document: Node | lxml.etree._Element, expression: str) -> tuple[str, _Value]:
     try:
-        result: Final = document.xpath(expression, smart_strings=False)
+        result = document.xpath(expression, smart_strings=False)
     except (ValueError, lxml.etree.XPathError):
         return "error", "evaluation"
     if isinstance(result, list):
@@ -112,10 +116,10 @@ def _evaluate(document: Node | lxml.etree._Element, expression: str) -> tuple[st
 
 def generate(seed: int) -> Case:
     # Restrict parent choices to existing nodes to bound depth and avoid cycles.
-    generator: Final = random.Random(seed)
-    elements: Final = [lxml.etree.Element("root", id="n0", score="0")]
+    generator: Final[random.Random] = random.Random(seed)
+    elements: Final[list[lxml.etree._Element]] = [lxml.etree.Element("root", id="n0", score="0")]
     for position in range(1, generator.randint(8, 16)):
-        element: Final = lxml.etree.SubElement(
+        element: Final[lxml.etree._Element] = lxml.etree.SubElement(
             generator.choice(elements),
             generator.choice(("item", "branch", "leaf")),
             id=f"n{position}",
@@ -165,7 +169,9 @@ class Verdict:
     reference: tuple[str, _Value]
 
 
-__all__: Final[list[str]] = []
+__all__: Final[list[str]] = [
+    "Case",
+]
 
 
 if __name__ == "__main__":

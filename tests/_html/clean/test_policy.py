@@ -5,7 +5,7 @@ from typing import Final
 
 import pytest
 
-from turbohtml._html import sanitize_policy as _sanitize_policy
+from turbohtml._html import sanitize_policy
 from turbohtml.clean import Policy, Transform
 
 _EMPTY: Final[tuple[dict[str, str] | frozenset[str] | type[Transform], ...]] = (
@@ -36,7 +36,7 @@ def test_the_rel_value_is_sorted_and_space_joined() -> None:
 def _compile(**fields: object) -> _Compiled:
     # Compile a policy built from the given fields, returning the six compiled forms.
     policy = Policy(**fields)  # ty: ignore[invalid-argument-type]  # each test passes a valid field
-    return _sanitize_policy(
+    return sanitize_policy(
         policy.attributes,
         policy.add_link_rel,
         policy.set_attributes,
@@ -99,27 +99,27 @@ def test_transform_rules_normalize(target: str | Transform, expected: tuple[str,
 
 def test_the_compiler_rejects_a_non_mapping() -> None:
     with pytest.raises(TypeError):
-        _sanitize_policy(5, *_EMPTY[1:])  # ty: ignore[invalid-argument-type]  # the argument check is the point
+        sanitize_policy(5, *_EMPTY[1:])  # ty: ignore[invalid-argument-type]  # the argument check is the point
 
 
 def test_the_compiler_rejects_a_non_mapping_nest() -> None:
     with pytest.raises(AttributeError, match="items"):
-        _sanitize_policy({}, frozenset(), {"a": 5}, {}, {}, {}, Transform)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
+        sanitize_policy({}, frozenset(), {"a": 5}, {}, {}, {}, Transform)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_the_compiler_rejects_a_non_mapping_table() -> None:
     with pytest.raises(AttributeError, match="items"):
-        _sanitize_policy({}, frozenset(), 5, {}, {}, {}, Transform)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
+        sanitize_policy({}, frozenset(), 5, {}, {}, {}, Transform)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_the_compiler_rejects_a_non_iterable_rel() -> None:
     with pytest.raises(TypeError):
-        _sanitize_policy({}, 5, {}, {}, {}, {}, Transform)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
+        sanitize_policy({}, 5, {}, {}, {}, {}, Transform)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_rel_tokens_of_mixed_types_cannot_be_sorted() -> None:
     with pytest.raises(TypeError):
-        _sanitize_policy({}, {"a", 1}, {}, {}, {}, {}, Transform)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
+        sanitize_policy({}, {"a", 1}, {}, {}, {}, {}, Transform)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_a_style_pattern_list_must_be_iterable() -> None:
@@ -134,7 +134,7 @@ def test_a_style_property_must_be_a_str() -> None:
 
 def test_a_transform_table_must_be_a_mapping() -> None:
     with pytest.raises(AttributeError, match="items"):
-        _sanitize_policy({}, frozenset(), {}, {}, {}, 5, Transform)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
+        sanitize_policy({}, frozenset(), {}, {}, {}, 5, Transform)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 class _TagOnly:
@@ -150,9 +150,9 @@ class _Bare: ...
 )
 def test_a_transform_type_must_carry_both_fields(target: _TagOnly | _Bare, missing: str) -> None:
     with pytest.raises(AttributeError, match=missing):
-        _sanitize_policy({}, frozenset(), {}, {}, {}, {"i": target}, type(target))  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
+        sanitize_policy({}, frozenset(), {}, {}, {}, {"i": target}, type(target))  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_the_compiler_rejects_too_few_arguments() -> None:
     with pytest.raises(TypeError):
-        _sanitize_policy({}, frozenset())  # ty: ignore[missing-argument]  # the arity check is the point
+        sanitize_policy({}, frozenset())  # ty: ignore[missing-argument]  # the arity check is the point

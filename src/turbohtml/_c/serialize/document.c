@@ -1324,6 +1324,49 @@ Py_UCS4 *th_node_child_text(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
     return sbuf_finish(&out, out_len);
 }
 
+static PyObject *string_from_bits(const Py_UCS4 *data, Py_ssize_t length, Py_UCS4 bits) {
+    Py_UCS4 maxchar = bits <= 0x7F ? 0x7F : bits <= 0xFF ? 0xFF : bits <= 0xFFFF ? 0xFFFF : 0x10FFFF;
+    PyObject *result = PyUnicode_New(length, th_str_maxchar(maxchar));
+    if (result == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    int kind = PyUnicode_KIND(result);
+    if (kind == PyUnicode_1BYTE_KIND) {
+        Py_UCS1 *destination = PyUnicode_1BYTE_DATA(result);
+        for (Py_ssize_t index = 0; index < length; index++) {
+            destination[index] = (Py_UCS1)data[index];
+        }
+#ifndef PYPY_VERSION
+    } else if (kind == PyUnicode_2BYTE_KIND) {
+        Py_UCS2 *destination = PyUnicode_2BYTE_DATA(result);
+        for (Py_ssize_t index = 0; index < length; index++) {
+            destination[index] = (Py_UCS2)data[index];
+        }
+#endif
+    } else {
+        memcpy(PyUnicode_4BYTE_DATA(result), data, (size_t)length * sizeof(Py_UCS4));
+    }
+    return result;
+}
+
+PyObject *th_markup_string(const Py_UCS4 *data, Py_ssize_t length) {
+    /* CPython reuses its cached Latin-1 characters through this constructor. */
+    if (length <= 1) {
+        return PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, data, length);
+    }
+    Py_UCS4 bits = 0;
+    Py_ssize_t end = 0;
+    /* Check the width in blocks so the inner loop vectorizes and wide output stops the scan early. */
+    while (end < length && bits <= 0xFFFF) {
+        Py_ssize_t index = end;
+        end += Py_MIN(length - end, 256);
+        for (; index < end; index++) {
+            bits |= data[index];
+        }
+    }
+    return string_from_bits(data, length, bits);
+}
+
 PyObject *th_node_text_string(th_tree *tree, th_node *root) {
     sbuf snapshot = {NULL, 0, 0, 0, 0, NULL};
     Py_UCS4 bits = 0;
@@ -1351,28 +1394,7 @@ PyObject *th_node_text_string(th_tree *tree, th_node *root) {
         }
         snapshot.len += node->text_len;
     }
-    Py_UCS4 maxchar = bits <= 0x7F ? 0x7F : bits <= 0xFF ? 0xFF : bits <= 0xFFFF ? 0xFFFF : 0x10FFFF;
-    PyObject *result = PyUnicode_New(snapshot.len, th_str_maxchar(maxchar));
-    if (result == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
-        PyMem_Free(snapshot.data); /* GCOVR_EXCL_LINE: allocation failure */
-        return NULL;               /* GCOVR_EXCL_LINE: allocation failure */
-    }
-    int kind = PyUnicode_KIND(result);
-    if (kind == PyUnicode_1BYTE_KIND) {
-        Py_UCS1 *destination = PyUnicode_1BYTE_DATA(result);
-        for (Py_ssize_t index = 0; index < snapshot.len; index++) {
-            destination[index] = (Py_UCS1)snapshot.data[index];
-        }
-#ifndef PYPY_VERSION
-    } else if (kind == PyUnicode_2BYTE_KIND) {
-        Py_UCS2 *destination = PyUnicode_2BYTE_DATA(result);
-        for (Py_ssize_t index = 0; index < snapshot.len; index++) {
-            destination[index] = (Py_UCS2)snapshot.data[index];
-        }
-#endif
-    } else {
-        memcpy(PyUnicode_4BYTE_DATA(result), snapshot.data, (size_t)snapshot.len * sizeof(Py_UCS4));
-    }
+    PyObject *result = string_from_bits(snapshot.data, snapshot.len, bits);
     PyMem_Free(snapshot.data);
     return result;
 }

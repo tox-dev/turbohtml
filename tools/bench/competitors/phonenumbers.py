@@ -45,7 +45,7 @@ def phone_construct(held: tuple[tuple[str, str], ...]) -> bool:
             number = _PARSED[region, text] = phonenumbers.parse(text, region)
         if (expected_type := _EXPECTED_TYPES.get((region, text))) is None:
             expected_type = _EXPECTED_TYPES[region, text] = phonenumbers.number_type(number)
-        constructed: Final = phonenumbers.PhoneNumber(
+        constructed: Final[phonenumbers.PhoneNumber] = phonenumbers.PhoneNumber(
             country_code=number.country_code, national_number=number.national_number, extension=number.extension
         )
         matches &= phonenumbers.region_code_for_number(constructed) == region

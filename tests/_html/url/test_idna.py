@@ -104,7 +104,7 @@ def _expected_ascii(columns: list[str], source: str) -> str:
 
 def _row_is_error(columns: list[str]) -> bool:
     # Whether the ``toAsciiN`` status flags a WHATWG-relevant error (column 5, inheriting column 3 when blank).
-    status: Final = (columns[4] or columns[2]).strip()
+    status: Final[str] = (columns[4] or columns[2]).strip()
     return status.startswith("[") and bool({code.strip() for code in status[1:-1].split(",")} - _IGNORED_STATUS - {""})
 
 

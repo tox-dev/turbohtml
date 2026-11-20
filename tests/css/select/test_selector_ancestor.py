@@ -5,10 +5,10 @@ from typing import TYPE_CHECKING, Final
 
 import pytest
 
-from turbohtml import Document, Element, MutationObserver, Text, parse, parse_xml
+from turbohtml import Document, DocumentFragment, Element, MutationObserver, Text, parse, parse_xml
 from turbohtml._html import query_closest  # ruff:ignore[import-private-name]  # the native entry takes a text start
 from turbohtml.cssom import computed_style
-from turbohtml.query import Query, compile  # ruff:ignore[builtin-import-shadowing]  # the soupsieve entry-point name
+from turbohtml.query import Matcher, Query, compile  # ruff:ignore[builtin-import-shadowing]  # the soupsieve entry-point name
 from turbohtml.rewrite import rewrite
 
 if TYPE_CHECKING:
@@ -51,7 +51,7 @@ def _expected(span: range) -> list[str | None]:
     ],
 )
 def test_select_deep_chain_at_every_level(selector: str, expected: list[str | None]) -> None:
-    document: Final = _deep(_chain())
+    document: Final[Document] = _deep(_chain())
     assert (_ids(document.select(selector)), _ids([document.select_one(selector)])) == (
         expected,
         expected[:1] or [None],
@@ -61,13 +61,13 @@ def test_select_deep_chain_at_every_level(selector: str, expected: list[str | No
 def _deep(html: str, parser: Callable[[str], Document] = parse) -> Document:
     # linking in a subtree too large to measure drops what the parser knows of how deep the page nests, so its queries
     # run as on a deep tree
-    document: Final = parser(html)
-    holder: Final = Element("x")
+    document: Final[Document] = parser(html)
+    holder: Final[Element] = Element("x")
     for _ in range(40):
         branch = Element("y")
         branch.append(Element("z"))
         holder.append(branch)
-    root: Final = document.root
+    root: Final[Element | None] = document.root
     assert root is not None
     root.append(holder)
     holder.extract()
@@ -113,7 +113,7 @@ def test_select_inherited_pseudo_deep_chain(selector: str, outer: str, inner: st
 
 
 def test_select_dir_through_deep_foreign_chain() -> None:
-    document: Final = _deep(f"<section dir=rtl><svg>{'<g>' * 40}")
+    document: Final[Document] = _deep(f"<section dir=rtl><svg>{'<g>' * 40}")
     assert (len(document.select("g:dir(rtl)")), document.select("g:dir(ltr)")) == (40, [])
 
 
@@ -128,7 +128,7 @@ def test_select_dir_through_deep_foreign_chain() -> None:
 )
 def test_select_tel_input_direction_below_deep_chain(html: str, expected: list[str | None]) -> None:
     # a telephone input keeps its own direction, ltr unless its dir sets one, whatever its ancestors set
-    document: Final = _deep(f"<section dir=rtl>{'<div>' * 40}<form>{html}</form>")
+    document: Final[Document] = _deep(f"<section dir=rtl>{'<div>' * 40}<form>{html}</form>")
     assert _ids(document.select("input:dir(ltr)")) == expected
 
 
@@ -146,7 +146,7 @@ def test_select_tel_input_direction_below_deep_chain(html: str, expected: list[s
     ],
 )
 def test_closest_deep_chain(selector: str, expected: str | None) -> None:
-    leaf: Final = _deep(_chain("<section lang=fr>", " lang=en")).select_one("#e79")
+    leaf: Final[Element | None] = _deep(_chain("<section lang=fr>", " lang=en")).select_one("#e79")
     assert leaf is not None
     assert _ids([leaf.closest(selector)]) == [expected]
 
@@ -161,14 +161,14 @@ def test_closest_deep_chain(selector: str, expected: str | None) -> None:
     ],
 )
 def test_matches_deep_chain(selector: str, *, expected: bool) -> None:
-    leaf: Final = _deep(_chain("<section lang=fr>")).select_one("#e79")
+    leaf: Final[Element | None] = _deep(_chain("<section lang=fr>")).select_one("#e79")
     assert leaf is not None
     assert leaf.matches(selector) is expected
 
 
 def test_matches_detached_deep_chain() -> None:
     # a chain built without a document ends at an element that has no parent
-    leaf: Final = Element("div")
+    leaf: Final[Element] = Element("div")
     top = leaf
     for _ in range(40):
         parent = Element("div")
@@ -180,8 +180,8 @@ def test_matches_detached_deep_chain() -> None:
 
 
 def test_matcher_filter_deep_chain_out_of_order() -> None:
-    elements: Final = _deep(_chain()).select("div")
-    candidates: Final = [elements[79], elements[40], elements[78], elements[0]]
+    elements: Final[list[Element]] = _deep(_chain()).select("div")
+    candidates: Final[list[Element]] = [elements[79], elements[40], elements[78], elements[0]]
     assert (_ids(compile("section > div div").filter(candidates)), _ids(compile("p div").filter(candidates))) == (
         ["e79", "e40", "e78"],
         [],
@@ -189,8 +189,8 @@ def test_matcher_filter_deep_chain_out_of_order() -> None:
 
 
 def test_query_find_from_many_roots_deep_chain() -> None:
-    document: Final = _deep(_chain())
-    roots: Final = Query(document)("#e10, #e60")
+    document: Final[Document] = _deep(_chain())
+    roots: Final[Query] = Query(document)("#e10, #e60")
     assert _ids(roots.find(":scope div div")) == _expected(range(12, 80))
 
 
@@ -272,12 +272,12 @@ def test_select_has_compound_chain_deep_xml(selector: str, count: int) -> None:
 )
 def test_select_has_sibling_chain_deep_xml(selector: str, count: int) -> None:
     # 64 x siblings then a y holding a z, all below a chain past the parser's depth
-    document: Final = parse_xml(f"<doc>{'<w>' * 600}{'<x/>' * 64}<y><z/></y>{'</w>' * 600}</doc>")
+    document: Final[Document] = parse_xml(f"<doc>{'<w>' * 600}{'<x/>' * 64}<y><z/></y>{'</w>' * 600}</doc>")
     assert len(document.select(selector)) == count
 
 
 def test_closest_deep_xml_chain() -> None:
-    deepest: Final = _deepest(600)
+    deepest: Final[Element] = _deepest(600)
     assert (deepest.closest("item i"), deepest.closest("b:has(> i)")) == (None, deepest.parent)
 
 
@@ -308,7 +308,7 @@ def test_select_deep_xml_chain_work_linear(selector: str, work_steps: WorkSteps)
 
 def _reinserted(depth: int) -> Document | Element:
     document, top = _measured_without_chain(depth)
-    root: Final = document.root
+    root: Final[Element | None] = document.root
     assert root is not None
     root.append(top)
     return document
@@ -319,16 +319,16 @@ def _detached(depth: int) -> Document | Element:
 
 
 def _detached_below(depth: int) -> Document | Element:
-    below: Final = _measured_without_chain(depth)[1].select_one("b")
+    below: Final[Element | None] = _measured_without_chain(depth)[1].select_one("b")
     assert below is not None
     return below
 
 
 def _measured_without_chain(depth: int) -> tuple[Document, Element]:
     # the chain is out of the document while a query reads how deep the document nests
-    document: Final = _nested(depth)
-    top: Final = _top(document).extract()
-    root: Final = document.root
+    document: Final[Document] = _nested(depth)
+    top: Final[Element] = _top(document).extract()
+    root: Final[Element | None] = document.root
     assert root is not None
     root.append(Element("x"))
     assert document.select("b") == []
@@ -336,9 +336,9 @@ def _measured_without_chain(depth: int) -> tuple[Document, Element]:
 
 
 def _below_edited_document(depth: int) -> Document | Element:
-    document: Final = _nested(depth)
-    top: Final = _top(document)
-    root: Final = document.root
+    document: Final[Document] = _nested(depth)
+    top: Final[Element] = _top(document)
+    root: Final[Element | None] = document.root
     assert root is not None
     root.append(Element("x"))
     return top
@@ -396,10 +396,10 @@ def test_query_closest_deep_xml_chain_work_linear(selector: str, work_steps: Wor
 
 
 def test_query_closest_scoped_from_text_deep_xml_chain() -> None:
-    document: Final = _nested(600)
-    deepest: Final = document.select_one("i")
+    document: Final[Document] = _nested(600)
+    deepest: Final[Element | None] = document.select_one("i")
     assert deepest is not None
-    start: Final = Text("t")
+    start: Final[Text] = Text("t")
     deepest.append(start)
     # a start that is not an element and an element start each climb under a scope of their own kind
     assert query_closest([start, deepest], "doc b:not(:scope) > i, :scope > b > i") == [deepest]
@@ -418,7 +418,7 @@ def test_matches_deep_xml_chain_work_linear(work_steps: WorkSteps) -> None:
     ],
 )
 def test_matcher_filter_deep_xml_chain_work_linear(selector: str, work_steps: WorkSteps) -> None:
-    matcher: Final = compile(selector)
+    matcher: Final[Matcher] = compile(selector)
     work_steps.assert_linear(lambda depth: partial(matcher.filter, _nested(depth).select("b")), (600, 2400))
 
 
@@ -463,7 +463,7 @@ def test_select_after_inserting_past_parser_depth_work_linear(levels: int | None
 def _grown(depth: int, levels: int) -> Document:
     # parse() nests no deeper than 512 levels; links of `levels` divs inserted one below the other take the chain past
     # that
-    document: Final = parse("<div>" * 600)
+    document: Final[Document] = parse("<div>" * 600)
     node = document.select("div")[-1]
     for _ in range(depth // levels):
         top = bottom = Element("div")
@@ -477,8 +477,8 @@ def _grown(depth: int, levels: int) -> Document:
 
 
 def test_select_after_inserting_text_and_leaves() -> None:
-    document: Final = parse(f"<section lang=fr>{'<div>' * 40}")
-    deepest: Final = document.select("div")[-1]
+    document: Final[Document] = parse(f"<section lang=fr>{'<div>' * 40}")
+    deepest: Final[Element] = document.select("div")[-1]
     deepest.append(Text("t"))
     deepest.append(Element("i"))
     assert (len(document.select(":lang(fr) i")), len(document.select("section i"))) == (1, 1)
@@ -497,7 +497,7 @@ def test_select_after_inserting_text_and_leaves() -> None:
 )
 def test_select_after_parser_reparents(html: str) -> None:
     # the tree builder can move a node below where its start tag put it, so the finished page is measured
-    document: Final = parse(f"<section lang=fr>{html}")
+    document: Final[Document] = parse(f"<section lang=fr>{html}")
     assert document.select(":lang(fr) p, :lang(fr) span:empty") == document.select("section p, section span:empty")
 
 
@@ -514,7 +514,7 @@ def test_computed_style_deep_chain_work_linear(rule: str, work_steps: WorkSteps)
 
 
 def _deep_styled(depth: int, rule: str) -> Element:
-    document: Final = parse(f"<style>{rule}{{color:red}}</style>")
+    document: Final[Document] = parse(f"<style>{rule}{{color:red}}</style>")
     node = document.select_one("body")
     assert node is not None
     for _ in range(depth):
@@ -543,8 +543,8 @@ def test_computed_style_climb_from_climbs_parsed_page_work_linear(work_steps: Wo
     ],
 )
 def test_computed_style_deep_chain(rule: str, color: str) -> None:
-    leaf: Final = _deep(f"<style>div{{color:black}}{rule}{{color:red}}</style>{_chain('<section lang=fr>')}")
-    found: Final = leaf.select_one("#e79")
+    leaf: Final[Document] = _deep(f"<style>div{{color:black}}{rule}{{color:red}}</style>{_chain('<section lang=fr>')}")
+    found: Final[Element | None] = leaf.select_one("#e79")
     assert found is not None
     assert computed_style(found)["color"] == color
 
@@ -560,7 +560,7 @@ def test_computed_style_deep_chain(rule: str, color: str) -> None:
 )
 def test_computed_style_deep_tree_picks_most_specific_alternative(selectors: str, color: str) -> None:
     # the most specific alternative that matches gives the rule its weight against `p.c`
-    html: Final = f"<style>p.c{{color:blue}}{selectors}{{color:red}}</style><p id=t class=c style title=x>"
+    html: Final[str] = f"<style>p.c{{color:blue}}{selectors}{{color:red}}</style><p id=t class=c style title=x>"
     styles: Final[list[str]] = []
     for document in (parse(html), _deep(html)):
         found = document.select_one("p")
@@ -594,7 +594,7 @@ def test_select_lang_declarations_deep_tree(
 ) -> None:
     # xml:lang counts on a foreign or XML element and lang on an HTML or SVG element of an HTML page; an empty lang, or
     # an empty xml:lang on a page the HTML parser built, declares nothing
-    found: Final = [
+    found: Final[list[list[list[str | None]]]] = [
         [_ids(document.select(f"[id]:lang({lang})")) for lang in ("de", "it", "fr", "es", "en")]
         for document in (parser(markup), _deep(markup, parser))
     ]
@@ -603,8 +603,8 @@ def test_select_lang_declarations_deep_tree(
 
 def test_matches_lang_and_dir_on_extracted_element() -> None:
     # an element taken out of a parsed page has no ancestor to inherit from
-    document: Final = parse("<main lang=fr dir=rtl><p>")
-    paragraph: Final = document.select_one("p")
+    document: Final[Document] = parse("<main lang=fr dir=rtl><p>")
+    paragraph: Final[Element | None] = document.select_one("p")
     assert paragraph is not None
     paragraph.extract()
     assert (paragraph.matches(":lang(fr)"), paragraph.matches(":dir(rtl)"), paragraph.matches(":dir(ltr)")) == (
@@ -624,7 +624,7 @@ def test_matches_lang_and_dir_on_extracted_element() -> None:
     ],
 )
 def test_rewrite_past_parser_depth(selector: str, marked: int) -> None:
-    out: Final = rewrite(f"<section lang=fr>{'<div>' * 700}", elements=[(selector, _mark)])
+    out: Final[str] = rewrite(f"<section lang=fr>{'<div>' * 700}", elements=[(selector, _mark)])
     assert out.count(' k=""') == marked
 
 
@@ -700,11 +700,15 @@ _SIBLINGS: Final[str] = (
 )
 def test_deep_tree_matches_parsed_page(selector: str, count: int) -> None:
     # the same page, once as parsed and once as a tree that may nest deep, which the matcher walks with its memo
-    parsed: Final = parse(_SIBLINGS)
-    deep: Final = _deep(_SIBLINGS)
-    found: Final = [_paths(document.select(selector)) for document in (parsed, deep)]
-    filtered: Final = [_paths(compile(selector).filter(document.select("*"))) for document in (parsed, deep)]
-    closest: Final = [_paths(query_closest(document.select("i"), selector)) for document in (parsed, deep)]
+    parsed: Final[Document] = parse(_SIBLINGS)
+    deep: Final[Document] = _deep(_SIBLINGS)
+    found: Final[list[list[str]]] = [_paths(document.select(selector)) for document in (parsed, deep)]
+    filtered: Final[list[list[str]]] = [
+        _paths(compile(selector).filter(document.select("*"))) for document in (parsed, deep)
+    ]
+    closest: Final[list[list[str]]] = [
+        _paths(query_closest(document.select("i"), selector)) for document in (parsed, deep)
+    ]
     assert (len(found[0]), found[1], filtered[1], closest[1]) == (count, found[0], filtered[0], closest[0])
 
 
@@ -713,8 +717,8 @@ def _paths(nodes: Iterable[Element]) -> list[str]:
 
 
 def test_computed_style_nth_of_out_of_order_deep_tree() -> None:
-    html: Final = f"<style>:nth-child(odd of section b){{color:red}}</style>{_SIBLINGS}"
-    colors: Final = [
+    html: Final[str] = f"<style>:nth-child(odd of section b){{color:red}}</style>{_SIBLINGS}"
+    colors: Final[list[list[str]]] = [
         [computed_style(element)["color"] for element in reversed(document.select("p > b"))]
         for document in (parse(html), _deep(html))
     ]
@@ -723,20 +727,24 @@ def test_computed_style_nth_of_out_of_order_deep_tree() -> None:
 
 def test_computed_style_deep_has_past_memo_limit() -> None:
     # 128 :has() arguments of two compounds keep two answers per element, past the bytes of answers the cascade keeps
-    arguments: Final = 128
-    sheet: Final = f":has({','.join(['p q'] * arguments)}){{color:blue}}:has(p){{color:red}}"
-    document: Final = _deep(f"<style>{sheet}</style>{'<div>' * 28}{'<p>' * ((1 << 24) // (2 * arguments) + 8_192)}")
-    root: Final = document.select_one("html")
+    arguments: Final[int] = 128
+    sheet: Final[str] = f":has({','.join(['p q'] * arguments)}){{color:blue}}:has(p){{color:red}}"
+    document: Final[Document] = _deep(
+        f"<style>{sheet}</style>{'<div>' * 28}{'<p>' * ((1 << 24) // (2 * arguments) + 8_192)}"
+    )
+    root: Final[Element | None] = document.select_one("html")
     assert root is not None
     assert computed_style(root)["color"] == "red"
 
 
 def test_computed_style_deep_has_past_memo_limit_raises_past_the_allowance() -> None:
     # past the memo every :has() walks from its anchor, so p:has(~ q) on each p of the run passes every later sibling
-    arguments: Final = 128
-    sheet: Final = f":has({','.join(['p q'] * arguments)}){{color:blue}}p:has(~ q){{color:red}}"
-    document: Final = _deep(f"<style>{sheet}</style>{'<div>' * 28}{'<p>' * ((1 << 24) // (2 * arguments) + 8_192)}")
-    root: Final = document.select_one("html")
+    arguments: Final[int] = 128
+    sheet: Final[str] = f":has({','.join(['p q'] * arguments)}){{color:blue}}p:has(~ q){{color:red}}"
+    document: Final[Document] = _deep(
+        f"<style>{sheet}</style>{'<div>' * 28}{'<p>' * ((1 << 24) // (2 * arguments) + 8_192)}"
+    )
+    root: Final[Element | None] = document.select_one("html")
     assert root is not None
     computed_style(root)
     with pytest.raises(ValueError, match="exceed the allowance"):
@@ -745,7 +753,7 @@ def test_computed_style_deep_has_past_memo_limit_raises_past_the_allowance() -> 
 
 def test_rewrite_retires_many_deep_elements() -> None:
     # each closed element waits until the most the stand-ins may name, which then starts over
-    out: Final = rewrite(f"<i lang=fr>{'<b></b>' * 70_000}</i>", elements=[(":lang(fr) b", _mark)])
+    out: Final[str] = rewrite(f"<i lang=fr>{'<b></b>' * 70_000}</i>", elements=[(":lang(fr) b", _mark)])
     assert out.count(' k=""') == 70_000
 
 
@@ -755,7 +763,7 @@ def test_select_after_observed_insert_into_deep_tree_work_linear(work_steps: Wor
 
 def _observed(depth: int) -> Document:
     # an observer keeps insertions on the path that tracks how deep the tree nests
-    document: Final = _nested(depth)
+    document: Final[Document] = _nested(depth)
     MutationObserver().observe(document, child_list=True, subtree=True)
     _top(document).append(Element("x"))
     return document
@@ -770,13 +778,15 @@ def _observed(depth: int) -> Document:
 )
 def test_select_deep_has_past_memo_bound(above: int, count: int) -> None:
     # an i with `above` d's over it, then a run of 5000 d's holding no i: d^999 i matches only if 999 d's sit over the i
-    document: Final = parse_xml(f"<doc>{'<d>' * above}<i/>{'<d>' * 5000}{'</d>' * 5000}{'</d>' * above}</doc>")
+    document: Final[Document] = parse_xml(
+        f"<doc>{'<d>' * above}<i/>{'<d>' * 5000}{'</d>' * 5000}{'</d>' * above}</doc>"
+    )
     assert len(document.select(f"doc:has({'d ' * 999}i)")) == count
 
 
 def test_select_deep_has_memo_stays_within_budget(peak_bytes: PeakBytes) -> None:
     # the answers of a deep query take two bits per compound and node, so the traced peak stays far below the hash table
-    peak: Final = peak_bytes(
+    peak: Final[int] = peak_bytes(
         "import tracemalloc\n"
         "from turbohtml import parse_xml\n"
         "above = 998\n"
@@ -819,15 +829,15 @@ def test_closest_child_has_chain_work_linear(work_steps: WorkSteps) -> None:
 
 def test_has_descendant_on_shallow_parsed_page() -> None:
     # a parsed page nests under the memo depth, so its descendant :has() walks the subtree without the memo
-    document: Final = parse("<div><p><a></a></p></div><div></div>")
+    document: Final[Document] = parse("<div><p><a></a></p></div><div></div>")
     assert len(document.select("div:has(a)")) == 1
 
 
 def test_child_has_chain_matches_and_closest_on_deep_xml() -> None:
-    deepest: Final = _deepest(600)
-    parent: Final = deepest.parent
+    deepest: Final[Element] = _deepest(600)
+    parent: Final[Element | Document | DocumentFragment | None] = deepest.parent
     assert parent is not None
-    grandparent: Final = parent.parent
+    grandparent: Final[Element | Document | DocumentFragment | None] = parent.parent
     assert grandparent is not None
     assert deepest.closest("b:has(> b > i)") == grandparent
     assert grandparent.matches("b:has(> b > i)")

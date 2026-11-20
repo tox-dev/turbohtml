@@ -819,6 +819,7 @@ Py_UCS4 *th_node_text(th_tree *tree, th_node *node, Py_ssize_t *out_len);
    each element of a walk stays linear, where th_node_text on nested elements
    reads the innermost text once per ancestor. */
 Py_UCS4 *th_node_child_text(th_tree *tree, th_node *node, Py_ssize_t *out_len);
+PyObject *th_markup_string(const Py_UCS4 *data, Py_ssize_t length);
 PyObject *th_node_text_string(th_tree *tree, th_node *node);
 
 /* An element's attributes as a tuple of (name, value) pairs, shared by the clones of one start tag within a walk.

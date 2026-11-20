@@ -470,8 +470,8 @@ if TYPE_CHECKING:
 
 @pytest.mark.fuzz_build
 def test_tree_verify_counts_an_iterator_reference_outside_its_root() -> None:
-    document: Final = parse("<p><b></b></p>")
-    iterator: Final = NodeIterator(document.select("p")[0])
+    document: Final[Document] = parse("<p><b></b></p>")
+    iterator: Final[NodeIterator] = NodeIterator(document.select("p")[0])
     assert (_html._fuzz_escape_iterators(document), _tree_verify(document), iterator.reference_node) == (
         1,
         (0, 0, 1, 0),
@@ -795,9 +795,9 @@ def test_cssom_allocation_failure_raises_memory_error(alloc_sweep: _Sweep, call:
 
 @pytest.mark.fuzz_build
 def test_detect_rank_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
-    options: Final = Detection()
-    expected: Final = detect_all(b"\xef\xbb\xbftext", options)
-    outcomes: Final = set(
+    options: Final[Detection] = Detection()
+    expected: Final[list[EncodingMatch]] = detect_all(b"\xef\xbb\xbftext", options)
+    outcomes: Final[set[str]] = set(
         alloc_sweep(
             lambda _: detect_all(b"\xef\xbb\xbftext", options),
             lambda: None,
@@ -1118,12 +1118,12 @@ def _collapse_after_failed_render(document: turbohtml.Document) -> str:
     ],
 )
 def test_lazy_text_allocation_failure_raises_or_keeps_result(
-    alloc_sweep: _Sweep, call: Callable[[_T], object], setup: Callable[[], _T]
+    alloc_sweep: _Sweep, call: Callable[[_T], _R], setup: Callable[[], _T]
 ) -> None:
     # these walks already shrug off some failures they cannot report (a dropped readability candidate or mutation
     # record), so a run may still succeed; it must then match the unfailed result
-    expected: Final = call(setup())
-    outcomes: Final = set(alloc_sweep(call, setup, valid=lambda result: result == expected))
+    expected: Final[_R] = call(setup())
+    outcomes: Final[set[str]] = set(alloc_sweep(call, setup, valid=lambda result: result == expected))
     assert outcomes <= {"MemoryError", "result"}
     assert "MemoryError" in outcomes
 
@@ -1137,8 +1137,8 @@ _METADATA: Final[str] = (
 
 @pytest.mark.fuzz_build
 def test_article_metadata_allocation_failure_raises_or_keeps_result(alloc_sweep: _Sweep) -> None:
-    expected: Final = _article_fields(parse(_METADATA))
-    outcomes: Final = set(
+    expected: Final[_ArticleFields] = _article_fields(parse(_METADATA))
+    outcomes: Final[set[str]] = set(
         alloc_sweep(_article_fields, lambda: parse(_METADATA), valid=lambda result: result == expected)
     )
     assert outcomes <= {"MemoryError", "result"}
@@ -1305,22 +1305,22 @@ _NATIVE_ATHERIS_SKIP: Final[pytest.MarkDecorator] = pytest.mark.skipif(
 @pytest.mark.oracle
 @_NATIVE_ATHERIS_SKIP
 def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> None:
-    runtime: Final = cast("_Runtime", importlib.import_module("atheris"))
-    library: Final = build_runtime(Path(runtime.path()) / "libclang_rt.fuzzer_no_main.a", tmp_path / "runtime")
-    environment: Final = {
+    runtime: Final[_Runtime] = cast("_Runtime", importlib.import_module("atheris"))
+    library: Final[Path] = build_runtime(Path(runtime.path()) / "libclang_rt.fuzzer_no_main.a", tmp_path / "runtime")
+    environment: Final[dict[str, str]] = {
         **os.environ,
         "LD_PRELOAD": str(library),
         "PYTHONPATH": str(Path(__file__).parents[3] / "tools"),
         "GCOV_PREFIX": str(tmp_path / "inventory-gcda"),
     }
-    inventory: Final = run(  # ruff: ignore[subprocess-without-shell-equals-true] - fixed interpreter and owned modules.
+    inventory: Final[CompletedProcess[str]] = run(  # ruff: ignore[subprocess-without-shell-equals-true] - fixed interpreter and owned modules.
         [sys.executable, "-c", _LIST],
         env=environment,
         capture_output=True,
         text=True,
         check=True,
     )
-    targets: Final = json.loads(inventory.stdout)
+    targets = json.loads(inventory.stdout)
     assert (targets["owners"], len(targets["targets"])) == (225, 34)
     generated_seeds: Final[dict[str, bytes]] = {}
     for profile in (  # simplint: ignore[loop-in-test]  # one seed map is shared by later per-target runs
@@ -1331,7 +1331,7 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
         "markdown-html",
         "encoding",
     ):
-        generated: Final = tmp_path / (f"generated-{profile}")
+        generated: Final[Path] = tmp_path / (f"generated-{profile}")
         run(  # ruff: ignore[subprocess-without-shell-equals-true] - fixed interpreter and finite production sweep.
             [
                 sys.executable,
@@ -1349,7 +1349,7 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
             capture_output=True,
             check=True,
         )
-        generated_manifest: Final = json.loads((generated / "manifest.json").read_text())
+        generated_manifest = json.loads((generated / "manifest.json").read_text())
         assert generated_manifest["entries"]
         assert not generated_manifest["rejected"]
         generated_seeds.update({
@@ -1370,11 +1370,11 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
     )
     outcomes: Final[dict[str, dict[str, int | str]]] = {}
     for target in targets["targets"]:
-        corpus: Final = tmp_path / target
+        corpus: Final[Path] = tmp_path / target
         corpus.mkdir()
-        seed: Final = generated_seeds.get(target, SEED_HEADER + _FALLBACK_PAYLOADS.get(target, "水😀".encode()))
+        seed: Final[bytes] = generated_seeds.get(target, SEED_HEADER + _FALLBACK_PAYLOADS.get(target, "水😀".encode()))
         (corpus / "utf8").write_bytes(seed)
-        counters: Final = tmp_path / f"{target}-gcda"
+        counters: Final[Path] = tmp_path / f"{target}-gcda"
         run(  # ruff: ignore[subprocess-without-shell-equals-true] - public callback and private native counters.
             [sys.executable, "-c", _CONSUME, target, str(corpus / "utf8")],
             env={**environment, "GCOV_PREFIX": str(counters)},
@@ -1408,12 +1408,12 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
         assert b"cov:" in result.stderr
         assert b"ft:" in result.stderr
         assert b"Coverage symbols are being provided by a library other than libFuzzer" not in result.stderr
-        manifest: Final = json.loads(corpus.with_suffix(".json").read_text())
+        manifest = json.loads(corpus.with_suffix(".json").read_text())
         assert (manifest["target"], bool(manifest["exports"])) == (
             target,
             target not in {"markdown-source", "markdown-html", "encoding-bytes"},
         )
-        native_counters: Final = tuple(counters.rglob("*.gcda"))
+        native_counters: Final[tuple[Path, ...]] = tuple(counters.rglob("*.gcda"))
         assert native_counters, target
         outcomes[target] = {
             "exit": result.returncode,
@@ -1427,10 +1427,10 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
 @pytest.mark.oracle
 @_NATIVE_ATHERIS_SKIP
 def test_atheris_failure_header_reaches_allocator_hook(tmp_path: Path) -> None:
-    runtime: Final = cast("_Runtime", importlib.import_module("atheris"))
-    library: Final = build_runtime(Path(runtime.path()) / "libclang_rt.fuzzer_no_main.a", tmp_path / "runtime")
+    runtime: Final[_Runtime] = cast("_Runtime", importlib.import_module("atheris"))
+    library: Final[Path] = build_runtime(Path(runtime.path()) / "libclang_rt.fuzzer_no_main.a", tmp_path / "runtime")
     # the header fails the first PyMem allocation, and the callback must answer with MemoryError
-    failing: Final = tmp_path / "failing"
+    failing: Final[Path] = tmp_path / "failing"
     failing.write_bytes(Header(0, 1, 256).encode() + "水😀".encode())
     run(  # ruff: ignore[subprocess-without-shell-equals-true] - public callback and the real allocator hook.
         [sys.executable, "-c", _FAIL, "html-document", str(failing)],

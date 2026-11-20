@@ -29,8 +29,7 @@ __lazy_modules__ = [
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Final, TypeAlias
 
-from ._html import build_document as _build_document
-from ._html import build_element as _build_element
+from ._html import build_document, build_element
 
 if TYPE_CHECKING:
     from ._html import Document, Element, Node
@@ -50,7 +49,7 @@ def _build(tag: str, args: tuple[Content, ...]) -> Element:
     # :raises ValueError: if the tag or an attribute name carries a character HTML forbids there, or if a
     #     void element such as ``br`` or ``img`` is given children.
     # :raises TypeError: if an attribute mapping is not the first argument.
-    return _build_element(tag, args, Mapping)
+    return build_element(tag, args, Mapping)
 
 
 class _TagFactory:
@@ -142,7 +141,7 @@ def document(
     :raises TypeError: if ``title``, ``lang``, or ``charset`` is neither a str nor ``None``, or a head or body item is
         not a node or string.
     """
-    return _build_document(head, body, title, lang, charset)
+    return build_document(head, body, title, lang, charset)
 
 
 __all__ = [

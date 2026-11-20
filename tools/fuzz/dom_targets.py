@@ -41,12 +41,8 @@ from turbohtml.query import (
     select,
     select_one,
 )
-from turbohtml.query import (
-    compile as _compile,
-)
-from turbohtml.query import (
-    filter as _filter,
-)
+from turbohtml.query import compile as compile_query
+from turbohtml.query import filter as filter_query
 from turbohtml.saxparse import (
     Characters,
     Comment,
@@ -98,14 +94,14 @@ def dom_observation(data: bytes, domain: str) -> DomObservation:
 def _construction(text: str) -> DomObservation:
     attrs: Final[Attributes] = {"id": "item"}
     content: Final[Content] = text
-    maker: Final = ElementMaker()
-    first: Final = maker("p", attrs, content)
-    second: Final = dom.ElementMaker()("p", attrs, content)
-    fragment: Final = dom.DocumentFragment()
+    maker: Final[ElementMaker] = ElementMaker()
+    first: Final[dom.Element] = maker("p", attrs, content)
+    second: Final[dom.Element] = dom.ElementMaker()("p", attrs, content)
+    fragment: Final[dom.DocumentFragment] = dom.DocumentFragment()
     fragment.append(dom.Text(text))
-    root: Final = document(body=(E.p(text), dom.E.p(text), first, second))
-    doctype: Final = next(child for child in root.children if isinstance(child, dom.Doctype))
-    foreign: Final = cast("dom.Element", dom.parse_fragment("<svg><rect></rect></svg>").find("rect"))
+    root: Final[dom.Document] = document(body=(E.p(text), dom.E.p(text), first, second))
+    doctype: Final[dom.Doctype] = next(child for child in root.children if isinstance(child, dom.Doctype))
+    foreign: Final[dom.Element] = cast("dom.Element", dom.parse_fragment("<svg><rect></rect></svg>").find("rect"))
     return DomObservation(
         repr((
             root.find_all("p")[0].text,
@@ -124,28 +120,28 @@ def _construction(text: str) -> DomObservation:
 
 
 def _elementtree(text: str) -> DomObservation:
-    root: Final = Element("div", {"class": "one two"})
-    child: Final = SubElement(root, "span")
+    root: Final[ElementView] = Element("div", {"class": "one two"})
+    child: Final[ElementView] = SubElement(root, "span")
     child.text = f"prefix{text}"
     child.tail = "tail"
-    matches: Final = XPath(".//span")(root) == [child]
-    identity: Final = ElementView(child.node) is child
+    matches: Final[bool] = XPath(".//span")(root) == [child]
+    identity: Final[bool] = ElementView(child.node) is child
 
     @document_context
     def detach() -> bool:
         root.remove(child)
         return child.getroottree().getroot() is root
 
-    context: Final = detach()
+    context: Final[bool] = detach()
     root.append(child)
     strip_tags(root, "span")
     SubElement(root, "script").text = "discard"
     strip_elements(root, "script")
-    markup: Final = f"<p>prefix{escape(text)}</p>"
-    document: Final = document_fromstring(markup)
-    snippet: Final = fromstring(markup)
-    fragment: Final = fragment_fromstring(f"{markup}trailing")
-    bridge: Final = Element("p", {"data": text.encode().hex()})
+    markup: Final[str] = f"<p>prefix{escape(text)}</p>"
+    document: Final[ElementView] = document_fromstring(markup)
+    snippet: Final[ElementView] = fromstring(markup)
+    fragment: Final[ElementView] = fragment_fromstring(f"{markup}trailing")
+    bridge: Final[ElementView] = Element("p", {"data": text.encode().hex()})
     copied: str | None = None
     html_attribute: str | None = None
     try:
@@ -185,21 +181,21 @@ def _elementtree(text: str) -> DomObservation:
 
 
 def _traversal(text: str) -> DomObservation:
-    root: Final = E.div(E.p(text), E.b("tail"))
-    walked: Final = TreeWalker(root, NodeFilter.SHOW_ELEMENT)
-    iterator: Final = dom.NodeIterator(root, dom.NodeFilter.SHOW_ELEMENT)
-    root_walker: Final = dom.TreeWalker(root, dom.NodeFilter.SHOW_TEXT)
-    module_iterator: Final = NodeIterator(root, NodeFilter.SHOW_TEXT)
-    names: Final = []
+    root: Final[dom.Element] = E.div(E.p(text), E.b("tail"))
+    walked: Final[TreeWalker] = TreeWalker(root, NodeFilter.SHOW_ELEMENT)
+    iterator: Final[NodeIterator] = dom.NodeIterator(root, dom.NodeFilter.SHOW_ELEMENT)
+    root_walker: Final[TreeWalker] = dom.TreeWalker(root, dom.NodeFilter.SHOW_TEXT)
+    module_iterator: Final[NodeIterator] = NodeIterator(root, NodeFilter.SHOW_TEXT)
+    names: Final[list[str]] = []
     while (node := walked.next_node()) is not None:
         names.append(cast("dom.Element", node).tag)
-    iter_names: Final = []
+    iter_names: Final[list[str]] = []
     while (node := iterator.next_node()) is not None:
         iter_names.append(cast("dom.Element", node).tag)
-    texts: Final = []
+    texts: Final[list[str]] = []
     while (node := root_walker.next_node()) is not None:
         texts.append(cast("dom.Text", node).data)
-    module_texts: Final = []
+    module_texts: Final[list[str]] = []
     while (node := module_iterator.next_node()) is not None:
         module_texts.append(cast("dom.Text", node).data)
     return DomObservation(
@@ -215,18 +211,18 @@ def _traversal(text: str) -> DomObservation:
 
 
 def _query(text: str) -> DomObservation:
-    root: Final = E.div({"id": "root"}, E.p({"id": "item", "class": "picked"}, text))
-    child: Final = cast("dom.Element", root.find("p"))
-    matching: Final = Matching.soupsieve(namespaces={"h": "http://www.w3.org/1999/xhtml"}, flags=0)
-    matcher: Final = Matcher("p", matching)
-    compiled: Final = _compile("p")
-    smart: Final = cast("list[dom.XPathString]", dom.XPath("//@id", smart_strings=True)(root))
-    direct: Final = dom.XPathString(text, child, is_attribute=False, attrname=None)
-    observed: Final = (
+    root: Final[dom.Element] = E.div({"id": "root"}, E.p({"id": "item", "class": "picked"}, text))
+    child: Final[dom.Element] = cast("dom.Element", root.find("p"))
+    matching: Final[Matching] = Matching.soupsieve(namespaces={"h": "http://www.w3.org/1999/xhtml"}, flags=0)
+    matcher: Final[Matcher] = Matcher("p", matching)
+    compiled: Final[Matcher] = compile_query("p")
+    smart: Final[list[dom.XPathString]] = cast("list[dom.XPathString]", dom.XPath("//@id", smart_strings=True)(root))
+    direct: Final[dom.XPathString] = dom.XPathString(text, child, is_attribute=False, attrname=None)
+    observed = (
         [item.tag for item in select("p", root)],
         select_one("p", root) == child,
         [item.tag for item in iselect("p", root)],
-        [item.tag for item in _filter("p", root)],
+        [item.tag for item in filter_query("p", root)],
         match("p", child),
         closest("div", child) == root,
         matcher.match(child),
@@ -243,7 +239,7 @@ def _query(text: str) -> DomObservation:
     )
     invalid = "accepted"
     try:
-        _compile("[")
+        compile_query("[")
     except SelectorSyntaxError:
         invalid = "rejected"
     return DomObservation(
@@ -256,15 +252,15 @@ def _query(text: str) -> DomObservation:
 
 
 def _mutation(text: str) -> DomObservation:
-    root: Final = E.div()
-    first: Final = dom.MutationObserver()
-    second: Final = mutations.MutationObserver()
+    root: Final[dom.Element] = E.div()
+    first: Final[dom.MutationObserver] = dom.MutationObserver()
+    second: Final[dom.MutationObserver] = mutations.MutationObserver()
     for observer in (first, second):
         observer.observe(root, child_list=True)
     root.append(dom.Text(text))
-    records: Final = first.take_records()
-    other: Final = second.take_records()
-    observed: Final = (
+    records: Final[list[dom.MutationRecord]] = first.take_records()
+    other: Final[list[dom.MutationRecord]] = second.take_records()
+    observed: Final[tuple[list[tuple[str, str]], list[tuple[str, str]], bool]] = (
         [(record.type, record.added_nodes[0].text) for record in records],
         [(record.type, record.added_nodes[0].text) for record in other],
         all(isinstance(record, (dom.MutationRecord, mutations.MutationRecord)) for record in records + other),
@@ -275,12 +271,12 @@ def _mutation(text: str) -> DomObservation:
 
 
 def _range(text: str) -> DomObservation:
-    root: Final = E.div(E.p(text), E.b("tail"))
-    boundary: Final = dom.Range(root)
+    root: Final[dom.Element] = E.div(E.p(text), E.b("tail"))
+    boundary: Final[dom.Range] = dom.Range(root)
     boundary.set_end(root, 1)
-    snapshot: Final = dom.StaticRange(root, 0, root, 1)
-    cloned: Final = boundary.clone_contents()
-    escaped: Final = escape(text, quote=False).replace("\xa0", "&nbsp;")
+    snapshot: Final[dom.StaticRange] = dom.StaticRange(root, 0, root, 1)
+    cloned: Final[dom.DocumentFragment] = boundary.clone_contents()
+    escaped: Final[str] = escape(text, quote=False).replace("\xa0", "&nbsp;")
     return DomObservation(
         repr((
             cloned.html,
@@ -296,8 +292,8 @@ def _range(text: str) -> DomObservation:
 
 
 def _shadow(text: str) -> DomObservation:
-    host: Final = E.div(dom.Text(text))
-    shadow: Final = host.attach_shadow("open")
+    host: Final[dom.Element] = E.div(dom.Text(text))
+    shadow: Final[dom.ShadowRoot] = host.attach_shadow("open")
     shadow.append(E.slot())
     return DomObservation(
         repr((
@@ -312,12 +308,12 @@ def _shadow(text: str) -> DomObservation:
 
 
 def _locations(text: str) -> DomObservation:
-    source: Final = f'<p id="item">{escape(text, quote=False)}</p>'
-    root: Final = dom.parse_fragment(source, source_locations=True)
-    child: Final = cast("dom.Element", root.find("p"))
-    location: Final = cast("dom.SourceLocation", child.source_location)
-    span: Final = location.start_tag
-    end: Final = cast("dom.SourceSpan", location.end_tag)
+    source: Final[str] = f'<p id="item">{escape(text, quote=False)}</p>'
+    root: Final[dom.Element] = dom.parse_fragment(source, source_locations=True)
+    child: Final[dom.Element] = cast("dom.Element", root.find("p"))
+    location: Final[dom.SourceLocation] = cast("dom.SourceLocation", child.source_location)
+    span: Final[dom.SourceSpan] = location.start_tag
+    end: Final[dom.SourceSpan] = cast("dom.SourceSpan", location.end_tag)
     return DomObservation(
         repr((
             isinstance(location, dom.SourceLocation),
@@ -364,9 +360,9 @@ def _rewrite_doctype(doctype: RewriteElement) -> None:
 
 
 def _sax(text: str) -> DomObservation:
-    source: Final = f"<!doctype html><?target data><!--note--><p>{escape(text, quote=False)}</p>"
+    source: Final[str] = f"<!doctype html><?target data><!--note--><p>{escape(text, quote=False)}</p>"
     events: Final[tuple[SaxEvent, ...]] = tuple(iter_events(source))
-    collector: Final = _SaxCollector()
+    collector: Final[_SaxCollector] = _SaxCollector()
     sax_parse(source, collector)
     expected: Final[tuple[SaxEvent, ...]] = (
         Doctype("html", None, None),
@@ -382,8 +378,8 @@ def _sax(text: str) -> DomObservation:
         EndElement("body"),
         EndElement("html"),
     )
-    observed: Final = (events, tuple(collector.events))
-    reference: Final = (expected, expected)
+    observed: Final[tuple[tuple[SaxEvent, ...], tuple[SaxEvent, ...]]] = (events, tuple(collector.events))
+    reference: Final[tuple[tuple[SaxEvent, ...], tuple[SaxEvent, ...]]] = (expected, expected)
     if observed == reference:
         return DomObservation("matched", "matched")
     return DomObservation(repr(observed), repr(reference))
@@ -414,12 +410,12 @@ class _SaxCollector(SaxHandler):
 
 def _tree(text: str) -> DomObservation:
     sink: Final[treebuild.TreeBuilder[_Built]] = _TreeText()
-    source: Final = f"<!doctype html><?target data><!--note--><p>{escape(text, quote=False)}</p>"
+    source: Final[str] = f"<!doctype html><?target data><!--note--><p>{escape(text, quote=False)}</p>"
 
     def element(tag: str) -> str:
         return repr((tag, "http://www.w3.org/1999/xhtml", ()))
 
-    expected: Final = (
+    expected: Final[tuple[str, ...]] = (
         "document",
         repr(("html", None, None)),
         "pi:target:data",

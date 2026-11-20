@@ -22,20 +22,22 @@ if TYPE_CHECKING:
 
 def main(argv: Sequence[str] | None = None) -> int:
     # Keep compiler, application and result findings in the exit status.
-    parser: Final = argparse.ArgumentParser(description="Compare bounded inline XSLT trees with libxslt.")
+    parser: Final[argparse.ArgumentParser] = argparse.ArgumentParser(
+        description="Compare bounded inline XSLT trees with libxslt."
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--cases", type=int, default=12)
     parser.add_argument("--mutate", action="store_true")
     parser.add_argument("--broken-references", action="store_true")
     parser.add_argument("--negative-control", action="store_true")
-    arguments: Final = parser.parse_args(argv)
+    arguments: Final[argparse.Namespace] = parser.parse_args(argv)
     if not 1 <= arguments.cases <= 256:
         parser.error("--cases must be between 1 and 256")
     if arguments.broken_references and not arguments.mutate:
         parser.error("--broken-references requires --mutate")
     findings = 0
     phases: Final[dict[str, int]] = {}
-    pool: Final = tuple(generate(seed).stylesheet for seed in range(10))
+    pool: Final[tuple[str, ...]] = tuple(generate(seed).stylesheet for seed in range(10))
     for seed in range(arguments.seed, arguments.seed + arguments.cases):
         case = generate(seed)
         if arguments.mutate:
@@ -67,8 +69,8 @@ def compare(case: Case, *, negative_control: bool = False) -> Iterator[Verdict]:
             )
         except (HTMLParseError, ValueError, RuntimeError):
             ours = _Transform(compiled=True, applied=False, output=None)
-    reference: Final = _libxslt(case)
-    digest: Final = hashlib.sha256((f"{case.stylesheet}\\0{case.document}").encode()).hexdigest()
+    reference: Final[_Transform] = _libxslt(case)
+    digest: Final[str] = hashlib.sha256((f"{case.stylesheet}\\0{case.document}").encode()).hexdigest()
     for engine, outcome in (("turbohtml", ours), ("libxslt", reference)):
         yield Verdict(
             seed=case.seed, sha256=digest, engine=engine, phase="compilation", expected=case.compiles, actual=outcome[0]
@@ -82,7 +84,7 @@ def compare(case: Case, *, negative_control: bool = False) -> Iterator[Verdict]:
             actual=outcome[1],
         )
         if outcome[1]:
-            actual: Final = (
+            actual: Final[str | ResultTree | None] = (
                 _result("wrong" if case.method == "text" else "<wrong/>", case.method)
                 if negative_control and engine == "turbohtml"
                 else outcome[2]
@@ -99,14 +101,14 @@ def compare(case: Case, *, negative_control: bool = False) -> Iterator[Verdict]:
 
 def generate(seed: int) -> Case:
     # Independent expected results distinguish a wrong reference verdict.
-    number: Final = random.Random(seed).randrange(1, 100)
-    word: Final = f"word{number}"
-    variable: Final = f"label{number}"
-    template: Final = f"render{number}"
-    key: Final = f"entry{number}"
-    family: Final = seed % 12
-    method: Final = "xml" if family == 7 else "text"
-    bodies: Final = (
+    number: Final[int] = random.Random(seed).randrange(1, 100)
+    word: Final[str] = f"word{number}"
+    variable: Final[str] = f"label{number}"
+    template: Final[str] = f"render{number}"
+    key: Final[str] = f"entry{number}"
+    family: Final[int] = seed % 12
+    method: Final[str] = "xml" if family == 7 else "text"
+    bodies: Final[tuple[tuple[str, str | None], ...]] = (
         (f"<x:text> {word} &amp; beta </x:text>", f" {word} & beta "),
         ('<x:for-each select="/root/item"><x:value-of select="."/></x:for-each>', "BA"),
         ('<x:choose><x:when test="count(/root/item)=2">two</x:when><x:otherwise>other</x:otherwise></x:choose>', "two"),
@@ -130,7 +132,7 @@ def generate(seed: int) -> Case:
         ('<x:call-template name="missing"/>', None),
     )
     body, output = bodies[family]
-    stylesheet: Final = (
+    stylesheet: Final[str] = (
         '<x:stylesheet xmlns:x="http://www.w3.org/1999/XSL/Transform" '
         'xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:rng="http://relaxng.org/ns/structure/1.0" version="1.0">'
         f'<x:output method="{method}"/><x:variable name="{variable}" select="\'{word}\'"/>'
@@ -158,7 +160,9 @@ class _Transform(NamedTuple):
 
 
 def _libxslt(case: Case) -> _Transform:
-    parser: Final = lxml.etree.XMLParser(resolve_entities=False, no_network=True)
+    parser: Final[lxml.etree.XMLParser[lxml.etree._Element]] = lxml.etree.XMLParser(
+        resolve_entities=False, no_network=True
+    )
     try:
         compiled = lxml.etree.XSLT(lxml.etree.fromstring(case.stylesheet.encode(), parser))
     except (lxml.etree.XSLTParseError, lxml.etree.XMLSyntaxError):
@@ -228,7 +232,9 @@ class Verdict:
     actual: bool | str | ResultTree | None
 
 
-__all__: Final[list[str]] = []
+__all__: Final[list[str]] = [
+    "Case",
+]
 
 
 if __name__ == "__main__":

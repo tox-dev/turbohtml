@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Final
 
 import pytest
 
-from turbohtml import Element, parse
+from turbohtml import Document, Element, parse
 from turbohtml.query import compile  # ruff:ignore[builtin-import-shadowing]  # the soupsieve entry-point name
 
 if TYPE_CHECKING:
@@ -334,7 +334,7 @@ def test_matches_deep_descendant_chain() -> None:
     ],
 )
 def test_matcher_filter_long_runs_out_of_order(html: str, expected: list[str | None]) -> None:
-    elements: Final = parse(html).select("b")
+    elements: Final[list[Element]] = parse(html).select("b")
     assert _ids(compile("a ~ b").filter([elements[60], elements[119], elements[118]])) == expected
 
 
@@ -346,17 +346,19 @@ def test_matcher_filter_long_runs_out_of_order(html: str, expected: list[str | N
     ],
 )
 def test_select_descendant_retries_ancestor_sibling(selector: str, expected: list[str | None]) -> None:
-    document: Final = parse("<div><b class=x></b><b class=y><div class=y><i id=deep></i></div></b></div>")
+    document: Final[Document] = parse("<div><b class=x></b><b class=y><div class=y><i id=deep></i></div></b></div>")
     assert _ids(document.select(selector)) == expected
 
 
 def test_select_sibling_alternatives_preserve_match() -> None:
-    document: Final = parse("<section class=x></section><div><b></b><b></b><a class=x></a><b id=hit></b></div>")
+    document: Final[Document] = parse(
+        "<section class=x></section><div><b></b><b></b><a class=x></a><b id=hit></b></div>"
+    )
     assert _ids(document.select(".x ~ b, .y ~ b")) == ["hit"]
 
 
 def test_select_nth_sibling_skips_nonmatching_elements() -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         "<div><i class=x id=a></i><i class=y></i><i class=x></i><i class=y></i>"
         "<i class=x id=c></i><i class=y></i><i class=x id=d></i></div>"
     )
@@ -374,8 +376,8 @@ _SIBLING_CACHE_CASES: Final[list[pytest.ParameterSet]] = [
 
 @pytest.mark.parametrize(("selector", "expected", "first"), _SIBLING_CACHE_CASES)
 def test_select_sibling_mixed_api_cache(selector: str, expected: list[str], first: str | None) -> None:
-    document: Final = parse("<div><a class=x></a><b class=y id=hit></b><p class=y id=tail></p></div>")
-    target: Final = document.select("#hit")[0]
+    document: Final[Document] = parse("<div><a class=x></a><b class=y id=hit></b><p class=y id=tail></p></div>")
+    target: Final[Element] = document.select("#hit")[0]
     assert (
         target.matches(selector),
         _ids(document.select(selector)),
@@ -386,8 +388,8 @@ def test_select_sibling_mixed_api_cache(selector: str, expected: list[str], firs
 
 @pytest.mark.parametrize(("selector", "expected", "first"), _SIBLING_CACHE_CASES)
 def test_select_sibling_mixed_api_cache_after_selection(selector: str, expected: list[str], first: str | None) -> None:
-    document: Final = parse("<div><a class=x></a><b class=y id=hit></b><p class=y id=tail></p></div>")
-    target: Final = document.select("#hit")[0]
+    document: Final[Document] = parse("<div><a class=x></a><b class=y id=hit></b><p class=y id=tail></p></div>")
+    target: Final[Element] = document.select("#hit")[0]
     document.select(selector)
     assert (
         target.matches(selector),
@@ -590,6 +592,6 @@ def test_select_chained_has_siblings_work_linear(
 
 
 def test_matches_nested_has_siblings_work_linear(work_steps: WorkSteps) -> None:
-    anchor: Final = parse(_AROUND_A).select_one("#e0")
+    anchor: Final[Element | None] = parse(_AROUND_A).select_one("#e0")
     assert anchor is not None
     work_steps.assert_linear(lambda depth: partial(anchor.matches, _wrapped("b:has(~ ", ")", depth, "q")), (2, 5))

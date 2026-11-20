@@ -1439,14 +1439,6 @@ def test_collapse_whitespace_survives_a_pickle_and_a_copy() -> None:
     assert copy.deepcopy(_CH_COLLAPSED) == _CH_COLLAPSED
 
 
-# numbers, dates, an address, an extension and prose, the pieces a run of whitespace can end up gluing together
-_PIECES: Final[tuple[str, ...]] = (
-    "+41", "79434", "3254", "079", "434", "32", "54", "650", "253", "0000", "(650)", "-", ".", "/", "x12", "Order",
-    "Tel:", "abc", "+1", "20250901", "10:30", "4111", "1111", "pages", "1-5", "(3", "pages)", "2001:db8::8888", "020",
-    "7946", "0958", "#", ",", "]", "ext.", "~", "[", "\u00a0", "\u3000",
-)  # fmt: skip
-
-
 _RUNS: Final[re.Pattern[str]] = re.compile(r"[ \t\n\f\r]+")
 
 
@@ -1465,17 +1457,23 @@ def _corpus() -> list[str]:
     # Glue the pieces with every run of whitespace the knob has to read as one space.
     rng = random.Random(20260901)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed corpus
     separators = (" ", "  ", "     ", "\n", "\t", "\r\n", " \n ", "\f", "")
+    # numbers, dates, an address, an extension and prose, the pieces a run of whitespace can end up gluing together
+    pieces: tuple[str, ...] = (
+        "+41", "79434", "3254", "079", "434", "32", "54", "650", "253", "0000", "(650)", "-", ".", "/", "x12", "Order",
+        "Tel:", "abc", "+1", "20250901", "10:30", "4111", "1111", "pages", "1-5", "(3", "pages)", "2001:db8::8888",
+        "020", "7946", "0958", "#", ",", "]", "ext.", "~", "[", "\u00a0", "\u3000",
+    )  # fmt: skip
     return [
-        "".join(rng.choice(_PIECES) + rng.choice(separators) for _ in range(rng.randint(2, 7))) for _ in range(20_000)
+        "".join(rng.choice(pieces) + rng.choice(separators) for _ in range(rng.randint(2, 7))) for _ in range(20_000)
     ]
 
 
 def test_one_linker_and_one_detector_shared_across_threads() -> None:
-    phones: Final = PhoneNumbers(regions=("US", "GB"))
-    linker: Final = Linker(Linkify(phones=phones, parse_email=True))
-    detector: Final = LinkDetector(phones=phones)
-    barrier: Final = Barrier(_WORKERS)
-    text: Final = "mail a@b.com, call 650-253-0000 or +44 20 7946 0958 x12, see example.com"
+    phones: Final[PhoneNumbers] = PhoneNumbers(regions=("US", "GB"))
+    linker: Final[Linker] = Linker(Linkify(phones=phones, parse_email=True))
+    detector: Final[LinkDetector] = LinkDetector(phones=phones)
+    barrier: Final[Barrier] = Barrier(_WORKERS)
+    text: Final[str] = "mail a@b.com, call 650-253-0000 or +44 20 7946 0958 x12, see example.com"
 
     def work(_index: int) -> tuple[str, list[str]]:
         barrier.wait()
@@ -1500,11 +1498,11 @@ def test_one_linker_and_one_detector_shared_across_threads() -> None:
 
 
 def test_detectors_with_different_policies_keep_their_own_answers() -> None:
-    phones: Final = PhoneNumbers(regions=("US",))
-    domains: Final = LinkDetector(phones=phones, tlds=["corp"])
-    numbers: Final = LinkDetector(phones=phones, bare_domains=False, emails=False)
-    barrier: Final = Barrier(_WORKERS)
-    text: Final = "6502530000.corp 6502530000@example.com"
+    phones: Final[PhoneNumbers] = PhoneNumbers(regions=("US",))
+    domains: Final[LinkDetector] = LinkDetector(phones=phones, tlds=["corp"])
+    numbers: Final[LinkDetector] = LinkDetector(phones=phones, bare_domains=False, emails=False)
+    barrier: Final[Barrier] = Barrier(_WORKERS)
+    text: Final[str] = "6502530000.corp 6502530000@example.com"
 
     def work(index: int) -> list[str]:
         barrier.wait()

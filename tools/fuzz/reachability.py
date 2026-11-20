@@ -26,11 +26,11 @@ if TYPE_CHECKING:
 
 def main(argv: Sequence[str] | None = None) -> int:
     # Report each target's unreached functions by name only; the corpus stays in private storage.
-    parser: Final = argparse.ArgumentParser(description=__doc__)
+    parser: Final[argparse.ArgumentParser] = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--coverage-dir", type=Path, required=True, help="the directory holding coverage_d_*")
-    arguments: Final = parser.parse_args(argv)
-    names: Final = set(atheris_target_names())
-    report: Final = {
+    arguments: Final[argparse.Namespace] = parser.parse_args(argv)
+    names: Final[set[str]] = set(atheris_target_names())
+    report: Final[dict[str, list[str]]] = {
         target.name: unreached(target, arguments.coverage_dir) for target in public_targets() if target.name in names
     }
     print(json.dumps(report, indent=2, sort_keys=True))
@@ -41,12 +41,12 @@ def unreached(target: Target, coverage_dir: Path) -> list[str]:
     # Name every target function the target's coverage data shows at 0%, or the data file when it is missing.
     # base-runner's coverage script copies each fuzzer's translated data to build-out before combining consumes the
     # originals, and cflite.py gathers those copies from the per-target runs into one directory
-    data_file: Final = coverage_dir / f"coverage_d_{fuzzer_name(target.name)}"
+    data_file: Final[Path] = coverage_dir / f"coverage_d_{fuzzer_name(target.name)}"
     if not data_file.is_file():
         return [f"no coverage data at {data_file.name}"]
-    data: Final = CoverageData(basename=str(data_file))
+    data: Final[CoverageData] = CoverageData(basename=str(data_file))
     data.read()
-    measured: Final = data.measured_files()
+    measured: Final[set[str]] = data.measured_files()
     return [
         function.name
         for function in target_functions(target)
@@ -58,8 +58,8 @@ def unreached(target: Target, coverage_dir: Path) -> list[str]:
 
 def target_functions(target: Target) -> tuple[_Function, ...]:
     # Read the callback run by this target and every Python-implemented public export it owns.
-    callback: Final = target.chunked if target.chunked is not None else target.callback
-    callables: Final = [callback.func if isinstance(callback, functools.partial) else callback] + [
+    callback = target.chunked if target.chunked is not None else target.callback
+    callables = [callback.func if isinstance(callback, functools.partial) else callback] + [
         _resolve(export) for export in target.exports
     ]
     # an alias export repeats a function, and a Protocol's stub methods hold no line a harness could execute
@@ -87,7 +87,7 @@ def _methods(cls: type) -> Iterator[FunctionType]:
     # only methods compiled from the class's own module count: dataclass and NamedTuple generate theirs from "<string>",
     # a C type's vars hold method descriptors, and PyPy's interpreter-level functions carry a code object without
     # co_filename
-    source: Final = getattr(sys.modules[cls.__module__], "__file__", None)
+    source = getattr(sys.modules[cls.__module__], "__file__", None)
     for member in cls.__dict__.values():
         function = member.__func__ if isinstance(member, (staticmethod, classmethod)) else member
         if inspect.isfunction(function) and getattr(function.__code__, "co_filename", None) == source:
@@ -95,7 +95,7 @@ def _methods(cls: type) -> Iterator[FunctionType]:
 
 
 def _module_path(code: CodeType) -> str:
-    path: Final = Path(code.co_filename).resolve().relative_to(Path(__file__).resolve().parents[2]).as_posix()
+    path: Final[str] = Path(code.co_filename).resolve().relative_to(Path(__file__).resolve().parents[2]).as_posix()
     return path.removeprefix("src/").removeprefix("tools/")
 
 

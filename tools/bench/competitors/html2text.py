@@ -61,7 +61,7 @@ def markdown_wrap(case: tuple[int, str]) -> str:
 
 @cache
 def _wrapped(width: int) -> html2text.HTML2Text:
-    converter: Final = html2text.HTML2Text()
+    converter: Final[html2text.HTML2Text] = html2text.HTML2Text()
     converter.body_width = width
     return converter
 

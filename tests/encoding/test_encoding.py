@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Final
 
 import pytest
 
-from turbohtml import parse
+from turbohtml import Element, parse
 from turbohtml.detect import detect
 
 if TYPE_CHECKING:
@@ -463,7 +463,7 @@ def _encoding_cases() -> Iterator[tuple[str, bytes, str]]:
     ("data", "expected"), [pytest.param(data, expected, id=name) for name, data, expected in _encoding_cases()]
 )
 def test_encoding_sniffing(data: bytes, expected: str) -> None:
-    encoding: Final = parse(data).encoding
+    encoding: Final[str | None] = parse(data).encoding
     assert encoding is not None
     assert encoding.lower() == expected.lower()
 
@@ -479,14 +479,16 @@ def test_encoding_sniffing(data: bytes, expected: str) -> None:
     ],
 )
 def test_explicit_utf16_text(encoding: str, text: str, expected: str) -> None:
-    paragraph: Final = parse(f"<p>{text}</p>".encode(encoding, "surrogatepass"), encoding=encoding).find("p")
+    paragraph: Final[Element | None] = parse(
+        f"<p>{text}</p>".encode(encoding, "surrogatepass"), encoding=encoding
+    ).find("p")
     assert paragraph is not None
     assert paragraph.text == expected
 
 
 @pytest.mark.parametrize("encoding", ["utf-16le", "utf-16be"])
 def test_explicit_utf16_trailing_byte(encoding: str) -> None:
-    paragraph: Final = parse("<p>x".encode(encoding) + b"x", encoding=encoding).find("p")
+    paragraph: Final[Element | None] = parse("<p>x".encode(encoding) + b"x", encoding=encoding).find("p")
     assert paragraph is not None
     assert paragraph.text == "x�"
 
@@ -504,6 +506,6 @@ def test_explicit_unicode_empty(encoding: str) -> None:
     ],
 )
 def test_utf16_bom_overrides_opposite_encoding(data: bytes, encoding: str) -> None:
-    paragraph: Final = parse(data, encoding=encoding).find("p")
+    paragraph: Final[Element | None] = parse(data, encoding=encoding).find("p")
     assert paragraph is not None
     assert paragraph.text == "café"

@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import gc
 import sys
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import pytest
 
-from turbohtml import Element, parse
+from turbohtml import Document, Element, Node, parse
 from turbohtml.query import Query
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 @pytest.mark.parametrize(
@@ -20,23 +23,23 @@ from turbohtml.query import Query
     ],
 )
 def test_parent_order_across_child_counts(order: tuple[int, ...], expected: list[str]) -> None:
-    document: Final = parse(
+    document: Final[Document] = parse(
         '<main><section id="a"><i></i></section>'
         '<section id="b">text<i></i><i></i></section>'
         '<section id="c"><i></i><!--gap--></section></main>'
     )
-    nodes: Final = document.select("i")
+    nodes: Final[list[Element]] = document.select("i")
     assert [node.attrs["id"] for node in Query(nodes[index] for index in order).parent()] == expected
 
 
 def test_parent_after_sibling_changes() -> None:
-    parent: Final = Element("main", children=[Element("i")])
-    child: Final = parent.children[0]
+    parent: Final[Element] = Element("main", children=[Element("i")])
+    child: Final[Node] = parent.children[0]
     assert isinstance(child, Element)
-    sibling: Final = Element("i")
-    before: Final = list(Query(child).parent())
+    sibling: Final[Element] = Element("i")
+    before: Final[list[Element]] = list(Query(child).parent())
     parent.append(sibling)
-    during: Final = list(Query([sibling, child]).parent())
+    during: Final[list[Element]] = list(Query([sibling, child]).parent())
     sibling.extract()
     assert (before, during, list(Query([sibling, child]).parent())) == ([parent], [parent], [parent])
 
@@ -52,7 +55,7 @@ def test_parent_after_sibling_changes() -> None:
     ],
 )
 def test_parent_many_distinct_nodes(count: int) -> None:
-    query: Final = Query("".join(f'<section id="{index}"><i></i></section>' for index in range(count)))("i")
+    query: Final[Query] = Query("".join(f'<section id="{index}"><i></i></section>' for index in range(count)))("i")
     assert [node.attrs["id"] for node in query.parent()] == [str(index) for index in range(count)]
 
 
@@ -60,14 +63,14 @@ def test_parent_many_distinct_nodes(count: int) -> None:
 @pytest.mark.parametrize("offset", [0, 1, 2, 3])
 @pytest.mark.parametrize("count", [pytest.param(1, id="one"), pytest.param(17, id="many")])
 def test_parent_collection_preserves_wrappers(offset: int, count: int) -> None:
-    thresholds: Final = gc.get_threshold()
+    thresholds: Final[tuple[int, int, int]] = gc.get_threshold()
     gc.disable()
     gc.collect()
-    children: Final = [Element("i") for _ in range(count)]
-    parents: Final = [Element("section", children=[child]) for child in children]
-    query: Final = Query(children)
-    target: Final = Element("main")
-    collect: Final = query.parent
+    children: Final[list[Element]] = [Element("i") for _ in range(count)]
+    parents: Final[list[Element]] = [Element("section", children=[child]) for child in children]
+    query: Final[Query] = Query(children)
+    target: Final[Element] = Element("main")
+    collect: Final[Callable[[], Query]] = query.parent
     changed = False
 
     def adopt(phase: str, _info: dict[str, int]) -> None:
@@ -82,7 +85,7 @@ def test_parent_collection_preserves_wrappers(offset: int, count: int) -> None:
     try:
         gc.set_threshold(gc.get_count()[0] + offset, thresholds[1], thresholds[2])
         gc.enable()
-        result: Final = collect()
+        result: Final[Query] = collect()
         gc.collect()
     finally:
         gc.disable()

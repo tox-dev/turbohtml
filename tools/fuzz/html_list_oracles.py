@@ -57,12 +57,12 @@ def html_list_check(
         raise UnsupportedHtmlListCaseError(case)
     tag, shape, ending, leaf = match.groups()
     encoded, decoded = _LEAVES[leaf]
-    close: Final = _ENDINGS[ending]
-    nested: Final = (
+    close: Final[str] = _ENDINGS[ending]
+    nested: Final[str] = (
         f'<{tag} id="z"><li id="x">{encoded}{close}<li id="y">{encoded}{close}</{tag}>' if shape == "nested" else ""
     )
-    source: Final = f'<{tag} id="z"><li id="x">{encoded}{nested}{close}<li id="y">{encoded}{close}</{tag}>'
-    expected: Final = json.dumps([
+    source: Final[str] = f'<{tag} id="z"><li id="x">{encoded}{nested}{close}<li id="y">{encoded}{close}</{tag}>'
+    expected: Final[str] = json.dumps([
         ("element", "html", tag, (("id", "z"),), 0),
         ("element", "html", "li", (("id", "x"),), 1),
         ("text", "", decoded, (), 2),
@@ -80,11 +80,11 @@ def html_list_check(
         ("element", "html", "li", (("id", "y"),), 1),
         ("text", "", decoded, (), 9 if shape == "nested" else 4),
     ])
-    root: Final = read(source)
+    root: Final[Element] = read(source)
     if _snapshot(root) != expected:
         return "parsed list tree differs from literals"
-    printed: Final = "".join(serialize(node) for node in root.children)
-    reparsed: Final = read(printed)
+    printed: Final[str] = "".join(serialize(node) for node in root.children)
+    reparsed: Final[Element] = read(printed)
     if _snapshot(reparsed) != expected:
         return "serialized list tree differs from literals"
     return (
@@ -100,10 +100,10 @@ class UnsupportedHtmlListCaseError(ValueError):
 
 
 def _snapshot(root: Element) -> str:
-    nodes: Final = [root, *root.descendants]
+    nodes: Final[list[Node]] = [root, *root.descendants]
     records: Final[list[tuple[str, str, str, tuple[tuple[str, str | list[str] | None], ...], int]]] = []
     for node in nodes[1:]:
-        parent: Final = nodes.index(cast("Element", node.parent))
+        parent: Final[int] = nodes.index(cast("Element", node.parent))
         if isinstance(node, Element):
             records.append(("element", node.namespace.value, node.tag, tuple(sorted(node.attrs.items())), parent))
         elif isinstance(node, Text):

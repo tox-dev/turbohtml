@@ -27,8 +27,8 @@ from itertools import starmap
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, TypeVar, overload
 
-from ._native import sanitize as _sanitize
-from ._native import sanitize_policy as _sanitize_policy
+from ._native import sanitize as native_sanitize
+from ._native import sanitize_policy
 
 if TYPE_CHECKING:
     import re
@@ -147,7 +147,7 @@ class Sanitizer:
             self._attribute_values,
             self._allowed_styles,
             self._transform_tags,
-        ) = _sanitize_policy(
+        ) = sanitize_policy(
             self.policy.attributes,
             self.policy.add_link_rel,
             self.policy.set_attributes,
@@ -190,7 +190,7 @@ class Sanitizer:
         # Run the C walk over a freshly parsed fragment or a copy of a node, appending drops to ``removed``.
         # An ``inner`` caller drops the root, so the root's content model must not shape the string it serializes.
         policy = self.policy
-        return _sanitize(
+        return native_sanitize(
             html,
             policy.tags,
             self._attributes,

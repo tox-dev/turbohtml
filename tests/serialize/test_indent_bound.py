@@ -14,6 +14,7 @@ from turbohtml.clean import OnDisallowed, Policy, minify, sanitize
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
+    from markdown_it.token import Token
     from work_steps import WorkSteps
 
     from turbohtml import Document, Element
@@ -494,7 +495,7 @@ def test_text_clone_href_of_a_removed_source_is_kept_once() -> None:
 
 @pytest.mark.parametrize("header", ["detect", "none"])
 def test_markdown_table_padding_stays_linear(header: Literal["detect", "none"], work_steps: WorkSteps) -> None:
-    options: Final = Markdown(tables=Markdown.Tables(pad=True, header=header))
+    options: Final[Markdown] = Markdown(tables=Markdown.Tables(pad=True, header=header))
     work_steps.assert_linear(lambda n: partial(parse(_wide_cell_over_rows(n)).to_markdown, options), (500, 2000))
 
 
@@ -504,11 +505,11 @@ def _wide_cell_over_rows(size: int) -> str:
 
 @pytest.mark.parametrize("header", ["detect", "none"])
 def test_markdown_table_past_the_padding_budget_is_written_unpadded(header: Literal["detect", "none"]) -> None:
-    source: Final = f"<table><tr><td>{'x' * 2048}<td>y{'<tr><td>a<td>' * 256}</table>"
-    padded: Final = parse(source).to_markdown(Markdown(tables=Markdown.Tables(pad=True, header=header)))
+    source: Final[str] = f"<table><tr><td>{'x' * 2048}<td>y{'<tr><td>a<td>' * 256}</table>"
+    padded: Final[str] = parse(source).to_markdown(Markdown(tables=Markdown.Tables(pad=True, header=header)))
     # no row is padded, so the table is the one the unpadded layout writes, and a reader still takes every row
     assert padded == parse(source).to_markdown(Markdown(tables=Markdown.Tables(header=header)))
-    tokens: Final = MarkdownIt("commonmark").enable("table").parse(padded)
+    tokens: Final[list[Token]] = MarkdownIt("commonmark").enable("table").parse(padded)
     # 257 rows under the empty header a table without header cells takes
     assert sum(token.type == "tr_open" for token in tokens) == 258
 
@@ -531,13 +532,13 @@ def test_markdown_table_past_the_padding_budget_is_written_unpadded(header: Lite
 )
 @pytest.mark.parametrize("header", ["detect", "none"])
 def test_markdown_table_cells_fund_their_own_padding(source: str, header: Literal["detect", "none"]) -> None:
-    output: Final = parse(source).to_markdown(Markdown(tables=Markdown.Tables(pad=True, header=header)))
+    output: Final[str] = parse(source).to_markdown(Markdown(tables=Markdown.Tables(pad=True, header=header)))
     assert len({len(line) for line in output.split("\n\n")[-1].split("\n")}) == 1
 
 
 def test_markdown_table_padding_budget_is_spent_once() -> None:
-    wide: Final = f"<table><tr><td>{'x' * 120}{'<tr><td>' * 5}</table>"
-    output: Final = parse(wide * 2).to_markdown(Markdown(tables=Markdown.Tables(pad=True)))
+    wide: Final[str] = f"<table><tr><td>{'x' * 120}{'<tr><td>' * 5}</table>"
+    output: Final[str] = parse(wide * 2).to_markdown(Markdown(tables=Markdown.Tables(pad=True)))
     # the first table aligns on the allowance the document starts with, which the second can no longer draw on
     assert [len({len(line) for line in table.split("\n")}) == 1 for table in output.split("\n\n")] == [True, False]
 
@@ -572,7 +573,7 @@ def test_markdown_past_the_cap_reads_back_under_commonmark_nesting(source: str) 
 
 
 def test_pretty_indent_stops_at_the_nesting_cap() -> None:
-    depth: Final = 67
+    depth: Final[int] = 67
     options = Html(layout=Indent())
     document = parse_xml("<a>" * depth + "</a>" * depth)
     pretty = document.serialize(options)

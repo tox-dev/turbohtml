@@ -105,9 +105,10 @@ from fuzz.xml_structure_generators import (
 from tinycss2 import parse_stylesheet, serialize
 
 from turbohtml import Document, Element, Html, HTMLParseError, Node, Text, parse, parse_fragment, parse_xml
-from turbohtml.cssom import StyleSheet
+from turbohtml.cssom import RuleList, StyleSheet
 
 if TYPE_CHECKING:
+    from collections import Counter
     from collections.abc import Callable
 
 
@@ -192,7 +193,7 @@ def test_encoding_structure_materialized_budget_sniffed(case: Generated) -> None
 
 
 def _assert_materialized_budget(case: Generated, document: Node) -> None:
-    nodes: Final = (document, *document.descendants)
+    nodes: Final[tuple[Node, *tuple[Node, ...]]] = (document, *document.descendants)
     assert (len(nodes), max(len(tuple(node.ancestors)) for node in nodes)) == (case.nodes, case.depth)
 
 
@@ -223,8 +224,10 @@ def test_encoding_structure_inventory() -> None:
     ],
 )
 def test_encoding_structure_forced_specimen(name: str, encoding: str, codec: str, text: str) -> None:
-    case: Final = generate(encoding_grammar(), random.Random(0), GenerationBudget(nodes=32, steps=128), force=name)
-    profile: Final = encoding_profile(case)
+    case: Final[Generated] = generate(
+        encoding_grammar(), random.Random(0), GenerationBudget(nodes=32, steps=128), force=name
+    )
+    profile = encoding_profile(case)
     assert (
         profile.encoding,
         profile.codec,
@@ -233,7 +236,7 @@ def test_encoding_structure_forced_specimen(name: str, encoding: str, codec: str
 
 
 def test_encoding_structure_utf16_binding_bytes() -> None:
-    case: Final = generate(encoding_grammar(), random.Random(0), 16, force="encoding:codec:utf-16le")
+    case: Final[Generated] = generate(encoding_grammar(), random.Random(0), 16, force="encoding:codec:utf-16le")
     assert (case.data, case.bindings) == (
         '<div id="x"><p>é</p><a href="#x">x</a></div>'.encode("utf-16-le"),
         (("anchor", "x"),),
@@ -241,7 +244,7 @@ def test_encoding_structure_utf16_binding_bytes() -> None:
 
 
 def test_encoding_structure_independent_parents() -> None:
-    case: Final = generate(encoding_grammar(), random.Random(0), 16, force="encoding:codec:utf-8")
+    case: Final[Generated] = generate(encoding_grammar(), random.Random(0), 16, force="encoding:codec:utf-8")
     assert encoding_expected(case) == (
         ("document", "", "", (), -1),
         ("element:html", "html", "", (), 0),
@@ -256,12 +259,12 @@ def test_encoding_structure_independent_parents() -> None:
 
 
 def test_encoding_structure_empty_replacement() -> None:
-    case: Final = generate(encoding_grammar(), random.Random(0), 4, force="encoding:codec:replacement:empty")
+    case: Final[Generated] = generate(encoding_grammar(), random.Random(0), 4, force="encoding:codec:replacement:empty")
     assert (case.data, case.nodes, case.depth, encoding_decoded(case)) == (b"", 4, 2, "")
 
 
 def test_encoding_structure_first_decode_loss() -> None:
-    case: Final = generate(encoding_grammar(), random.Random(0), 16, force="encoding:codec:utf-8")
+    case: Final[Generated] = generate(encoding_grammar(), random.Random(0), 16, force="encoding:codec:utf-8")
     assert encoding_check(replace(case, data=case.data.replace(b"\xc3\xa9", b"x"))) == (
         "decoded bytes differ from production literals"
     )
@@ -277,7 +280,7 @@ def test_encoding_structure_failure_controls() -> None:
 
 @pytest.mark.parametrize("seed", range(32))
 def test_encoding_structure_random_budget(seed: int) -> None:
-    case: Final = encoding_generate(random.Random(seed), 16, steps=32)
+    case: Final[Generated] = encoding_generate(random.Random(seed), 16, steps=32)
     assert (encoding_check(case), case.nodes <= 16, len(case.productions) <= 32) == (None, True, True)
 
 
@@ -300,7 +303,7 @@ def test_encoding_structure_production_floors() -> None:
 
 
 def test_encoding_structure_manifest_context() -> None:
-    case: Final = generate(encoding_grammar(), random.Random(0), 16, force="encoding:codec:utf-8")
+    case: Final[Generated] = generate(encoding_grammar(), random.Random(0), 16, force="encoding:codec:utf-8")
     assert encoding_manifest(case) == {
         "path": hashlib.sha256(case.data).hexdigest(),
         "encoding": "UTF-8",
@@ -329,7 +332,9 @@ def test_encoding_structure_manifest_context() -> None:
 )
 def test_encoding_structure_materialized_corpus(tmp_path: Path, count: int, cases: tuple[Generated, ...]) -> None:
     main(["--output", str(tmp_path), "--count", str(count)])
-    manifest: Final = cast("list[EncodingSeed]", json.loads((tmp_path / "manifest.json").read_text()))
+    manifest: Final[list[EncodingSeed]] = cast(
+        "list[EncodingSeed]", json.loads((tmp_path / "manifest.json").read_text())
+    )
     assert (
         manifest,
         {path.name: path.read_bytes() for path in tmp_path.iterdir() if path.name != "manifest.json"},
@@ -397,7 +402,9 @@ def test_css_complete_unknown_production_fails_floor() -> None:
     ],
 )
 def test_css_complete_literal_shapes(literal_grammar: Grammar, name: str, body: bytes, nodes: int) -> None:
-    case: Final = generate(literal_grammar, random.Random(0), GenerationBudget(nodes=128, steps=64), force=name)
+    case: Final[Generated] = generate(
+        literal_grammar, random.Random(0), GenerationBudget(nodes=128, steps=64), force=name
+    )
     assert (case.data, case.nodes, case.depth, case.bindings) == (
         _PREFIX + body,
         nodes,
@@ -439,15 +446,15 @@ def test_css_complete_reserves_sibling_steps(literal_grammar: Grammar) -> None:
     ],
 )
 def test_css_complete_literal_table_materialization(name: str, expected: bytes) -> None:
-    case: Final = generate(_GRAMMAR, random.Random(0), GenerationBudget(nodes=512, steps=128), force=name)
+    case: Final[Generated] = generate(_GRAMMAR, random.Random(0), GenerationBudget(nodes=512, steps=128), force=name)
     assert case.data == expected
 
 
 def test_css_complete_custom_properties_bind_to_root() -> None:
-    case: Final = generate(
+    case: Final[Generated] = generate(
         _GRAMMAR, random.Random(0), GenerationBudget(nodes=512, steps=128), force="css:domato:css.txt:107"
     )
-    rules: Final = StyleSheet(case.data.decode("utf-8")).rules
+    rules: Final[RuleList] = StyleSheet(case.data.decode("utf-8")).rules
     assert (rules[0].selector_text, rules[0].style.get("--y"), rules[1].style.get("color")) == (
         ":root",
         "red",
@@ -457,7 +464,7 @@ def test_css_complete_custom_properties_bind_to_root() -> None:
 
 @pytest.mark.parametrize("seed", range(32))
 def test_css_complete_random_inputs_respect_both_budgets(seed: int) -> None:
-    case: Final = css_generate(random.Random(seed), 64, steps=12)
+    case: Final[Generated] = css_generate(random.Random(seed), 64, steps=12)
     assert case.nodes <= 64
     assert len(case.productions) <= 12
 
@@ -471,7 +478,7 @@ def test_css_complete_source_seeds_preserve_sweep() -> None:
 
 
 def test_css_complete_cli_materializes_bytes(tmp_path: Path) -> None:
-    case: Final = css_generate(random.Random(0), 64, steps=12)
+    case: Final[Generated] = css_generate(random.Random(0), 64, steps=12)
     assert (
         fuzz_css_structure_generation_main((
             "--output",
@@ -512,7 +519,7 @@ def test_css_complete_cli_rejects_invalid_budgets(
 
 
 def test_css_complete_disabled_alternative_fails_floor() -> None:
-    name: Final = "css:domato:css.txt:107"
+    name: Final[str] = "css:domato:css.txt:107"
     with pytest.raises(ProductionFloorError, match=r"css:domato:css\.txt:107"):
         assert_production_floors((case for case in _SWEEP if name not in case.productions), (name,))
 
@@ -532,13 +539,15 @@ def test_markdown_raw_materialized_budget(case: Generated) -> None:
 
 def _materialized_shape(case: Generated, *, html: bool) -> tuple[int, int]:
     if html:
-        root: Final = parse_fragment(case.data.decode())
-        nodes: Final = (root, *root.descendants)
+        root: Final[Element] = parse_fragment(case.data.decode())
+        nodes: Final[tuple[Element, *tuple[Node, ...]]] = (root, *root.descendants)
         return (
             len(nodes),
             max(sum(isinstance(ancestor, Element) for ancestor in node.ancestors) for node in nodes),
         )
-    records: Final = markdown_snapshot(case.data.decode())
+    records: Final[tuple[tuple[str, str, str, tuple[tuple[str, str], ...], int], ...]] = markdown_snapshot(
+        case.data.decode()
+    )
     depths: Final[list[int]] = []
     for record in records:
         depths.append(0 if record[-1] < 0 else depths[record[-1]] + 1)
@@ -578,20 +587,20 @@ def test_markdown_reader_html_block_literal() -> None:
 
 
 def test_markdown_reference_binding() -> None:
-    case: Final = generate(
+    case: Final[Generated] = generate(
         markdown_grammar(), random.Random(0), GenerationBudget(nodes=5, steps=4), force="markdown:reference"
     )
     assert (case.data, case.bindings) == (b"[x]: /target\n\n[x]\n", (("reference", "x"),))
 
 
 def test_markdown_html_binding() -> None:
-    case: Final = generate(
+    case: Final[Generated] = generate(
         markdown_grammar(html=True),
         random.Random(0),
         GenerationBudget(nodes=6, steps=3),
         force="markdown-html:thematic",
     )
-    root: Final = parse_fragment(case.data.decode())
+    root: Final[Element] = parse_fragment(case.data.decode())
     assert [(node.tag, dict(node.attrs)) for node in root.select("#x, a")] == [
         ("div", {"id": "x"}),
         ("a", {"href": "#x"}),
@@ -610,7 +619,7 @@ def test_markdown_first_conversion_controls(*, html: bool) -> None:
 @pytest.mark.parametrize("seed", range(32))
 @pytest.mark.parametrize("html", [pytest.param(False, id="raw"), pytest.param(True, id="html")])
 def test_markdown_random_budget(seed: int, *, html: bool) -> None:
-    case: Final = markdown_generate(random.Random(seed), 30, steps=24, html=html)
+    case: Final[Generated] = markdown_generate(random.Random(seed), 30, steps=24, html=html)
     assert (_materialized_shape(case, html=html), case.nodes <= 30, len(case.productions) <= 24) == (
         (case.nodes, case.depth),
         True,
@@ -623,8 +632,8 @@ def test_markdown_random_budget(seed: int, *, html: bool) -> None:
     [pytest.param(False, _RAW_CASES, id="raw"), pytest.param(True, _HTML_CASES, id="html")],
 )
 def test_markdown_production_floor(*, html: bool, cases: tuple[Generated, ...]) -> None:
-    grammar: Final = markdown_grammar(html=html)
-    name: Final = grammar.productions[-1].name
+    grammar: Final[Grammar] = markdown_grammar(html=html)
+    name: Final[str] = grammar.productions[-1].name
     with pytest.raises(ProductionFloorError, match="production floors missed"):
         assert_production_floors(
             (case for case in cases if name not in case.productions),
@@ -820,13 +829,13 @@ def test_markdown_insufficient_budget(budget: GenerationBudget) -> None:
 
 @pytest.mark.parametrize("name", ["markdown-source-grammar", "markdown-html-grammar"])
 def test_markdown_registry_production_consumers(name: str) -> None:
-    oracle: Final = ORACLES[name]
+    oracle: Final[Oracle] = ORACLES[name]
     assert [oracle.check(source) for source in oracle.seeds()] == [None] * oracle.floor.count
 
 
 @pytest.mark.parametrize("name", ["markdown-source-grammar", "markdown-html-grammar"])
 def test_markdown_registry_generated_consumer(name: str) -> None:
-    oracle: Final = ORACLES[name]
+    oracle: Final[Oracle] = ORACLES[name]
     assert oracle.check(oracle.generate(random.Random(4))) is None
 
 
@@ -900,13 +909,15 @@ def test_xml_structure_literals(case: Generated) -> None:
     "case", _FUZZ_XML_STRUCTURE_GENERATION_CASES, ids=[production.name for production in xml_grammar().productions]
 )
 def test_xml_structure_materialized_budget(case: Generated) -> None:
-    root: Final = parse_xml(case.data.decode())
-    nodes: Final = (root, *root.descendants)
+    root: Final[Document] = parse_xml(case.data.decode())
+    nodes: Final[tuple[Document, *tuple[Node, ...]]] = (root, *root.descendants)
     assert (len(nodes), max(len(tuple(node.ancestors)) for node in nodes)) == (case.nodes, case.depth)
 
 
 def test_xml_structure_independent_parent_literals() -> None:
-    case: Final = generate(xml_grammar(), random.Random(0), GenerationBudget(nodes=4, steps=6), force="xml:leaf:0")
+    case: Final[Generated] = generate(
+        xml_grammar(), random.Random(0), GenerationBudget(nodes=4, steps=6), force="xml:leaf:0"
+    )
     assert xml_expected(case) == (
         ("document", "", "", (), -1),
         ("element:html", "Root", "", (("id", "x"),), 0),
@@ -916,7 +927,7 @@ def test_xml_structure_independent_parent_literals() -> None:
 
 
 def test_xml_structure_changed_input() -> None:
-    case: Final = replace(
+    case: Final[Generated] = replace(
         _FUZZ_XML_STRUCTURE_GENERATION_CASES[0],
         data=_FUZZ_XML_STRUCTURE_GENERATION_CASES[0].data.replace(b"Root", b"Wrong"),
     )
@@ -935,7 +946,7 @@ def test_xml_structure_changed_serialization() -> None:
 
 @pytest.mark.parametrize("seed", range(64))
 def test_xml_structure_random_bounds(seed: int) -> None:
-    case: Final = xml_generate(random.Random(seed), 12, steps=60)
+    case: Final[Generated] = xml_generate(random.Random(seed), 12, steps=60)
     assert (xml_structure_check(case), case.nodes <= 12, len(case.productions) <= 60) == (None, True, True)
 
 
@@ -958,7 +969,7 @@ def test_xml_structure_materialized_corpus(tmp_path: Path, arguments: list[str],
 
 
 def test_generation_zero_node_forced_path() -> None:
-    grammar: Final = compile_grammar(
+    grammar: Final[Grammar] = compile_grammar(
         (
             Production(
                 name="root",
@@ -978,7 +989,7 @@ def test_generation_zero_node_forced_path() -> None:
 
 
 def test_generation_zero_node_cycle_terminates() -> None:
-    grammar: Final = compile_grammar(
+    grammar: Final[Grammar] = compile_grammar(
         (
             Production(
                 name="cycle", symbol="root", parts=(b"x", Reference(symbol="root", depth=0)), nodes=0, origin="test"
@@ -987,12 +998,12 @@ def test_generation_zero_node_cycle_terminates() -> None:
         ),
         "root",
     )
-    case: Final = generate(grammar, random.Random(0), GenerationBudget(nodes=0, steps=2), force="cycle")
+    case: Final[Generated] = generate(grammar, random.Random(0), GenerationBudget(nodes=0, steps=2), force="cycle")
     assert (case.data, case.nodes, case.productions) == (b"xz", 0, ("cycle", "leaf"))
 
 
 def test_generation_step_reservation_for_siblings() -> None:
-    grammar: Final = compile_grammar(
+    grammar: Final[Grammar] = compile_grammar(
         (
             Production(
                 name="root",
@@ -1008,7 +1019,7 @@ def test_generation_step_reservation_for_siblings() -> None:
         ),
         "root",
     )
-    case: Final = generate(grammar, random.Random(0), GenerationBudget(nodes=1, steps=4), force="cycle")
+    case: Final[Generated] = generate(grammar, random.Random(0), GenerationBudget(nodes=1, steps=4), force="cycle")
     assert (case.data, case.nodes, len(case.productions)) == (b"xzz", 1, 4)
 
 
@@ -1073,7 +1084,7 @@ def test_xml_structure_random_corpus(tmp_path: Path) -> None:
 
 
 def test_xml_structure_disabled_production() -> None:
-    name: Final = xml_grammar().productions[-1].name
+    name: Final[str] = xml_grammar().productions[-1].name
     with pytest.raises(ProductionFloorError, match="production floors missed"):
         assert_production_floors(
             (case for case in _FUZZ_XML_STRUCTURE_GENERATION_CASES if name not in case.productions),
@@ -1105,7 +1116,7 @@ def test_xml_raw_random_corpus(tmp_path: Path) -> None:
 
 
 def test_xml_structure_identifier_lookup() -> None:
-    root: Final = parse_xml(_FUZZ_XML_STRUCTURE_GENERATION_CASES[0].data.decode())
+    root: Final[Document] = parse_xml(_FUZZ_XML_STRUCTURE_GENERATION_CASES[0].data.decode())
     assert [(node.tag, dict(node.attrs)) for node in root.select("#x")] == [("Root", {"id": "x"})]
 
 
@@ -1470,7 +1481,7 @@ _CASE_IDS: Final[list[str]] = [f"production-{index}" for index in range(len(_FUZ
 
 @pytest.fixture
 def root(request: pytest.FixtureRequest) -> Node:
-    case: Final = cast("Generated", request.param)
+    case: Final[Generated] = cast("Generated", request.param)
     return parse(case.data.decode("utf-8")) if html_document(case) else parse_fragment(case.data.decode("utf-8"))
 
 
@@ -1524,8 +1535,10 @@ def test_html_complete_identifier_target(root: Node) -> None:
     ],
 )
 def test_html_complete_table_identifier_reference(line: int, attribute: str, expected: str | list[str]) -> None:
-    case: Final = generate(_FUZZ_HTML_STRUCTURE_GENERATION_GRAMMAR, random.Random(0), force=f"html:domato:value:{line}")
-    root: Final = parse_fragment(case.data.decode("utf-8"))
+    case: Final[Generated] = generate(
+        _FUZZ_HTML_STRUCTURE_GENERATION_GRAMMAR, random.Random(0), force=f"html:domato:value:{line}"
+    )
+    root: Final[Element] = parse_fragment(case.data.decode("utf-8"))
     assert (root.select(f"[{attribute}]")[0].attrs[attribute], root.select('[id="x"]')[0].tag) == (expected, "div")
 
 
@@ -1541,7 +1554,9 @@ def test_html_complete_table_identifier_reference(line: int, attribute: str, exp
     ],
 )
 def test_html_complete_value_alternatives(line: int, attribute: str, expected: str | list[str]) -> None:
-    case: Final = generate(_FUZZ_HTML_STRUCTURE_GENERATION_GRAMMAR, random.Random(0), force=f"html:domato:value:{line}")
+    case: Final[Generated] = generate(
+        _FUZZ_HTML_STRUCTURE_GENERATION_GRAMMAR, random.Random(0), force=f"html:domato:value:{line}"
+    )
     assert parse_fragment(case.data.decode("utf-8")).select(f"[{attribute}]")[0].attrs[attribute] == expected
 
 
@@ -1584,8 +1599,8 @@ def test_html_complete_value_alternatives(line: int, attribute: str, expected: s
 def test_html_complete_special_tag_materialization(
     force: str, parse_markup: Callable[[str], Node], expected: list[str]
 ) -> None:
-    case: Final = generate(_FUZZ_HTML_STRUCTURE_GENERATION_GRAMMAR, random.Random(0), force=force)
-    root: Final = parse_markup(case.data.decode("utf-8"))
+    case: Final[Generated] = generate(_FUZZ_HTML_STRUCTURE_GENERATION_GRAMMAR, random.Random(0), force=force)
+    root: Final[Node] = parse_markup(case.data.decode("utf-8"))
     assert [node.tag for node in root.descendants if isinstance(node, Element)] == expected
 
 
@@ -1639,9 +1654,9 @@ def test_html_complete_special_tag_materialization(
     ],
 )
 def test_html_complete_literal_foreign_and_hostile_shape(name: str, expected: list[tuple[str, str, int]]) -> None:
-    case: Final = generate(_FUZZ_HTML_STRUCTURE_GENERATION_GRAMMAR, random.Random(0), force=name)
-    root: Final = parse_fragment(case.data.decode("utf-8"))
-    nodes: Final = [root, *root.descendants]
+    case: Final[Generated] = generate(_FUZZ_HTML_STRUCTURE_GENERATION_GRAMMAR, random.Random(0), force=name)
+    root: Final[Element] = parse_fragment(case.data.decode("utf-8"))
+    nodes: Final[list[Node]] = [root, *root.descendants]
     assert [
         (node.data, "text", nodes.index(cast("Node", node.parent)))
         if isinstance(node, Text)
@@ -1655,7 +1670,7 @@ def test_html_complete_literal_foreign_and_hostile_shape(name: str, expected: li
 
 
 def test_html_complete_all_table_productions_fire() -> None:
-    counts: Final = assert_production_floors(
+    counts: Final[Counter[str]] = assert_production_floors(
         _FUZZ_HTML_STRUCTURE_GENERATION_SWEEP,
         (production.name for production in _FUZZ_HTML_STRUCTURE_GENERATION_GRAMMAR.productions),
     )
@@ -1667,7 +1682,7 @@ def test_html_complete_all_table_productions_fire() -> None:
 
 
 def test_html_complete_disabled_production_fails_floor() -> None:
-    cases: Final = tuple(
+    cases: Final[tuple[Generated, ...]] = tuple(
         case for case in _FUZZ_HTML_STRUCTURE_GENERATION_SWEEP if "html:hostile:formatting" not in case.productions
     )
     with pytest.raises(ProductionFloorError, match="html:hostile:formatting"):
@@ -1677,7 +1692,9 @@ def test_html_complete_disabled_production_fails_floor() -> None:
 
 
 def test_html_complete_exports_input_bytes(tmp_path: Path) -> None:
-    case: Final = generate(_FUZZ_HTML_STRUCTURE_GENERATION_GRAMMAR, random.Random(0), force="html:hostile:near-miss")
+    case: Final[Generated] = generate(
+        _FUZZ_HTML_STRUCTURE_GENERATION_GRAMMAR, random.Random(0), force="html:hostile:near-miss"
+    )
     write_corpus((case, case), tmp_path)
     assert {path.name: path.read_bytes() for path in tmp_path.iterdir()} == {
         hashlib.sha256(case.data).hexdigest(): b'<div id="x"><span>x</spna><b>y</b></span><a href="#x">x</a></div>'
@@ -1720,7 +1737,7 @@ def test_html_complete_rejects_incomplete_tables(vocabulary: HtmlVocabulary, mes
 
 
 def test_html_complete_productive_value_cycle_terminates() -> None:
-    grammar: Final = html_grammar_complete(
+    grammar: Final[Grammar] = html_grammar_complete(
         HtmlVocabulary(
             tags=("span",),
             html=((1, "attribute_x", 'x="<value>"'),),
@@ -1728,12 +1745,12 @@ def test_html_complete_productive_value_cycle_terminates() -> None:
             tag_attributes=(),
         )
     )
-    case: Final = generate(grammar, random.Random(0), force="html:domato:value:2")
+    case: Final[Generated] = generate(grammar, random.Random(0), force="html:domato:value:2")
     assert parse_fragment(case.data.decode("utf-8")).select("[x]")[0].attrs["x"] == "done"
 
 
 def test_html_complete_escapes_attribute_literal() -> None:
-    grammar: Final = html_grammar_complete(
+    grammar: Final[Grammar] = html_grammar_complete(
         HtmlVocabulary(
             tags=("span",),
             html=((1, "attribute_x", 'x="<value>"'),),
@@ -1741,7 +1758,7 @@ def test_html_complete_escapes_attribute_literal() -> None:
             tag_attributes=(),
         )
     )
-    case: Final = generate(grammar, random.Random(0), force="html:domato:value:1")
+    case: Final[Generated] = generate(grammar, random.Random(0), force="html:domato:value:1")
     assert (case.data, parse_fragment(case.data.decode("utf-8")).select("[x]")[0].attrs["x"]) == (
         b'<div id="x"><span x="&quot;&amp;&lt;&gt;">x</span><a href="#x">x</a></div>',
         '"&<>',
@@ -1760,7 +1777,7 @@ def test_html_complete_escapes_attribute_literal() -> None:
     ],
 )
 def test_html_complete_bounded_primitive_values(source: str, expected: bytes) -> None:
-    grammar: Final = html_grammar_complete(
+    grammar: Final[Grammar] = html_grammar_complete(
         HtmlVocabulary(
             tags=("span",),
             html=((1, "attribute_x", 'x="<value>"'),),
@@ -1768,7 +1785,7 @@ def test_html_complete_bounded_primitive_values(source: str, expected: bytes) ->
             tag_attributes=(),
         )
     )
-    case: Final = generate(grammar, random.Random(0), force="html:domato:value:1")
+    case: Final[Generated] = generate(grammar, random.Random(0), force="html:domato:value:1")
     assert case.data == b'<div id="x"><span x="' + expected + b'">x</span><a href="#x">x</a></div>'
 
 
@@ -1841,7 +1858,7 @@ def test_generation_forces_nested(grammar: Grammar) -> None:
 
 
 def test_generation_forced_path_uses_minimum() -> None:
-    compiled: Final = compile_grammar(
+    compiled: Final[Grammar] = compile_grammar(
         (
             Production(
                 name="heavy",
@@ -1957,7 +1974,7 @@ def test_generation_rejects_invalid_grammar(productions: tuple[Production, ...],
 
 
 def test_generation_sweep_forces_productions(grammar: Grammar) -> None:
-    cases: Final = generation_sweep(grammar, 2)
+    cases: Final[tuple[Generated, ...]] = generation_sweep(grammar, 2)
     assert (len(cases), dict(assert_production_floors(cases, ("root", "leaf", "nested"), 2))) == (
         6,
         {"root": 6, "leaf": 12, "nested": 2},
@@ -1980,7 +1997,7 @@ def test_generation_sweep_rejects_zero(grammar: Grammar) -> None:
 
 
 def test_generation_identifiers_are_unique() -> None:
-    compiled: Final = compile_grammar(
+    compiled: Final[Grammar] = compile_grammar(
         (
             Production(
                 name="ids",
@@ -2001,7 +2018,7 @@ def test_generation_identifiers_are_unique() -> None:
         ),
         "root",
     )
-    case: Final = generate(compiled, random.Random(0))
+    case: Final[Generated] = generate(compiled, random.Random(0))
     assert case == Generated(
         data=b'<div id="x"></div><div id="y"></div><div id="z"></div>',
         nodes=4,
@@ -2012,7 +2029,7 @@ def test_generation_identifiers_are_unique() -> None:
 
 
 def test_generation_reference_before_definition() -> None:
-    compiled: Final = compile_grammar(
+    compiled: Final[Grammar] = compile_grammar(
         (
             Production(
                 name="before",
@@ -2059,7 +2076,7 @@ def test_generation_reference_before_definition() -> None:
     ],
 )
 def test_generation_rejects_invalid_identifiers(parts: tuple[Identifier, ...], message: str) -> None:
-    compiled: Final = compile_grammar(
+    compiled: Final[Grammar] = compile_grammar(
         (Production(name="ids", symbol="root", parts=parts, nodes=1, origin="test"),), "root"
     )
     with pytest.raises(GrammarError, match=message):
@@ -2090,7 +2107,7 @@ def test_generation_rejects_invalid_identifiers(parts: tuple[Identifier, ...], m
     ],
 )
 def test_generation_productive_cycle_terminates(budget: int, force: str | None, expected: Generated) -> None:
-    compiled: Final = compile_grammar(
+    compiled: Final[Grammar] = compile_grammar(
         (
             Production(
                 name="root",
@@ -2139,7 +2156,7 @@ def depth_grammars() -> tuple[Grammar, ...]:
 
 
 def test_generation_depth_decay(depth_grammars: tuple[Grammar, ...]) -> None:
-    counts: Final = [
+    counts: Final[list[int]] = [
         sum(generate(compiled, random.Random(seed), 100).productions.count("nested") for seed in range(128))
         for compiled in depth_grammars
     ]
@@ -2147,21 +2164,21 @@ def test_generation_depth_decay(depth_grammars: tuple[Grammar, ...]) -> None:
 
 
 def test_generation_corpus_deduplicates(grammar: Grammar, tmp_path: Path) -> None:
-    case: Final = generate(grammar, random.Random(0), leaf=True)
+    case: Final[Generated] = generate(grammar, random.Random(0), leaf=True)
     assert write_corpus((case, case), tmp_path / "corpus") == 1
 
 
 def test_generation_corpus_contains_materialized_bytes(grammar: Grammar, tmp_path: Path) -> None:
-    case: Final = generate(grammar, random.Random(0), leaf=True)
+    case: Final[Generated] = generate(grammar, random.Random(0), leaf=True)
     write_corpus((case,), tmp_path)
     assert (tmp_path / hashlib.sha256(case.data).hexdigest()).read_bytes() == b"<div><b>x</b><b>x</b></div>"
 
 
 def test_generation_raw_bytes_survive_export(tmp_path: Path) -> None:
-    compiled: Final = compile_grammar(
+    compiled: Final[Grammar] = compile_grammar(
         (Production(name="raw", symbol="root", parts=(b"\xff",), nodes=1, origin="test"),), "root"
     )
-    case: Final = generate(compiled, random.Random(0))
+    case: Final[Generated] = generate(compiled, random.Random(0))
     write_corpus((case,), tmp_path)
     assert (tmp_path / hashlib.sha256(b"\xff").hexdigest()).read_bytes() == b"\xff"
 
@@ -2175,13 +2192,13 @@ _HTML_INPUTS: Final[tuple[Generated, ...]] = (
 
 @pytest.mark.parametrize("case", [pytest.param(case, id=f"case-{index}") for index, case in enumerate(_HTML_INPUTS)])
 def test_generation_html_node_accounting(case: Generated) -> None:
-    root: Final = parse_fragment(case.data.decode("utf-8"))
+    root: Final[Element] = parse_fragment(case.data.decode("utf-8"))
     assert sum(1 for _ in root.descendants) + 1 == case.nodes
 
 
 @pytest.mark.parametrize("case", [pytest.param(case, id=f"case-{index}") for index, case in enumerate(_HTML_INPUTS)])
 def test_generation_html_depth_accounting(case: Generated) -> None:
-    root: Final = parse_fragment(case.data.decode("utf-8"))
+    root: Final[Element] = parse_fragment(case.data.decode("utf-8"))
     assert (
         max(sum(isinstance(ancestor, Element) for ancestor in node.ancestors) for node in root.descendants)
         == case.depth
@@ -2190,8 +2207,8 @@ def test_generation_html_depth_accounting(case: Generated) -> None:
 
 @pytest.mark.parametrize("case", [pytest.param(case, id=f"case-{index}") for index, case in enumerate(_HTML_INPUTS)])
 def test_generation_html_references_bind(case: Generated) -> None:
-    root: Final = parse_fragment(case.data.decode("utf-8"))
-    references: Final = [
+    root: Final[Element] = parse_fragment(case.data.decode("utf-8"))
+    references: Final[list[str]] = [
         cast("str", node.attrs.get("href") or node.attrs.get("src")) for node in root.select('[href^="#"],[src^="#"]')
     ]
     assert (bool(references), set(references)) == (True, {"#x"})
@@ -2199,7 +2216,7 @@ def test_generation_html_references_bind(case: Generated) -> None:
 
 @pytest.mark.parametrize("case", [pytest.param(case, id=f"case-{index}") for index, case in enumerate(_HTML_INPUTS)])
 def test_generation_html_reference_target(case: Generated) -> None:
-    root: Final = parse_fragment(case.data.decode("utf-8"))
+    root: Final[Element] = parse_fragment(case.data.decode("utf-8"))
     assert [
         (node.tag, tuple(sorted(node.attrs.items())), sum(isinstance(ancestor, Element) for ancestor in node.ancestors))
         for node in root.select("#x")
@@ -2208,7 +2225,7 @@ def test_generation_html_reference_target(case: Generated) -> None:
 
 @pytest.mark.parametrize("case", [pytest.param(case, id=f"case-{index}") for index, case in enumerate(_HTML_INPUTS)])
 def test_generation_html_small_identifier_pool(case: Generated) -> None:
-    root: Final = parse_fragment(case.data.decode("utf-8"))
+    root: Final[Element] = parse_fragment(case.data.decode("utf-8"))
     assert (
         {cast("str", node.attrs["id"]) for node in root.select("[id]")} <= {"x", "y", "z"},
         {token for node in root.select("[class]") for token in cast("list[str]", node.attrs["class"])}
@@ -2231,7 +2248,7 @@ def test_generation_html_budget() -> None:
 
 
 def test_generation_html_all_declared_productions_fire() -> None:
-    grammar: Final = html_grammar()
+    grammar: Final[Grammar] = html_grammar()
     assert set(
         assert_production_floors(
             _FUZZ_STRUCTURE_GENERATION_HTML_CASES, (production.name for production in grammar.productions)
@@ -2314,7 +2331,7 @@ def test_generation_rejects_invalid_identifier_pool(pool: tuple[str, ...]) -> No
 
 
 def test_generation_uses_distinct_supplied_identifiers() -> None:
-    grammar: Final = compile_grammar(
+    grammar: Final[Grammar] = compile_grammar(
         (
             Production(
                 name="root",
@@ -2348,7 +2365,7 @@ def test_generation_uses_distinct_supplied_identifiers() -> None:
 
 
 def test_generation_rejects_supplied_pool_exhaustion() -> None:
-    grammar: Final = compile_grammar(
+    grammar: Final[Grammar] = compile_grammar(
         (
             Production(
                 name="root",
@@ -2370,5 +2387,5 @@ def test_generation_rejects_supplied_pool_exhaustion() -> None:
     [pytest.param(0, False, id="legacy-sheet"), pytest.param(1, True, id="structured-sheet")],
 )
 def test_generation_css_general_adapter(seed: int, *, generated: bool) -> None:
-    source: Final = ORACLES["css-fixpoint"].generate(random.Random(seed))
+    source: Final[str] = ORACLES["css-fixpoint"].generate(random.Random(seed))
     assert (":root{--x:red;" in source, source.endswith("}")) == (generated, True)

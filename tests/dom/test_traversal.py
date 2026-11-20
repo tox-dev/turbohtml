@@ -220,7 +220,7 @@ def test_traverse_children_survives_filter_detaching_node(
         detach(_el(node))
         return verdict
 
-    tree: Final = Element(
+    tree: Final[Element] = Element(
         "root", children=[Element("a", children=[Element("aa")]), Element("b", children=[Element("bb")])]
     )
     assert walk(TreeWalker(tree, _SHOW_ELEMENT, node_filter)) is None

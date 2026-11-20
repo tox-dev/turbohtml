@@ -79,7 +79,7 @@ def main() -> None:
     parser.add_argument("--version", help="use the configured Meson project version")
     args = parser.parse_args()
 
-    version: Final = resolve() if args.version is None else args.version
+    version = resolve() if args.version is None else args.version
     if args.write is None:
         print(version)
         return

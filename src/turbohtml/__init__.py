@@ -43,10 +43,18 @@ from ._html import (
     tokenize,
     unescape,
 )
-from ._internal import Canonical, Html, Markdown, PlainText, SelectorSyntaxError, SourceLocation, SourceSpan
+from ._internal import (  # simplint: ignore[missing-lazy-module]  # registers native options and exceptions
+    Canonical,
+    Html,
+    Markdown,
+    PlainText,
+    SelectorSyntaxError,
+    SourceLocation,
+    SourceSpan,
+)
 from ._version import __version__
 from .build import E, ElementMaker
-from .extract import (
+from .extract import (  # simplint: ignore[missing-lazy-module]  # registers extraction record types
     Article,
     Entry,
     Feed,
@@ -56,8 +64,11 @@ from .extract import (
     RdfaItem,
     StructuredData,
 )
-from .mutations import MutationObserver, MutationRecord  # registers the MutationRecord type on import
-from .query import XPathString
+from .mutations import (  # simplint: ignore[missing-lazy-module]  # registers MutationRecord
+    MutationObserver,
+    MutationRecord,
+)
+from .query import XPathString  # simplint: ignore[missing-lazy-module]  # registers XPath result and error types
 from .traverse import NodeFilter, NodeIterator, TreeWalker
 
 __all__ = [

@@ -7,7 +7,7 @@ import turbohtml
 from turbohtml import Comment, Doctype, Document, Element, Namespace, Node, ProcessingInstruction, Text
 
 if TYPE_CHECKING:
-    from wpt_tree_corpus import WptHtmlTreeCorpus
+    from wpt_tree_corpus import WptHtmlTreeCase, WptHtmlTreeCorpus
 
 
 # The .dat format loses embedded doctype quotes; compare these cases with the native dump (issue #478).
@@ -17,12 +17,12 @@ _DAT_UNREPRESENTABLE: Final[frozenset[tuple[str, str, str | None]]] = frozenset(
 
 
 def test_public_tree_matches_spec(wpt_html_tree_corpus: WptHtmlTreeCorpus) -> None:
-    cases: Final = [
+    cases: Final[list[WptHtmlTreeCase]] = [
         case
         for case in wpt_html_tree_corpus["cases"]
         if case["scripting"] is not True and (case["file"], case["data"], case["context"]) not in _DAT_UNREPRESENTABLE
     ]
-    failures: Final = [
+    failures: Final[list[str]] = [
         f"{case['file']}: #data {case['data']!r} (context={case['context']!r})\n"
         f"expected:\n{case['document']}\ngot:\n{got}"
         for case in cases
@@ -32,7 +32,9 @@ def test_public_tree_matches_spec(wpt_html_tree_corpus: WptHtmlTreeCorpus) -> No
 
 
 def _public_dump(data: str, context: str | None) -> str:
-    root: Final = turbohtml.parse_fragment(data, context) if context is not None else turbohtml.parse(data)
+    root: Final[Element | Document] = (
+        turbohtml.parse_fragment(data, context) if context is not None else turbohtml.parse(data)
+    )
     out: Final[list[str]] = []
     for child in root.children:
         _dump_node(child, 0, out)
@@ -40,7 +42,7 @@ def _public_dump(data: str, context: str | None) -> str:
 
 
 def _dump_node(node: Node, depth: int, out: list[str]) -> None:
-    pad: Final = f"| {'  ' * depth}"
+    pad: Final[str] = f"| {'  ' * depth}"
     if isinstance(node, Element):
         _dump_element(node, depth, out)
     elif isinstance(node, Text):
@@ -54,9 +56,9 @@ def _dump_node(node: Node, depth: int, out: list[str]) -> None:
 
 
 def _dump_element(node: Element, depth: int, out: list[str]) -> None:
-    pad: Final = f"| {'  ' * depth}"
-    foreign: Final = node.namespace is not Namespace.HTML
-    prefix: Final = f"{node.namespace.value} " if foreign else ""
+    pad: Final[str] = f"| {'  ' * depth}"
+    foreign: Final[bool] = node.namespace is not Namespace.HTML
+    prefix: Final[str] = f"{node.namespace.value} " if foreign else ""
     out.append(f"{pad}<{prefix}{node.tag}>")
     out.extend(
         sorted(
@@ -93,8 +95,8 @@ def _attr_line(name: str, value: str | list[str], *, foreign: bool) -> str:
 
 
 def _dump_doctype(node: Doctype, depth: int, out: list[str]) -> None:
-    pad: Final = f"| {'  ' * depth}"
-    name: Final = node.name or ""
+    pad: Final[str] = f"| {'  ' * depth}"
+    name: Final[str] = node.name or ""
     if node.public_id is not None or node.system_id is not None:
         out.append(f'{pad}<!DOCTYPE {name} "{node.public_id or ""}" "{node.system_id or ""}">')
     else:
@@ -103,7 +105,7 @@ def _dump_doctype(node: Doctype, depth: int, out: list[str]) -> None:
 
 def test_corpus_exercises_sanitizer_relevant_nodes(wpt_html_tree_corpus: WptHtmlTreeCorpus) -> None:
     # Keep the corpus sensitive to sanitizer-relevant parser differences.
-    unsafe_tags: Final = {
+    unsafe_tags: Final[set[str]] = {
         "script",
         "style",
         "iframe",
@@ -118,20 +120,22 @@ def test_corpus_exercises_sanitizer_relevant_nodes(wpt_html_tree_corpus: WptHtml
         "xmp",
         "plaintext",
     }
-    url_attrs: Final = {"href", "src", "action", "formaction", "poster", "cite", "xlink:href", "background"}
+    url_attrs: Final[set[str]] = {"href", "src", "action", "formaction", "poster", "cite", "xlink:href", "background"}
 
     def is_relevant(node: Node) -> bool:
         if not isinstance(node, Element):
             return isinstance(node, Document) and any(is_relevant(child) for child in node.children)
         if node.namespace is not Namespace.HTML or (node.tag in unsafe_tags):
             return True
-        attrs: Final = node.attrs or {}
+        attrs = node.attrs or {}
         if any(name.startswith("on") or name in url_attrs for name in attrs):
             return True
         return any(is_relevant(child) for child in node.children)
 
-    cases: Final = [case for case in wpt_html_tree_corpus["cases"] if case["scripting"] is not True]
-    relevant: Final = sum(
+    cases: Final[list[WptHtmlTreeCase]] = [
+        case for case in wpt_html_tree_corpus["cases"] if case["scripting"] is not True
+    ]
+    relevant: Final[int] = sum(
         is_relevant(parsed)
         for parsed in chain(
             (turbohtml.parse_fragment(case["data"], case["context"]) for case in cases if case["context"] is not None),

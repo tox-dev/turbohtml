@@ -19,14 +19,14 @@ def encoding(data: bytes) -> None:
 
 def _encoding_chunks(case: tuple[int, bytes]) -> None:
     chunk_size, data = case
-    detector: Final = chardet.UniversalDetector()
+    detector: Final[chardet.UniversalDetector] = chardet.UniversalDetector()
     for start in range(0, len(data), chunk_size):
         detector.feed(data[start : start + chunk_size])
     detector.close()
 
 
 def _encoding_stream(data: bytes) -> None:
-    detector: Final = chardet.UniversalDetector()
+    detector: Final[chardet.UniversalDetector] = chardet.UniversalDetector()
     detector.feed(data)
     detector.close()
 

@@ -27,19 +27,11 @@ from ._native import (
     Document,
     Element,
     SelectorSyntaxError,
+    css_escape_identifier,
+    matches_many,
     parse,
-)
-from ._native import (
-    css_escape_identifier as _css_escape_identifier,
-)
-from ._native import (
-    matches_many as _matches_many,
-)
-from ._native import (
-    query_children as _query_children,
-)
-from ._native import (
-    select_limited as _select_limited,
+    query_children,
+    select_limited,
 )
 
 if TYPE_CHECKING:
@@ -60,7 +52,7 @@ def escape_identifier(ident: str) -> str:
     :param ident: the raw identifier text.
     :returns: the identifier with CSS-significant characters backslash- or hex-escaped per the CSSOM rules.
     """
-    return _css_escape_identifier(ident)
+    return css_escape_identifier(ident)
 
 
 @dataclass(frozen=True)
@@ -185,7 +177,7 @@ class Matcher:
         :param limit: the most matches to return, or ``0`` for all.
         :returns: the matching descendants.
         """
-        return _select_limited(node, self._selector, limit)
+        return select_limited(node, self._selector, limit)
 
     def filter(self, iterable: Element | Document | Iterable[Element]) -> list[Element]:
         """
@@ -196,8 +188,8 @@ class Matcher:
         :returns: the members that match.
         """
         if isinstance(iterable, (Element, Document)):
-            return _matches_many(_query_children([iterable]), self._selector)
-        return _matches_many(list(iterable), self._selector)
+            return matches_many(query_children([iterable]), self._selector)
+        return matches_many(list(iterable), self._selector)
 
     def closest(self, node: Element) -> Element | None:
         """

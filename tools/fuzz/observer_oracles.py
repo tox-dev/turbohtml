@@ -57,23 +57,23 @@ class UnsupportedObserverCaseError(ValueError):
 
 
 def _run(program: str, name: str) -> str:
-    root: Final = Element("div")
-    first: Final = Element(name)
-    second: Final = Element("b")
-    registers: Final = (root, first, second)
+    root: Final[Element] = Element("div")
+    first: Final[Element] = Element(name)
+    second: Final[Element] = Element("b")
+    registers: Final[tuple[Element, Element, Element]] = (root, first, second)
     batches: Final[list[list[_Record]]] = []
     callbacks: Final[list[list[_Record]]] = []
 
     def callback(records: list[MutationRecord], observer: MutationObserver) -> None:
         callbacks.append(_records(records, registers))
         if program == "error":
-            message: Final = "observer callback failed"
+            message: Final[str] = "observer callback failed"
             raise _ObserverCallbackError(message)
         if len(callbacks) == 1:
             root.append(second)
             observer.deliver()
 
-    observer: Final = MutationObserver(callback if program in {"nested", "error"} else None)
+    observer: Final[MutationObserver] = MutationObserver(callback if program in {"nested", "error"} else None)
     observer.observe(root, child_list=True)
     root.append(first)
     alive = first.tag == name and first.parent == root

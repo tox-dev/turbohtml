@@ -650,15 +650,15 @@ def test_mutation_without_observers_still_works() -> None:
 
 
 def test_attribute_filter_iteration_that_moves_target_observes_its_new_tree() -> None:
-    target: Final = Element("p")
-    host: Final = Element("div")
+    target: Final[Element] = Element("p")
+    host: Final[Element] = Element("div")
 
     class Names:
         def __iter__(self) -> Iterator[str]:
             host.append(target)
             return iter(["id"])
 
-    observer: Final = MutationObserver()
+    observer: Final[MutationObserver] = MutationObserver()
     observer.observe(target, attribute_filter=cast("Sequence[str]", Names()))
     gc.collect()  # frees the tree target left, so an observer still holding it reads freed memory
     target.attrs["id"] = "x"
@@ -793,14 +793,14 @@ def test_non_iterable_attribute_filter_is_rejected() -> None:
 
 @pytest.mark.parametrize("attributes", [pytest.param(False, id="wrong-kind"), pytest.param(True, id="unrelated")])
 def test_observer_overlap_keeps_old_value(*, attributes: bool) -> None:
-    root: Final = Element("div")
+    root: Final[Element] = Element("div")
     root.set_inner_html(f'<section><p data-x="before"></p></section>{"<span></span>" * 100}')
-    observer: Final = MutationObserver()
+    observer: Final[MutationObserver] = MutationObserver()
     for node in root.select("span"):
         observer.observe(node, child_list=not attributes, attributes=attributes, subtree=True)
     observer.observe(root, attributes=True, subtree=True)
     observer.observe(root.select("section")[0], attributes=True, attribute_old_value=True, subtree=True)
-    target: Final = root.select("p")[0]
+    target: Final[Element] = root.select("p")[0]
     target.attrs["data-x"] = "after"
     assert [(record.target, record.attribute_name, record.old_value) for record in observer.take_records()] == [
         (target, "data-x", "before")
@@ -809,8 +809,8 @@ def test_observer_overlap_keeps_old_value(*, attributes: bool) -> None:
 
 @pytest.mark.parametrize("drain", ["take_records", "deliver"])
 def test_failed_drain_drops_the_batch(drain: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    paragraph: Final = _element(parse(f'<p title="{"A" * 200}" lang="{"B" * 200}">x</p>').find("p"))
-    observer: Final = MutationObserver()
+    paragraph: Final[Element] = _element(parse(f'<p title="{"A" * 200}" lang="{"B" * 200}">x</p>').find("p"))
+    observer: Final[MutationObserver] = MutationObserver()
     observer.observe(paragraph, attributes=True, attribute_old_value=True)
     paragraph.attrs.clear()  # removes last to first, so the records hold two old values
 
@@ -839,8 +839,8 @@ def test_failed_drain_drops_the_batch(drain: str, monkeypatch: pytest.MonkeyPatc
 def test_drain_survives_reentry_while_building_a_record(
     reenter: str, result: list[MutationRecord] | None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    div: Final = _div(f'<div id=a title="{"A" * 200}"></div>')
-    observer: Final = MutationObserver()
+    div: Final[Element] = _div(f'<div id=a title="{"A" * 200}"></div>')
+    observer: Final[MutationObserver] = MutationObserver()
     observer.observe(div, attributes=True, attribute_old_value=True)
     div.attrs["title"] = "after"
     div.attrs["id"] = "b"
@@ -851,6 +851,6 @@ def test_drain_survives_reentry_while_building_a_record(
         return tuple.__new__(cls, fields)
 
     monkeypatch.setattr(MutationRecord, "__new__", reentering)
-    records: Final = observer.take_records()
+    records: Final[list[MutationRecord]] = observer.take_records()
     assert [(record.attribute_name, record.old_value) for record in records] == [("title", "A" * 200), ("id", "a")]
     assert nested == [result, result]

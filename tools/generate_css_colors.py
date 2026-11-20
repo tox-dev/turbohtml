@@ -178,9 +178,6 @@ _NAMED_COLORS: Final[MappingProxyType[str, str]] = MappingProxyType({
     "yellowgreen": "9acd32",
 })
 
-# transparent is rgba(0,0,0,0); its four-digit hash #0000 is shorter than the keyword (CSS Color 4 §6.2).
-_TRANSPARENT_HASH: Final[str] = "#0000"
-
 
 def _shortest_hash(rgb: str) -> str:
     # Collapse a six-digit sRGB value to ``#rgb`` when each channel is a doubled nibble, else keep ``#rrggbb``.
@@ -191,7 +188,9 @@ def _shortest_hash(rgb: str) -> str:
 
 def _build_maps() -> tuple[dict[str, str], dict[str, str]]:
     # Return (keyword -> shorter hash, hash -> shorter keyword), derived from the named-color table.
-    name_to_hex: dict[str, str] = {"transparent": _TRANSPARENT_HASH}
+    # transparent is rgba(0,0,0,0); its four-digit hash #0000 is shorter than the keyword (CSS Color 4 §6.2).
+    transparent_hash: str = "#0000"
+    name_to_hex: dict[str, str] = {"transparent": transparent_hash}
     hex_to_name: dict[str, str] = {}
     for name, rgb in _NAMED_COLORS.items():
         short = _shortest_hash(rgb)

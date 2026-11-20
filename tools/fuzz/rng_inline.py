@@ -42,13 +42,13 @@ def compare(case: Case, *, negative_control: bool = False, reference_labels: boo
 
 def generate(seed: int) -> Case:
     # Explicit value types keep whitespace semantics independent of defaulting.
-    number: Final = random.Random(seed).randrange(1, 100)
-    word: Final = f"word{number}"
-    family: Final = seed % 8
+    number: Final[int] = random.Random(seed).randrange(1, 100)
+    word: Final[str] = f"word{number}"
+    family: Final[int] = seed % 8
     rng: str = 'xmlns:rng="http://relaxng.org/ns/structure/1.0"'
     if family == 0:
-        pattern: Final = "<rng:text/>"
-        documents: Final = ((f"<v>{word}</v>", True), ("<v/>", True), ("<other/>", False))
+        pattern: Final[str] = "<rng:text/>"
+        documents: Final[tuple[tuple[str, bool], ...]] = ((f"<v>{word}</v>", True), ("<v/>", True), ("<other/>", False))
     elif family == 1:
         pattern = '<rng:data type="integer"/>'
         documents = ((f"<v>{number}</v>", True), ("<v>wrong</v>", False), ("<other/>", False))
@@ -74,13 +74,13 @@ def generate(seed: int) -> Case:
         pattern = '<rng:attribute name="key"><rng:data type="integer"/></rng:attribute><rng:empty/>'
         documents = ((f'<v key="{number}"/>', True), ('<v key="wrong"/>', False), ("<v/>", False))
     else:
-        schema: Final = (
+        schema: Final[str] = (
             f'<rng:grammar {rng}><rng:start><rng:ref name="missing"/></rng:start></rng:grammar>'
             if family == 6
             else "<foreign/>"
         )
         return Case(seed=seed, schema=schema, compiles=False, documents=())
-    name: Final = f"entry{number}"
+    name: Final[str] = f"entry{number}"
     return Case(
         seed=seed,
         schema=f'<rng:grammar {rng} datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes">'

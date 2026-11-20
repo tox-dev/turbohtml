@@ -22,6 +22,7 @@ from turbohtml import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from types import ModuleType
 
     from work_steps import WorkSteps
 
@@ -623,9 +624,9 @@ def test_non_str_raises_type_error() -> None:
 
 @pytest.mark.parametrize("count", [pytest.param(1, id="single"), pytest.param(1000, id="many")])
 def test_xml_attribute_append_preserves_values_and_order(count: int) -> None:
-    expected: Final = [(f"a{index}", str(index)) for index in range(count)]
-    source: Final = f"""<root {" ".join(f'{name}="{value}"' for name, value in expected)}/>"""
-    root: Final = parse_xml(source).find("root")
+    expected: Final[list[tuple[str, str]]] = [(f"a{index}", str(index)) for index in range(count)]
+    source: Final[str] = f"""<root {" ".join(f'{name}="{value}"' for name, value in expected)}/>"""
+    root: Final[Element | None] = parse_xml(source).find("root")
     assert root is not None
     assert list(root.attrs.items()) == expected
 
@@ -646,7 +647,7 @@ def test_xml_attribute_append_preserves_first_error(source: str, code: str) -> N
 
 
 def test_xml_attribute_append_keeps_later_attribute_replacement() -> None:
-    root: Final = parse_xml('<root a="before"/>').find("root")
+    root: Final[Element | None] = parse_xml('<root a="before"/>').find("root")
     assert root is not None
     root.attrs["a"] = "after"
     root.attrs["b"] = "new"
@@ -673,29 +674,31 @@ def test_xml_attribute_append_keeps_later_attribute_replacement() -> None:
     ],
 )
 def test_xml_attribute_run_value(quote: str, character: str, length: int) -> None:
-    value: Final = character * length
-    root: Final = parse_xml(f"<root value={quote}{value}{quote}/>").find("root")
+    value: Final[str] = character * length
+    root: Final[Element | None] = parse_xml(f"<root value={quote}{value}{quote}/>").find("root")
     assert root is not None
     assert root.attrs["value"] == value
 
 
 @pytest.mark.parametrize("quote", [pytest.param('"', id="double"), pytest.param("'", id="single")])
 def test_xml_attribute_run_normalization(quote: str) -> None:
-    root: Final = parse_xml(f"<root value={quote}{'a' * 80}&amp;b\t&#9;\r\n{quote}/>").find("root")
+    root: Final[Element | None] = parse_xml(f"<root value={quote}{'a' * 80}&amp;b\t&#9;\r\n{quote}/>").find("root")
     assert root is not None
     assert root.attrs["value"] == f"{'a' * 80}&b \t "
 
 
 def test_xml_attribute_run_scratch_reuse() -> None:
-    long: Final = "a" * 1024
-    root: Final = parse_xml(f'<root first="{long}" second="short" third="{long}"/>').find("root")
+    long: Final[str] = "a" * 1024
+    root: Final[Element | None] = parse_xml(f'<root first="{long}" second="short" third="{long}"/>').find("root")
     assert root is not None
     assert list(root.attrs.items()) == [("first", long), ("second", "short"), ("third", long)]
 
 
 def test_xml_attribute_values_mix_plain_and_expanded_runs() -> None:
-    long: Final = "a" * 1024
-    root: Final = root_of(parse_xml(f'<r one="{long}" two="x&amp;y" three="t\tu" four="" five="é" six="é&#233;"/>'))
+    long: Final[str] = "a" * 1024
+    root: Final[Element] = root_of(
+        parse_xml(f'<r one="{long}" two="x&amp;y" three="t\tu" four="" five="é" six="é&#233;"/>')
+    )
     assert list(root.attrs.items()) == [
         ("one", long),
         ("two", "x&y"),
@@ -727,13 +730,13 @@ def test_xml_attribute_value_empty_in_wide_input() -> None:
 
 
 def test_xml_attribute_value_beyond_128_kib_with_references() -> None:
-    value: Final = "a" * 131_072
-    root: Final = root_of(parse_xml(f'<r value="{value}&amp;{value}"/>'))
+    value: Final[str] = "a" * 131_072
+    root: Final[Element] = root_of(parse_xml(f'<r value="{value}&amp;{value}"/>'))
     assert root.attrs["value"] == f"{value}&{value}"
 
 
 def test_xml_attribute_value_outlives_source_and_stays_mutable() -> None:
-    root: Final = root_of(parse_built_source(4096))
+    root: Final[Element] = root_of(parse_built_source(4096))
     gc.collect()
     assert (root.attrs["value"], root.attrs["other"]) == ("a" * 4096, f"λ&{'b' * 4096}")
     root.attrs["value"] = "replaced"
@@ -768,7 +771,7 @@ def test_xml_attribute_run_error_position(tail: str, code: str) -> None:
     ],
 )
 def test_xml_value_benchmark_output(index: int, expected: str) -> None:
-    root: Final = parse_xml(cast("str", INPUTS["parse-xml-values"]()[index][1])).find("root")
+    root: Final[Element | None] = parse_xml(cast("str", INPUTS["parse-xml-values"]()[index][1])).find("root")
     assert root is not None
     assert root.attrs["value"] == expected
 
@@ -778,16 +781,18 @@ def test_xml_value_benchmark_output(index: int, expected: str) -> None:
 )
 @pytest.mark.parametrize("count", [pytest.param(1, id="single"), pytest.param(128, id="many")])
 def test_xml_namespace_attribute_order(prefix: str, count: int) -> None:
-    expected: Final = [(f"xmlns:{prefix}{index}", f"urn:{index}") for index in range(count)] + [
+    expected: Final[list[tuple[str, str]]] = [(f"xmlns:{prefix}{index}", f"urn:{index}") for index in range(count)] + [
         (f"{prefix}{index}:value", "x") for index in range(count)
     ]
-    root: Final = parse_xml(f"""<root {" ".join(f'{name}="{value}"' for name, value in expected)}/>""").find("root")
+    root: Final[Element | None] = parse_xml(
+        f"""<root {" ".join(f'{name}="{value}"' for name, value in expected)}/>"""
+    ).find("root")
     assert root is not None
     assert list(root.attrs.items()) == expected
 
 
 def test_xml_namespace_self_closing_rebinding() -> None:
-    root: Final = parse_xml(
+    root: Final[Element | None] = parse_xml(
         '<root xmlns:p="urn:p" xmlns:q="urn:q"><before xmlns:p="urn:q" p:value="a"/>'
         '<after p:value="b" q:value="c"/></root>'
     ).find("after")
@@ -818,7 +823,9 @@ def test_xml_namespace_first_error(source: str, code: str) -> None:
 
 @pytest.mark.parametrize("count", [pytest.param(2000, id="grows-and-rehashes")])
 def test_xml_many_distinct_namespaced_attributes_parse(count: int) -> None:
-    root: Final = parse_xml(f"""<r xmlns:p='u' {" ".join(f"p:a{index}='x'" for index in range(count))}/>""").find("r")
+    root: Final[Element | None] = parse_xml(
+        f"""<r xmlns:p='u' {" ".join(f"p:a{index}='x'" for index in range(count))}/>"""
+    ).find("r")
     assert root is not None
     assert list(root.attrs.keys()) == ["xmlns:p"] + [f"p:a{index}" for index in range(count)]
 
@@ -826,10 +833,10 @@ def test_xml_many_distinct_namespaced_attributes_parse(count: int) -> None:
 @pytest.mark.parametrize("count", [pytest.param(2000, id="interned-second-element")])
 def test_xml_repeated_plain_names_across_elements_parse(count: int) -> None:
     # the second element re-reads already-interned names
-    element: Final = f"""<e {" ".join(f"a{index}='x'" for index in range(count))}/>"""
-    root: Final = parse_xml(f"<r>{element * 2}</r>").find("r")
+    element: Final[str] = f"""<e {" ".join(f"a{index}='x'" for index in range(count))}/>"""
+    root: Final[Element | None] = parse_xml(f"<r>{element * 2}</r>").find("r")
     assert root is not None
-    expected: Final = [(f"a{index}", "x") for index in range(count)]
+    expected: Final[list[tuple[str, str]]] = [(f"a{index}", "x") for index in range(count)]
     assert [list(child.attrs.items()) for child in elements(root)] == [expected, expected]
 
 
@@ -880,7 +887,9 @@ def test_xml_long_namespace_uri_is_read_in_linear_steps(markup: Callable[[int], 
     ],
 )
 def test_xml_long_namespace_uris_that_differ_parse(other: str) -> None:
-    root: Final = parse_xml(f'<r xmlns:p="urn:{"a" * 1_000}" xmlns:q="{other}" p:x="1" q:x="2"/>').find("r")
+    root: Final[Element | None] = parse_xml(f'<r xmlns:p="urn:{"a" * 1_000}" xmlns:q="{other}" p:x="1" q:x="2"/>').find(
+        "r"
+    )
     assert root is not None
     assert (root.attrs["p:x"], root.attrs["q:x"]) == ("1", "2")
 
@@ -903,7 +912,9 @@ def test_xml_expanded_name_duplicate_follows_the_binding(source: str) -> None:
 
 def test_xml_rebound_prefix_keeps_the_outer_uri_after_it_closes() -> None:
     # each binding carries its own URI: p is v only inside <a>, so <b> sees the outer u again
-    element: Final = parse_xml('<r xmlns:p="u" xmlns:q="v"><a xmlns:p="v"/><b p:x="1" q:x="2"/></r>').find("b")
+    element: Final[Element | None] = parse_xml(
+        '<r xmlns:p="u" xmlns:q="v"><a xmlns:p="v"/><b p:x="1" q:x="2"/></r>'
+    ).find("b")
     assert element is not None
     assert (element.attrs["p:x"], element.attrs["q:x"]) == ("1", "2")
 
@@ -928,7 +939,7 @@ def test_xml_rebound_prefix_keeps_the_outer_uri_after_it_closes() -> None:
     ],
 )
 def test_xml_text_block_boundary(length: int, tail: str, expected: str) -> None:
-    root: Final = parse_xml(f"<root>{'a' * length}{tail}</root>").find("root")
+    root: Final[Element | None] = parse_xml(f"<root>{'a' * length}{tail}</root>").find("root")
     assert root is not None
     assert root.text == "a" * length + expected
 
@@ -943,7 +954,7 @@ def test_xml_text_block_boundary(length: int, tail: str, expected: str) -> None:
     ],
 )
 def test_xml_text_block_width(text: str) -> None:
-    root: Final = parse_xml(f"<root>{text * 65536}</root>").find("root")
+    root: Final[Element | None] = parse_xml(f"<root>{text * 65536}</root>").find("root")
     assert root is not None
     assert root.text == text * 65536
 
@@ -974,23 +985,25 @@ def test_xml_text_block_error_position(length: int, tail: str, code: str) -> Non
     ],
 )
 def test_xml_text_benchmark_output(index: int, expected: str) -> None:
-    root: Final = parse_xml(cast("str", INPUTS["parse-xml-text"]()[index][1])).find("root")
+    root: Final[Element | None] = parse_xml(cast("str", INPUTS["parse-xml-text"]()[index][1])).find("root")
     assert root is not None
     assert root.text == expected
 
 
 @pytest.mark.oracle
 def test_round_trip_against_lxml() -> None:
-    lxml_etree: Final = pytest.importorskip("lxml.etree")
-    source: Final = (
+    lxml_etree: Final[ModuleType] = pytest.importorskip("lxml.etree")
+    source: Final[str] = (
         '<catalog xmlns:dc="urn:dc">'
         '<book id="b1"><dc:title>One</dc:title><price>9.99</price></book>'
         '<book id="b2"><dc:title>Two &amp; a half</dc:title><price>5.00</price></book>'
         "<!-- end --></catalog>"
     )
-    theirs: Final = lxml_etree.fromstring(source.encode())
-    ours: Final = root_of(parse_xml(source))
-    their_locals: Final = [lxml_etree.QName(node).localname for node in theirs.iter() if isinstance(node.tag, str)]
+    theirs = lxml_etree.fromstring(source.encode())
+    ours: Final[Element] = root_of(parse_xml(source))
+    their_locals: Final[list[str]] = [
+        lxml_etree.QName(node).localname for node in theirs.iter() if isinstance(node.tag, str)
+    ]
     assert [node.tag.split(":")[-1] for node in (ours, *ours.descendants) if isinstance(node, Element)] == their_locals
 
 
@@ -1000,8 +1013,8 @@ def test_round_trip_against_lxml() -> None:
 )
 @pytest.mark.oracle
 def test_lxml_namespace_benchmark_output(index: int, count: int) -> None:
-    etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
-    root: Final = etree.fromstring(cast("str", INPUTS["parse-xml-prefixes"]()[index][1]).encode())
+    etree: Final[ModuleType] = pytest.importorskip("lxml.etree", exc_type=ImportError)
+    root = etree.fromstring(cast("str", INPUTS["parse-xml-prefixes"]()[index][1]).encode())
     assert (root.tag, list(root.nsmap.items()), list(root.attrib.items()), len(root)) == (
         "root",
         [(f"p{number}", f"urn:{number}") for number in range(count)],
@@ -1012,8 +1025,8 @@ def test_lxml_namespace_benchmark_output(index: int, count: int) -> None:
 
 @pytest.mark.oracle
 def test_lxml_namespace_benchmark_repeated_elements() -> None:
-    etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
-    root: Final = etree.fromstring(cast("str", INPUTS["parse-xml-prefixes"]()[1][1]).encode())
+    etree: Final[ModuleType] = pytest.importorskip("lxml.etree", exc_type=ImportError)
+    root = etree.fromstring(cast("str", INPUTS["parse-xml-prefixes"]()[1][1]).encode())
     assert [(child.tag, list(child.nsmap.items()), list(child.attrib.items())) for child in root] == [
         ("root", [("p0", "urn:0")], [("{urn:0}value", "x")])
     ] * 305
@@ -1029,8 +1042,8 @@ def test_lxml_namespace_benchmark_repeated_elements() -> None:
 )
 @pytest.mark.oracle
 def test_lxml_text_benchmark_output(index: int, expected: str) -> None:
-    etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
-    root: Final = etree.fromstring(cast("str", INPUTS["parse-xml-text"]()[index][1]).encode())
+    etree: Final[ModuleType] = pytest.importorskip("lxml.etree", exc_type=ImportError)
+    root = etree.fromstring(cast("str", INPUTS["parse-xml-text"]()[index][1]).encode())
     assert (root.tag, root.text, len(root)) == ("root", expected, 0)
 
 
@@ -1044,6 +1057,6 @@ def test_lxml_text_benchmark_output(index: int, expected: str) -> None:
 )
 @pytest.mark.oracle
 def test_lxml_value_benchmark_output(index: int, expected: str) -> None:
-    etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
-    root: Final = etree.fromstring(cast("str", INPUTS["parse-xml-values"]()[index][1]).encode())
+    etree: Final[ModuleType] = pytest.importorskip("lxml.etree", exc_type=ImportError)
+    root = etree.fromstring(cast("str", INPUTS["parse-xml-values"]()[index][1]).encode())
     assert (root.tag, root.text, list(root.attrib.items()), len(root)) == ("root", None, [("value", expected)], 0)

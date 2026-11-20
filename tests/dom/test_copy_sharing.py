@@ -31,8 +31,8 @@ def _found(root: Node, tag: str) -> Element:
 
 
 def _clone_contents(page: Document) -> DocumentFragment:
-    body: Final = _found(page, "body")
-    boundary: Final = Range(body, 0)
+    body: Final[Element] = _found(page, "body")
+    boundary: Final[Range] = Range(body, 0)
     boundary.select_node_contents(body)
     return boundary.clone_contents()
 
@@ -50,7 +50,7 @@ def _clone_contents(page: Document) -> DocumentFragment:
     ],
 )
 def test_copied_document_keeps_reconstructed_values_shared(duplicate: Callable[[Document], object]) -> None:
-    page: Final = parse(_MARKUP)
+    page: Final[Document] = parse(_MARKUP)
     assert _peak(lambda: duplicate(page)) < _BOUND
 
 
@@ -88,15 +88,15 @@ def test_inserted_markup_keeps_reconstructed_values_shared(insert: Callable[[], 
 )
 def test_fragment_children_keep_reconstructed_values_shared(consume: Callable[[DocumentFragment], object]) -> None:
     # the children of a fragment are copied one by one as well
-    fragment: Final = _clone_contents(parse(_MARKUP))
+    fragment: Final[DocumentFragment] = _clone_contents(parse(_MARKUP))
     assert _peak(lambda: consume(fragment)) < _BOUND
 
 
 def test_copy_shares_many_distinct_reconstructed_elements() -> None:
     # more shared values than the memo starts with room for; each block reconstructs at most 16 of the 40 elements
-    tags: Final = [f'<b class="{index:02d}-{"c" * 40}" data-i="{index}">' for index in range(40)]
-    page: Final = parse(f"<p>{''.join(tags[:16])}<p>x{''.join(tags[16:32])}<p>x{''.join(tags[32:])}<p>y")
-    clone: Final = copy.deepcopy(page)
+    tags: Final[list[str]] = [f'<b class="{index:02d}-{"c" * 40}" data-i="{index}">' for index in range(40)]
+    page: Final[Document] = parse(f"<p>{''.join(tags[:16])}<p>x{''.join(tags[16:32])}<p>x{''.join(tags[32:])}<p>y")
+    clone: Final[Document] = copy.deepcopy(page)
     assert clone.serialize() == page.serialize()
     assert {bold.attrs["data-i"] for bold in clone.select("b")} == {str(index) for index in range(40)}
 
@@ -113,8 +113,8 @@ def test_copy_shares_many_distinct_reconstructed_elements() -> None:
 def test_copy_with_shared_values_stays_independent(
     duplicate: Callable[[Document], Node], pick: Callable[[Node, Document], tuple[Node, Node]]
 ) -> None:
-    value: Final = "A" * 40
-    page: Final = parse(f'<p><a data-x="{value}" title="t"><p>x<p>y')
+    value: Final[str] = "A" * 40
+    page: Final[Document] = parse(f'<p><a data-x="{value}" title="t"><p>x<p>y')
     written, kept = pick(duplicate(page), page)
     first, second, third = written.select("a")
     second.attrs["data-x"] = "changed"
@@ -129,11 +129,11 @@ def test_copy_with_shared_values_stays_independent(
 
 
 def test_range_clone_of_an_ordinary_element_does_not_follow_later_writes() -> None:
-    page: Final = parse('<div><b title="one" id="x">bold</b></div>')
-    bold: Final = _found(page, "b")
-    boundary: Final = Range(bold, 0)
+    page: Final[Document] = parse('<div><b title="one" id="x">bold</b></div>')
+    bold: Final[Element] = _found(page, "b")
+    boundary: Final[Range] = Range(bold, 0)
     boundary.select_node(bold)
-    copied: Final = _found(boundary.clone_contents(), "b")
+    copied: Final[Element] = _found(boundary.clone_contents(), "b")
     bold.attrs["title"] = "two"
     copied.attrs["lang"] = "en"
     del bold.attrs["id"]
@@ -143,26 +143,26 @@ def test_range_clone_of_an_ordinary_element_does_not_follow_later_writes() -> No
 
 
 def test_shared_values_survive_adoption_across_tree_kinds() -> None:
-    value: Final = "A" * 40
-    holder: Final = _found(parse_xml("<root/>"), "root")
+    value: Final[str] = "A" * 40
+    holder: Final[Element] = _found(parse_xml("<root/>"), "root")
     holder.append(_found(parse(f'<p><a data-x="{value}" title="t"><p>x<p>y'), "body"))
-    target: Final = Element("div")
+    target: Final[Element] = Element("div")
     target.append(_found(holder, "body"))
     assert [dict(anchor.attrs) for anchor in target.select("a")] == [{"data-x": value, "title": "t"}] * 3
 
 
 def test_copy_shares_short_values_of_reconstructed_elements() -> None:
     # many short values on many reconstructions: a copy keeps the attribute slots of each element but no value buffer
-    attrs: Final = "".join(f' a{index}="{"x" * 15}"' for index in range(600))
-    page: Final = parse(f"<p><a{attrs}>{'<p>x' * 1000}")
-    slots: Final = 600 * 1000 * 24  # each copied element still owns its attribute slots, as each parsed one does
+    attrs: Final[str] = "".join(f' a{index}="{"x" * 15}"' for index in range(600))
+    page: Final[Document] = parse(f"<p><a{attrs}>{'<p>x' * 1000}")
+    slots: Final[int] = 600 * 1000 * 24  # each copied element still owns its attribute slots, as each parsed one does
     assert _peak(lambda: copy.deepcopy(page)) < slots + _BOUND
 
 
 def test_copy_keeps_an_empty_value_apart_from_the_value_stored_after_it() -> None:
     # an empty value takes no room, so it has the address of the value that follows it in the start tag
-    page: Final = parse(f'<p><a first="" href="/a-long-enough-value" last="">{"<p>x" * 3}')
-    clone: Final = copy.deepcopy(page)
+    page: Final[Document] = parse(f'<p><a first="" href="/a-long-enough-value" last="">{"<p>x" * 3}')
+    clone: Final[Document] = copy.deepcopy(page)
     assert [dict(anchor.attrs) for anchor in clone.find_all("a")] == [
         {"first": "", "href": "/a-long-enough-value", "last": ""}
     ] * 4
@@ -170,9 +170,9 @@ def test_copy_keeps_an_empty_value_apart_from_the_value_stored_after_it() -> Non
 
 def test_repeated_moves_keep_reconstructed_values_shared() -> None:
     # each move is its own call, so the destination must keep the value the earlier moves copied from the same source
-    page: Final = parse(_MARKUP)
-    children: Final = list(_found(page, "body").children)
-    target: Final = Element("div")
+    page: Final[Document] = parse(_MARKUP)
+    children: Final[list[Node]] = list(_found(page, "body").children)
+    target: Final[Element] = Element("div")
     assert _peak(lambda: _append_each(target, children)) < _BOUND
 
 
@@ -183,8 +183,8 @@ def _append_each(target: Element, nodes: list[Node]) -> None:
 
 def test_repeated_moves_from_freed_sources_keep_each_value() -> None:
     # a freed source's addresses can be reused by the next source, so an address alone cannot identify a value
-    letters: Final = "ABCDEFGHIJKLMNOPQRST"
-    target: Final = Element("div")
+    letters: Final[str] = "ABCDEFGHIJKLMNOPQRST"
+    target: Final[Element] = Element("div")
     for letter in letters:
         target.append(_found(parse(f'<p><a data-x="{letter * 40}"><p>x<p>y'), "body"))
     assert [anchor.attrs["data-x"] for anchor in target.select("a")] == [
@@ -193,11 +193,11 @@ def test_repeated_moves_from_freed_sources_keep_each_value() -> None:
 
 
 def test_values_moved_one_call_at_a_time_stay_independent() -> None:
-    value: Final = "A" * 40
-    page: Final = parse(f'<p><a data-x="{value}" title="t"><p>x<p>y')
-    target: Final = Element("div")
+    value: Final[str] = "A" * 40
+    page: Final[Document] = parse(f'<p><a data-x="{value}" title="t"><p>x<p>y')
+    target: Final[Element] = Element("div")
     _append_each(target, list(_found(page, "body").children))
-    written: Final = target.select("a")
+    written: Final[list[Element]] = target.select("a")
     written[1].attrs["data-x"] = "changed"
     del written[2].attrs["data-x"]
     assert [dict(anchor.attrs) for anchor in target.select("a")] == [
@@ -210,10 +210,10 @@ def test_values_moved_one_call_at_a_time_stay_independent() -> None:
 def test_a_source_value_changed_between_imports_is_copied_as_changed() -> None:
     # a source keeps each value until it is freed and its values never share an address, so a later import reads the
     # value the source holds now, not the one an earlier import copied from the same address
-    value: Final = "A" * 40
-    page: Final = parse(f'<p><a data-x="{value}" title="t"><p>x<p>y')
-    children: Final = list(_found(page, "body").children)
-    target: Final = Element("div")
+    value: Final[str] = "A" * 40
+    page: Final[Document] = parse(f'<p><a data-x="{value}" title="t"><p>x<p>y')
+    children: Final[list[Node]] = list(_found(page, "body").children)
+    target: Final[Element] = Element("div")
     target.append(children[0])
     _found(children[1], "a").attrs["data-x"] = "short"
     del _found(children[2], "a").attrs["data-x"]

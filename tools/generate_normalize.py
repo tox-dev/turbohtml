@@ -211,7 +211,7 @@ def _self_check(
     nfkd = {**canonical, **compatibility}
     for code in _code_points():
         char = chr(code)
-        canonical_seq: Final = _reference_decompose(char, canonical)
+        canonical_seq: Final[list[int]] = _reference_decompose(char, canonical)
         _reference_reorder(canonical_seq, combining)
         compatibility_seq = canonical_seq
         if code in compatibility:

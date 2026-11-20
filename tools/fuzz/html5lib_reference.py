@@ -49,7 +49,7 @@ def html5lib_parser(**kwargs: _Kwargs) -> html5lib.HTMLParser:
     _correct_head_and_column_group(parser)
     _correct_text_and_foreign(parser)
     _correct_tables(parser)
-    original_reset: Final = parser.resetInsertionMode
+    original_reset = parser.resetInsertionMode
 
     def reset_insertion_mode(self: _Untyped) -> None:
         # Fragment parsing keeps html5lib's own reset, which knows the fragment context element.
@@ -59,17 +59,17 @@ def html5lib_parser(**kwargs: _Kwargs) -> html5lib.HTMLParser:
         _walk_reset(self)
 
     parser.resetInsertionMode = types.MethodType(reset_insertion_mode, parser)
-    foster_position: Final = parser.tree.getTableMisnestedNodePosition
+    foster_position = parser.tree.getTableMisnestedNodePosition
 
     def position(self: _Untyped) -> _Untyped:
         # WHATWG "appropriate place for inserting a node": a template opened after the last table takes the misplaced
         # node.
-        templates: Final = [
+        templates: Final[list[int]] = [
             index
             for index, node in enumerate(self.openElements)
             if node.name == "template" and node.namespace == self.defaultNamespace
         ]
-        tables: Final = [
+        tables: Final[list[int]] = [
             index
             for index, node in enumerate(self.openElements)
             if node.name == "table" and node.namespace == self.defaultNamespace
@@ -95,12 +95,12 @@ def _correct_in_body_and_template(parser: _Untyped) -> None:
         "template",
         "title",
     )
-    in_body: Final = type(parser.phases["inBody"])
-    end_handlers: Final = _with_method(in_body, "endTagHandler", in_body.endTagFormatting, _adoption_agency)
+    in_body = type(parser.phases["inBody"])
+    end_handlers = _with_method(in_body, "endTagHandler", in_body.endTagFormatting, _adoption_agency)
     end_handlers["br"] = _end_tag_br
     end_handlers["select"] = _end_tag_select
     end_handlers["template"] = _end_to_in_head
-    start_handlers: Final = _with_method(in_body, "startTagHandler", in_body.startTagListItem, _start_tag_list_item)
+    start_handlers = _with_method(in_body, "startTagHandler", in_body.startTagListItem, _start_tag_list_item)
     start_handlers["select"] = _start_tag_select
     start_handlers["frameset"] = _frameset_outside_template(in_body.startTagFrameset)
     start_handlers["body"] = _body_outside_template(in_body.startTagBody)
@@ -121,8 +121,8 @@ def _correct_in_body_and_template(parser: _Untyped) -> None:
             "processEOF": _eof_in_body(in_body.processEOF),
         },
     )(parser, parser.tree)
-    in_body_corrected: Final = type(parser.phases["inBody"])
-    template_start: Final = copy.copy(start_handlers)
+    in_body_corrected = type(parser.phases["inBody"])
+    template_start = copy.copy(start_handlers)
     template_start.clear()
     template_start.default = _template_other_start
     template_start.update(dict.fromkeys(head_start_tags, _start_to_in_head))
@@ -130,7 +130,7 @@ def _correct_in_body_and_template(parser: _Untyped) -> None:
     template_start["col"] = _template_mode("inColumnGroup")
     template_start["tr"] = _template_mode("inTableBody")
     template_start.update(dict.fromkeys(("td", "th"), _template_mode("inRow")))
-    template_end: Final = copy.copy(end_handlers)
+    template_end = copy.copy(end_handlers)
     template_end.clear()
     template_end.default = _template_ignore_end
     template_end["template"] = _end_to_in_head
@@ -142,8 +142,8 @@ def _correct_in_body_and_template(parser: _Untyped) -> None:
 
 
 def _with_method(phase: _Untyped, dispatcher_name: str, original: _Untyped, replacement: _Untyped) -> _Untyped:
-    dispatcher: Final = inspect.getattr_static(phase, dispatcher_name)
-    handlers: Final = copy.copy(dispatcher)
+    dispatcher = inspect.getattr_static(phase, dispatcher_name)
+    handlers = copy.copy(dispatcher)
     handlers.update({name: replacement for name, method in dispatcher.items() if method is original})
     return handlers
 
@@ -258,8 +258,8 @@ def _start_tag_list_item(self: _Untyped, token: _Token) -> None:
     # html5lib ends the open list item or p through the current phase, which inside a table is the in-table phase;
     # its voodoo end-tag path clears insertFromTable, so the new item lands in the table instead of before it.
     self.parser.framesetOK = False
-    stop_names: Final = {"li": ("li",), "dt": ("dt", "dd"), "dd": ("dt", "dd")}[token["name"]]
-    stop: Final = next(
+    stop_names: Final[tuple[str, ...]] = {"li": ("li",), "dt": ("dt", "dd"), "dd": ("dt", "dd")}[token["name"]]
+    stop = next(
         node
         for node in reversed(self.tree.openElements)
         if node.name in stop_names or (node.nameTuple in _SPECIAL and node.name not in {"address", "div", "p"})
@@ -374,26 +374,26 @@ def _template_eof(self: _Untyped) -> None:
 
 
 def _correct_head_and_column_group(parser: _Untyped) -> None:
-    in_head: Final = type(parser.phases["inHead"])
-    head_start: Final = copy.copy(inspect.getattr_static(in_head, "startTagHandler"))
+    in_head = type(parser.phases["inHead"])
+    head_start = copy.copy(inspect.getattr_static(in_head, "startTagHandler"))
     head_start["template"] = _head_template_start
-    head_end: Final = copy.copy(inspect.getattr_static(in_head, "endTagHandler"))
+    head_end = copy.copy(inspect.getattr_static(in_head, "endTagHandler"))
     head_end["template"] = _head_template_end
     parser.phases["inHead"] = type(
         "CorrectedInHeadPhase", (in_head,), {"startTagHandler": head_start, "endTagHandler": head_end}
     )(parser, parser.tree)
-    after_head: Final = type(parser.phases["afterHead"])
-    after_start: Final = copy.copy(inspect.getattr_static(after_head, "startTagHandler"))
+    after_head = type(parser.phases["afterHead"])
+    after_start = copy.copy(inspect.getattr_static(after_head, "startTagHandler"))
     after_start["template"] = _start_to_in_head
-    after_end: Final = copy.copy(inspect.getattr_static(after_head, "endTagHandler"))
+    after_end = copy.copy(inspect.getattr_static(after_head, "endTagHandler"))
     after_end["template"] = _end_to_in_head
     parser.phases["afterHead"] = type(
         "CorrectedAfterHeadPhase", (after_head,), {"startTagHandler": after_start, "endTagHandler": after_end}
     )(parser, parser.tree)
-    in_column_group: Final = type(parser.phases["inColumnGroup"])
-    column_start: Final = copy.copy(inspect.getattr_static(in_column_group, "startTagHandler"))
+    in_column_group = type(parser.phases["inColumnGroup"])
+    column_start = copy.copy(inspect.getattr_static(in_column_group, "startTagHandler"))
     column_start["template"] = _start_to_in_head
-    column_end: Final = copy.copy(inspect.getattr_static(in_column_group, "endTagHandler"))
+    column_end = copy.copy(inspect.getattr_static(in_column_group, "endTagHandler"))
     column_end["template"] = _end_to_in_head
     column_end["colgroup"] = _end_tag_colgroup
     parser.phases["inColumnGroup"] = type(
@@ -409,7 +409,7 @@ def _correct_head_and_column_group(parser: _Untyped) -> None:
         },
     )(parser, parser.tree)
     for name, phase_name in (("CorrectedInCellPhase", "inCell"), ("CorrectedInCaptionPhase", "inCaption")):
-        phase_class: Final = type(parser.phases[phase_name])
+        phase_class = type(parser.phases[phase_name])
         parser.phases[phase_name] = type(
             name,
             (phase_class,),
@@ -502,8 +502,7 @@ def _with_column_whitespace(original: _Process) -> _Process:
 
 
 def _insert_whitespace(self: _Untyped, token: _Token) -> None:
-    whitespace: Final = "".join(character for character in token["data"] if character in "\t\n\f\r ")
-    if whitespace:
+    if whitespace := "".join(character for character in token["data"] if character in "\t\n\f\r "):
         self.tree.insertText(whitespace)
 
 
@@ -513,8 +512,8 @@ def _space_to_in_body(self: _Untyped, token: _Token) -> _Untyped:
 
 
 def _correct_text_and_foreign(parser: _Untyped) -> None:
-    in_foreign: Final = type(parser.phases["inForeignContent"])
-    foreign_end_tag: Final = in_foreign.processEndTag
+    in_foreign = type(parser.phases["inForeignContent"])
+    foreign_end_tag = in_foreign.processEndTag
 
     def end_tag(self: _Untyped, token: _Token) -> _Token | None:
         # WHATWG "in foreign content": an end tag for br or p pops the foreign elements up to an HTML element or
@@ -533,7 +532,7 @@ def _correct_text_and_foreign(parser: _Untyped) -> None:
     parser.phases["inForeignContent"] = type(
         "CorrectedInForeignContentPhase", (in_foreign,), {"processEndTag": end_tag}
     )(parser, parser.tree)
-    in_table_text: Final = type(parser.phases["inTableText"])
+    in_table_text = type(parser.phases["inTableText"])
     parser.phases["inTableText"] = type(
         "CorrectedInTableTextPhase", (in_table_text,), {"processDoctype": _flush_table_text_on_doctype}
     )(parser, parser.tree)
@@ -541,7 +540,7 @@ def _correct_text_and_foreign(parser: _Untyped) -> None:
         ("CorrectedInFramesetPhase", "inFrameset"),
         ("CorrectedAfterFramesetPhase", "afterFrameset"),
     ):
-        phase_class: Final = type(parser.phases[phase_name])
+        phase_class = type(parser.phases[phase_name])
         parser.phases[phase_name] = type(name, (phase_class,), {"processCharacters": _insert_frameset_whitespace})(
             parser, parser.tree
         )
@@ -562,8 +561,8 @@ def _insert_frameset_whitespace(self: _Untyped, token: _Token) -> None:
 
 
 def _correct_tables(parser: _Untyped) -> None:
-    in_table: Final = type(parser.phases["inTable"])
-    in_table_space: Final = in_table.processSpaceCharacters
+    in_table = type(parser.phases["inTable"])
+    in_table_space = in_table.processSpaceCharacters
 
     def _in_table_space(self: _Untyped, token: _Token) -> _Untyped:
         # WHATWG "in table" hands whitespace to the in-body rules when the current node is not a table element, so the
@@ -572,13 +571,11 @@ def _correct_tables(parser: _Untyped) -> None:
             return in_table_space(self, token)
         return self.parser.phases["inBody"].processSpaceCharacters(token)
 
-    in_table_body: Final = type(parser.phases["inTableBody"])
-    table_body_start: Final = _with_method(
+    in_table_body = type(parser.phases["inTableBody"])
+    table_body_start = _with_method(
         in_table_body, "startTagHandler", in_table_body.startTagTableOther, _table_body_start_other
     )
-    table_body_end: Final = _with_method(
-        in_table_body, "endTagHandler", in_table_body.endTagTable, _table_body_end_table
-    )
+    table_body_end = _with_method(in_table_body, "endTagHandler", in_table_body.endTagTable, _table_body_end_table)
     parser.phases["inTableBody"] = type(
         "CorrectedInTableBodyPhase",
         (in_table_body,),
@@ -589,8 +586,8 @@ def _correct_tables(parser: _Untyped) -> None:
             "endTagHandler": table_body_end,
         },
     )(parser, parser.tree)
-    in_row: Final = type(parser.phases["inRow"])
-    row_end: Final = _with_method(in_row, "endTagHandler", in_row.endTagTr, _end_tag_tr)
+    in_row = type(parser.phases["inRow"])
+    row_end = _with_method(in_row, "endTagHandler", in_row.endTagTr, _end_tag_tr)
     parser.phases["inRow"] = type(
         "CorrectedInRowPhase",
         (in_row,),
@@ -601,10 +598,10 @@ def _correct_tables(parser: _Untyped) -> None:
             "endTagHandler": row_end,
         },
     )(parser, parser.tree)
-    table_handlers: Final = copy.copy(inspect.getattr_static(in_table, "startTagHandler"))
+    table_handlers = copy.copy(inspect.getattr_static(in_table, "startTagHandler"))
     table_handlers.default = _in_table_start_tag_other
     table_handlers["template"] = _start_to_in_head
-    table_start: Final = in_table.startTagTable
+    table_start = in_table.startTagTable
 
     def start_table(self: _Untyped, token: _Token) -> _Token | None:
         # WHATWG "in table": a table start tag without a table in table scope is ignored; html5lib always reprocesses
@@ -615,7 +612,7 @@ def _correct_tables(parser: _Untyped) -> None:
         return table_start(self, token)
 
     table_handlers["table"] = start_table
-    table_end: Final = _with_method(in_table, "endTagHandler", in_table.endTagTable, _table_end_table)
+    table_end = _with_method(in_table, "endTagHandler", in_table.endTagTable, _table_end_table)
     table_end["template"] = _end_to_in_head
     parser.phases["inTable"] = type(
         "CorrectedInTablePhase",
@@ -704,7 +701,7 @@ def _table_eof(self: _Untyped) -> None:
 def _walk_reset(self: _Untyped) -> None:
     # The current WHATWG reset rule has no case for select, so the walk passes over an open select to the element
     # below it; html5lib's version maps select to its removed in-select mode.
-    new_modes: Final = {
+    new_modes: Final[dict[str, str]] = {
         "td": "inCell",
         "th": "inCell",
         "tr": "inRow",

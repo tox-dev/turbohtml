@@ -13,13 +13,14 @@ inline-``<script>`` path are configured the same way.
 
 from __future__ import annotations
 
+from ._jsminify import JSMinify
+
 __lazy_modules__ = ["typing"]
 
 from typing import Final, Literal
 
-from ._jsminify import JSMinify
 from ._native import Minify, minify_document
-from ._native import minify_js as _minify_js
+from ._native import minify_js as native_minify_js
 
 _DEFAULT: Final[Minify] = Minify()
 
@@ -71,7 +72,7 @@ def minify_js(source: str, options: JSMinify | None = None, on_error: Literal["r
         or input nested past the depth limit, which a thread with a small C stack lowers), with the
         message naming the construct, its byte offset, and the offending token.
     """
-    return _minify_js(source, (config := options or JSMinify()).fold, config.mangle, on_error)
+    return native_minify_js(source, (config := options or JSMinify()).fold, config.mangle, on_error)
 
 
 __all__ = [

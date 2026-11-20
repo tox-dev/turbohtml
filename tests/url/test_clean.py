@@ -343,7 +343,7 @@ def test_normalize_reassembles_every_shape(url: str, expected: str) -> None:
     ],
 )
 def test_trailing_slash_off(url: str, expected: str) -> None:
-    options: Final = UrlCleaning(trailing_slash=False)
+    options: Final[UrlCleaning] = UrlCleaning(trailing_slash=False)
     assert ((normalized := normalize_url(url, options)), normalize_url(normalized, options)) == (expected, expected)
 
 
@@ -1189,7 +1189,7 @@ def test_normalize_rejects_saved_reparse_findings(source: str) -> None:
     ],
 )
 def test_normalize_host_valid_and_fallback_forms(source: str, expected: str) -> None:
-    normalized: Final = normalize_url(source)
+    normalized: Final[str] = normalize_url(source)
     assert (normalized, normalize_url(normalized)) == (expected, expected)
 
 
@@ -1338,7 +1338,7 @@ def test_external_links_reject_forbidden_base_domain() -> None:
     ],
 )
 def test_normalize_file_path(url: str, expected: str) -> None:
-    normalized: Final = normalize_url(url)
+    normalized: Final[str] = normalize_url(url)
     assert (normalized, normalize_url(normalized)) == (expected, expected)
 
 
@@ -1358,7 +1358,7 @@ def test_normalize_file_path(url: str, expected: str) -> None:
     ],
 )
 def test_normalize_file_drive_separator(url: str, expected: str) -> None:
-    normalized: Final = normalize_url(url)
+    normalized: Final[str] = normalize_url(url)
     assert (normalized, normalize_url(normalized)) == (expected, expected)
 
 
@@ -1373,7 +1373,7 @@ def test_normalize_file_drive_separator(url: str, expected: str) -> None:
     ],
 )
 def test_normalize_file_localhost_host(url: str, expected: str) -> None:
-    normalized: Final = normalize_url(url)
+    normalized: Final[str] = normalize_url(url)
     assert (normalized, normalize_url(normalized)) == (expected, expected)
 
 
@@ -1403,7 +1403,7 @@ def test_normalize_file_root_survives_trailing_slash_option() -> None:
     ],
 )
 def test_normalize_file_keeps_drive_root(url: str, expected: str) -> None:
-    normalized: Final = normalize_url(url)
+    normalized: Final[str] = normalize_url(url)
     assert (normalized, normalize_url(normalized)) == (expected, expected)
 
 
@@ -1456,7 +1456,7 @@ def test_normalize_file_rejects_surrogate(url: str) -> None:
     ],
 )
 def test_normalize_special_path_reverse_solidus(url: str, expected: str) -> None:
-    normalized: Final = normalize_url(url)
+    normalized: Final[str] = normalize_url(url)
     assert (normalized, normalize_url(normalized)) == (expected, expected)
 
 
@@ -1561,7 +1561,7 @@ def test_normalize_rejects_invalid_port_authority(url: str, error: str) -> None:
     ],
 )
 def test_normalize_opaque_host(source: str, expected: str) -> None:
-    normalized: Final = normalize_url(source)
+    normalized: Final[str] = normalize_url(source)
     assert (normalized, normalize_url(normalized)) == (expected, expected)
 
 
@@ -1597,15 +1597,15 @@ def test_normalize_rejects_surrogate_opaque_host() -> None:
     ],
 )
 def test_normalize_file_drive_in_authority(url: str, expected: str) -> None:
-    normalized: Final = normalize_url(url)
+    normalized: Final[str] = normalize_url(url)
     assert (normalized, normalize_url(normalized)) == (expected, expected)
 
 
 @pytest.mark.parametrize("scheme", ["http", "fuzz", "fizz", "film"])
 def test_normalize_file_drive_authority_only_for_file(scheme: str) -> None:
-    url: Final = f"{scheme}://c:/foo"
-    expected: Final = f"{scheme}://c/foo"
-    normalized: Final = normalize_url(url)
+    url: Final[str] = f"{scheme}://c:/foo"
+    expected: Final[str] = f"{scheme}://c/foo"
+    normalized: Final[str] = normalize_url(url)
     assert (normalized, normalize_url(normalized)) == (expected, expected)
 
 
@@ -1667,13 +1667,13 @@ def test_clean_does_not_truncate_inside_the_authority(href: str, expected: str) 
 
 def test_clean_does_not_truncate_inside_an_unwrapped_authority() -> None:
     # the control the CDATA wrapper kept off the edge is stripped by the split, so the scheme starts after it
-    url: Final = '<![CDATA[\x01https://origin.example"@target.example/a]]>'
+    url: Final[str] = '<![CDATA[\x01https://origin.example"@target.example/a]]>'
     assert clean_url(url) == "https://origin.example%22@target.example/a"
 
 
 def test_extract_links_does_not_truncate_inside_a_resolved_authority() -> None:
-    page: Final = """<a href='//origin.example"@target.example/a'>x</a>"""
-    expected: Final = {"https://origin.example%22@target.example/a"}
+    page: Final[str] = """<a href='//origin.example"@target.example/a'>x</a>"""
+    expected: Final[set[str]] = {"https://origin.example%22@target.example/a"}
     assert extract_links(page, "https://origin.example/", external_only=True) == expected
 
 
@@ -1708,7 +1708,7 @@ def test_clean_truncates_at_a_host_the_url_parser_rejects(url: str) -> None:
 
 def test_extract_links_reads_a_reopened_anchor_once() -> None:
     # the tree builder reopens the unclosed <a> in every paragraph, and each clone borrows the one href buffer
-    html: Final = '<p><a href="/a">x<p>y<p>z</p><a href="/b">w</a><p><a href="/a">v</a>'
+    html: Final[str] = '<p><a href="/a">x<p>y<p>z</p><a href="/b">w</a><p><a href="/a">v</a>'
     assert extract_links(html, "https://example.org/") == {"https://example.org/a", "https://example.org/b"}
 
 
@@ -1716,8 +1716,8 @@ def test_extract_links_does_not_copy_a_long_href_per_reopened_anchor() -> None:
     # each clone would allocate its own str of the long href before the result set drops the duplicate
     # PyPy ships no _tracemalloc; the sharing is C and covered by the CPython run.
     tracemalloc = pytest.importorskip("tracemalloc")
-    href: Final = "a" * 25_000
-    html: Final = f'<p><a href="/{href}">{"<p>x" * 1_500}'
+    href: Final[str] = "a" * 25_000
+    html: Final[str] = f'<p><a href="/{href}">{"<p>x" * 1_500}'
     tracemalloc.start()
     links = extract_links(html, "https://example.org/")
     peak = tracemalloc.get_traced_memory()[1]

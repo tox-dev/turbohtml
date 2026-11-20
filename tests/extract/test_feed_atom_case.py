@@ -27,7 +27,7 @@ def test_feed_atom_html_root_case() -> None:
     ],
 )
 def test_feed_atom_xml_feed_field_case(name: str, field: str) -> None:
-    xml: Final = (
+    xml: Final[str] = (
         f'<feed xmlns="http://www.w3.org/2005/Atom"><{name.upper()}>Wrong</{name.upper()}><{name}>Right</{name}></feed>'
     )
     result = feed(xml)
@@ -36,7 +36,7 @@ def test_feed_atom_xml_feed_field_case(name: str, field: str) -> None:
 
 
 def test_feed_atom_xml_feed_link_case() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom">'
         '<LINK href="https://wrong.test"/><link href="https://right.test"/></feed>'
     )
@@ -46,7 +46,7 @@ def test_feed_atom_xml_feed_link_case() -> None:
 
 
 def test_feed_atom_xml_entry_case() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom">'
         "<ENTRY><title>Wrong</title></ENTRY><entry><title>Right</title></entry></feed>"
     )
@@ -67,7 +67,7 @@ def test_feed_atom_xml_entry_case() -> None:
     ],
 )
 def test_feed_atom_xml_entry_field_case(name: str, field: str) -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><entry>'
         f"<{name.upper()}>Wrong</{name.upper()}><{name}>Right</{name}>"
         "</entry></feed>"
@@ -78,7 +78,7 @@ def test_feed_atom_xml_entry_field_case(name: str, field: str) -> None:
 
 
 def test_feed_atom_xml_entry_author_case() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><entry>'
         "<AUTHOR><name>Wrong</name></AUTHOR><author><NAME>Bad</NAME><name>Right</name></author>"
         "</entry></feed>"
@@ -89,7 +89,7 @@ def test_feed_atom_xml_entry_author_case() -> None:
 
 
 def test_feed_atom_xml_entry_source_case() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><entry>'
         "<SOURCE><author><name>Wrong</name></author></SOURCE>"
         "<source><author><name>Right</name></author></source></entry></feed>"
@@ -100,7 +100,7 @@ def test_feed_atom_xml_entry_source_case() -> None:
 
 
 def test_feed_atom_xml_entry_link_case() -> None:
-    xml: Final = (
+    xml: Final[str] = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><entry>'
         '<LINK href="https://wrong.test"/><link href="https://right.test"/></entry></feed>'
     )

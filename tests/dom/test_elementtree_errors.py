@@ -13,6 +13,7 @@ from turbohtml import Text, etree
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
+    from types import ModuleType
 
     from pytest_mock import MockerFixture
 
@@ -171,7 +172,7 @@ def test_element_tree_lxml_copy_requires_lxml_html(mocker: MockerFixture) -> Non
 
 @pytest.mark.oracle
 def test_element_tree_lxml_comment_cannot_be_root() -> None:
-    lxml: Final = pytest.importorskip("lxml.etree")
+    lxml: Final[ModuleType] = pytest.importorskip("lxml.etree")
     with pytest.raises(TypeError):
         etree.from_lxml(lxml.Comment("comment"))
 
@@ -189,7 +190,7 @@ def test_element_tree_propagates_truth_value_error(
     tree: ElementView, operation: Callable[[ElementView, bool], None]
 ) -> None:
     expired = etree.Element("p")
-    value: Final = weakref.proxy(expired)
+    value = weakref.proxy(expired)
     del expired
     gc.collect()
     with pytest.raises(ReferenceError, match="referenced object no longer exists"):
@@ -220,7 +221,7 @@ def test_element_tree_context_preserves_function_metadata() -> None:
     def extract() -> str:
         return "text"
 
-    wrapped: Final = etree.document_context(extract)
+    wrapped: Final[Callable[[], str]] = etree.document_context(extract)
     assert (attrgetter("__name__", "__class__")(wrapped), unwrap(wrapped), wrapped()) == (
         ("extract", type(wrapped)),
         extract,
@@ -239,7 +240,7 @@ def test_element_tree_context_reports_missing_attribute() -> None:
 
 
 def test_element_tree_compiled_xpath_requires_element() -> None:
-    expression: Final = etree.XPath(".//p")
+    expression: Final[etree.XPath] = etree.XPath(".//p")
     with pytest.raises(TypeError, match="ElementView"):
         expression(cast("ElementView", 42))
 

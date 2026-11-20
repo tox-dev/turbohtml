@@ -30,8 +30,7 @@ __lazy_modules__ = [f"{__spec__.parent}._html"]  # ty: ignore[missing-union-attr
 
 from typing import TYPE_CHECKING, Final, NamedTuple, cast
 
-from ._html import sax_dispatch as _sax_dispatch
-from ._html import sax_events as _sax_events
+from ._html import sax_dispatch, sax_events
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -196,7 +195,7 @@ def iter_events(html: str) -> Iterator[SaxEvent]:
         :class:`Doctype`/:class:`ProcessingInstruction` records in document order.
     :raises TypeError: if ``html`` is not a str.
     """
-    for event in _sax_events(html):
+    for event in sax_events(html):
         yield _EVENTS[cast("int", event[0]) - 1](*event[1:])
 
 
@@ -208,7 +207,7 @@ def sax_parse(html: str, handler: SaxHandler) -> None:
     :param handler: a :class:`SaxHandler` (or subclass) whose overridden methods receive the events.
     :raises TypeError: if ``html`` is not a str.
     """
-    _sax_dispatch(html, handler)
+    sax_dispatch(html, handler)
 
 
 __all__ = [

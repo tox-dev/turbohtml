@@ -276,8 +276,8 @@ def test_xml_chunked_inner_inherits_namespace_bindings() -> None:
 
 
 def test_xml_chunk_that_gathers_a_wide_scope_runs_as_long_as_the_scope() -> None:
-    count: Final = 12_000
-    declarations: Final = " ".join(f'xmlns:ns{index}="urn:t{index}"' for index in range(count))
+    count: Final[int] = 12_000
+    declarations: Final[str] = " ".join(f'xmlns:ns{index}="urn:t{index}"' for index in range(count))
     root = parse_xml(f"<r {declarations}>{'<item/>' * count}</r>").select("r")[0]
     chunks = list(root.serialize_iter(Html(xml=True), inner=True))
     assert min(len(chunk) for chunk in chunks[:-1]) > count
@@ -438,7 +438,7 @@ def test_xml_inner_inherited_bindings_out_of_proportion_raise(render: Callable[[
 
 @pytest.mark.parametrize("render", _INNER_XML_RENDERERS)
 def test_xml_inner_inherited_bindings_in_proportion_are_kept(render: Callable[[Node], str]) -> None:
-    name: Final = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    name: Final[str] = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
     root = parse_xml(f'<root xmlns:r="{name}">{"<r:id/>" * 4000}</root>').select("root")[0]
     assert render(root).replace("\n", "") == f'<r:id xmlns:r="{name}"/>' * 4000
 

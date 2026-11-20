@@ -21,19 +21,11 @@ __lazy_modules__ = [f"{__spec__.parent}._html"]  # ty: ignore[missing-union-attr
 from typing import TYPE_CHECKING, final
 
 from ._html import (
-    css_computed_style as _css_computed_style,
-)
-from ._html import (
-    css_declaration_index as _css_declaration_index,
-)
-from ._html import (
-    css_declaration_text as _css_declaration_text,
-)
-from ._html import (
-    css_parse_declarations as _css_parse_declarations,
-)
-from ._html import (
-    css_parse_rules as _css_parse_rules,
+    css_computed_style,
+    css_declaration_index,
+    css_declaration_text,
+    css_parse_declarations,
+    css_parse_rules,
 )
 
 if TYPE_CHECKING:
@@ -59,7 +51,7 @@ class StyleSheet:
         :param text: the CSS source, such as the text of a ``<style>`` element.
         """
         self._rules = RuleList(
-            tuple(StyleRule(selector, StyleDeclaration(decls)) for selector, decls in _css_parse_rules(text))
+            tuple(StyleRule(selector, StyleDeclaration(decls)) for selector, decls in css_parse_rules(text))
         )
 
     def __repr__(self) -> str:
@@ -177,7 +169,7 @@ class StyleDeclaration:
             source order.
         """
         self._items = items
-        self._last = _css_declaration_index(items)
+        self._last = css_declaration_index(items)
 
     @classmethod
     def parse(cls, text: str) -> StyleDeclaration:
@@ -187,7 +179,7 @@ class StyleDeclaration:
         :param text: the CSS declaration text, such as ``"color: red; margin: 0 auto"``.
         :returns: the parsed declaration.
         """
-        return cls(_css_parse_declarations(text))
+        return cls(css_parse_declarations(text))
 
     def __getitem__(self, name: str) -> str:
         """
@@ -250,7 +242,7 @@ class StyleDeclaration:
     @property
     def text(self) -> str:
         """The declaration serialized as ``name: value`` pairs joined by ``"; "``."""
-        return _css_declaration_text(self._items)
+        return css_declaration_text(self._items)
 
     def get(self, name: str, default: str | None = None) -> str | None:
         """
@@ -312,7 +304,7 @@ def computed_style(element: Element) -> ComputedStyle:
     :raises ValueError: if the page's ``:has()`` walks outgrow that allowance; every element of the document styled
         after that raises too, until the document changes.
     """
-    return ComputedStyle(_css_computed_style(element))
+    return ComputedStyle(css_computed_style(element))
 
 
 @final
