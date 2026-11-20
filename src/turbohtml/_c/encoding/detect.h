@@ -215,13 +215,14 @@ static int16_t th_sb_pairs[TH_SB_PAIR_ROWS][TH_SB_PAIR_WIDTH * TH_SB_PAIR_WIDTH]
 #define TH_SB_INFO_ROW(info) ((info) >> 18)
 static uint32_t th_sb_infos[TH_SB_PAIR_ROWS][256];
 /* For the scripts other than Latin, the most a byte adds to the score after the byte before it, read through two
-   per-byte indexes: th_sb_bound_before for the byte before and th_sb_bound_after for the byte itself. Both index by
+   per-byte tables: th_sb_bound_before points at the row of pairs for the byte before, and th_sb_bound_after indexes
+   that row for the byte itself. Both go by
    column, except that a byte before splits into a lower-case letter of the script and the rest, which the
    capitalized-word bonus tells apart, and ibm866's no-break space gets an index of its own on both sides. */
 #define TH_SB_BOUND_AFTER (TH_SB_PAIR_WIDTH + 1)
 #define TH_SB_BOUND_BEFORE (2 * TH_SB_PAIR_WIDTH + 1)
 static int16_t th_sb_bound_pairs[TH_SB_PAIR_ROWS][TH_SB_BOUND_BEFORE * TH_SB_BOUND_AFTER];
-static uint16_t th_sb_bound_before[TH_SB_PAIR_ROWS][256]; /* already multiplied by TH_SB_BOUND_AFTER */
+static const int16_t *th_sb_bound_before[TH_SB_PAIR_ROWS][256];
 static uint8_t th_sb_bound_after[TH_SB_PAIR_ROWS][256];
 /* For the Latin scripts, the most a byte can add after any byte: a looser bound than the pairs give, but one load a
    byte, and enough for a Latin candidate on text in another script, whose bytes pair poorly whatever comes before. */
@@ -311,7 +312,7 @@ typedef struct {
     const int16_t *pairs;
     const uint32_t *infos;
     const int16_t *bound_pairs;
-    const uint16_t *bound_before;
+    const int16_t *const *bound_before;
     const uint8_t *bound_after;
     const uint16_t *gain;
     th_sb_kind kind;
@@ -906,7 +907,7 @@ static void th_sb_bound_build(void) {
             int lower = cased && script && !(info & TH_SB_INFO_UPPER);
             int before = nbsp ? 2 * TH_SB_PAIR_WIDTH : lower ? TH_SB_PAIR_WIDTH + column : column;
             int after = nbsp ? TH_SB_PAIR_WIDTH : column;
-            th_sb_bound_before[row][byte] = (uint16_t)(before * TH_SB_BOUND_AFTER);
+            th_sb_bound_before[row][byte] = th_sb_bound_pairs[row] + (ptrdiff_t)before * TH_SB_BOUND_AFTER;
             th_sb_bound_after[row][byte] = (uint8_t)after;
             earlier[before].column = later[after].column = column;
             earlier[before].non_latin |= script;
@@ -2201,34 +2202,67 @@ static TH_HOT void th_detect_candidates_feed(th_detect_candidates *stream, const
 #define TH_SB_BOUND_BLOCK 256
 
 /* Fill row[block] for every block from `first` on with the most the bytes from there to the end, and the end-of-stream
-   space, can add to the candidate's score. A Latin candidate sums th_sb_gain. For the other scripts the walk's pair
-   score, Latin adjacency penalty, and ibm866's skip around a no-break space hang only on the byte and the one before
-   it, since the walk's previous-byte state is always that byte (a skipped ASCII run resumes after a space, which is
-   that byte); th_sb_bound_pairs sums them per pair of bytes. The walk's other terms hang on state: the case penalties
-   only subtract, and the capitalized-word bonus is counted wherever it could fire, on a byte outside the script and
-   the Latin letters after a lower-case letter of the script. */
+   space, can add to the candidate's score. A Latin candidate sums th_sb_gain here. For the other scripts, which
+   th_sb_bound_rows_group sums, the walk's pair score, Latin adjacency penalty, and ibm866's skip around a no-break
+   space hang only on the byte and the one before it, since the walk's previous-byte state is always that byte (a
+   skipped ASCII run resumes after a space, which is that byte); th_sb_bound_pairs holds them per pair of bytes. The
+   walk's other terms hang on state: the case penalties only subtract, and the capitalized-word bonus is counted
+   wherever it could fire, on a byte outside the script and the Latin letters after a lower-case letter of the script.
+ */
 static void th_sb_bound_rows(const th_sb_candidate *cand, const unsigned char *buf, Py_ssize_t len, int64_t *row,
                              Py_ssize_t first, Py_ssize_t blocks) {
-    const int16_t *pairs = cand->bound_pairs;
-    const uint16_t *before = cand->bound_before;
-    const uint8_t *after = cand->bound_after;
-    row[blocks] = cand->kind == TH_SB_LATIN ? cand->gain[' '] : pairs[before[buf[len - 1]] + after[' ']];
+    row[blocks] = cand->gain[' '];
     for (Py_ssize_t block = blocks - 1; block >= first; block--) {
         Py_ssize_t from = block * TH_SB_BOUND_BLOCK;
         Py_ssize_t to = from + TH_SB_BOUND_BLOCK < len ? from + TH_SB_BOUND_BLOCK : len;
         int64_t sum = 0;
-        if (cand->kind == TH_SB_LATIN) {
-            for (Py_ssize_t index = from; index < to; index++) {
-                sum += cand->gain[buf[index]];
-            }
-        } else {
-            unsigned previous = before[buf[from - 1]];
-            for (Py_ssize_t index = from; index < to; index++) {
-                sum += pairs[previous + after[buf[index]]];
-                previous = before[buf[index]];
-            }
+        for (Py_ssize_t index = from; index < to; index++) {
+            sum += cand->gain[buf[index]];
         }
         row[block] = row[block + 1] + sum;
+    }
+}
+
+/* The non-Latin rows of one or two candidates in one pass, `count` a constant once inlined, so each candidate's tables
+   and running sum stay in registers; more than two would spill them. */
+static TH_HOT void th_sb_bound_rows_group(const th_sb_candidate *const *cands, int64_t *const *rows, const int count,
+                                          const unsigned char *buf, Py_ssize_t len, Py_ssize_t first,
+                                          Py_ssize_t blocks) {
+    const int16_t *const *before[2];
+    const uint8_t *after[2];
+    const int16_t *previous[2];
+    for (int which = 0; which < count; which++) {
+        before[which] = cands[which]->bound_before;
+        after[which] = cands[which]->bound_after;
+        rows[which][blocks] = before[which][buf[len - 1]][after[which][' ']];
+    }
+    for (Py_ssize_t block = blocks - 1; block >= first; block--) {
+        Py_ssize_t from = block * TH_SB_BOUND_BLOCK;
+        Py_ssize_t to = from + TH_SB_BOUND_BLOCK < len ? from + TH_SB_BOUND_BLOCK : len;
+        int64_t sum[2] = {0, 0};
+        for (int which = 0; which < count; which++) {
+            previous[which] = before[which][buf[from - 1]];
+        }
+        for (Py_ssize_t index = from; index < to; index++) {
+            unsigned char byte = buf[index];
+            for (int which = 0; which < count; which++) {
+                sum[which] += previous[which][after[which][byte]];
+                previous[which] = before[which][byte];
+            }
+        }
+        for (int which = 0; which < count; which++) {
+            rows[which][block] = rows[which][block + 1] + sum[which];
+        }
+    }
+}
+
+static void th_sb_bound_rows_non_latin(const th_sb_candidate *const *cands, int64_t *const *rows, int count,
+                                       const unsigned char *buf, Py_ssize_t len, Py_ssize_t first, Py_ssize_t blocks) {
+    for (; count >= 2; count -= 2, cands += 2, rows += 2) {
+        th_sb_bound_rows_group(cands, rows, 2, buf, len, first, blocks);
+    }
+    if (count == 1) {
+        th_sb_bound_rows_group(cands, rows, 1, buf, len, first, blocks);
     }
 }
 
@@ -2249,31 +2283,47 @@ static void th_detect_candidates_feed_bounded(th_detect_candidates *candidates, 
     /* rest[slot * (blocks + 1) + block]: the bound from that block on, for a slot whose bound is ready */
     int64_t *rest = NULL;
     unsigned char ready[TH_SB_COUNT] = {0};
-    for (Py_ssize_t block = 0; block < blocks; block++) {
+    /* the input is never empty, so the last block ends the loop */
+    for (Py_ssize_t block = 0;; block++) {
         Py_ssize_t from = block * TH_SB_BOUND_BLOCK;
         Py_ssize_t count = from + TH_SB_BOUND_BLOCK < len ? TH_SB_BOUND_BLOCK : len - from;
         int skippable = th_sb_skippable(buf + from, count);
         th_sb_feed(&candidates->visual, buf + from, count, 0, skippable);
         for (int slot = 0; slot < TH_SB_COUNT; slot++) {
+            th_sb_feed(&candidates->sb[slot], buf + from, count, slot == TH_SB_LOGICAL_SLOT && candidates->visual.alive,
+                       skippable);
+        }
+        if (from + count == len) {
+            break;
+        }
+        /* the candidates that first end a block below zero get their bounds, the non-Latin ones in one pass */
+        const th_sb_candidate *pending[TH_SB_COUNT];
+        int64_t *pending_rows[TH_SB_COUNT];
+        int pending_count = 0;
+        for (int slot = 0; slot < TH_SB_COUNT; slot++) {
             th_sb_candidate *cand = &candidates->sb[slot];
-            th_sb_feed(cand, buf + from, count, slot == TH_SB_LOGICAL_SLOT && candidates->visual.alive, skippable);
-            Py_ssize_t remaining = len - from - count;
-            if (!cand->alive || slot == TH_SB_LOGICAL_SLOT || remaining == 0) {
+            if (!cand->alive || slot == TH_SB_LOGICAL_SLOT || ready[slot] || cand->score >= 0) {
                 continue;
             }
-            int64_t *row = rest + (Py_ssize_t)slot * (blocks + 1);
-            if (!ready[slot] && cand->score < 0) {
-                if (rest == NULL) {
-                    rest = PyMem_Malloc((size_t)(TH_SB_COUNT * (blocks + 1)) * sizeof(int64_t));
-                    if (rest == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-                        continue;       /* GCOVR_EXCL_LINE: allocation-failure path, which only forgoes the stop */
-                    }
-                    row = rest + (Py_ssize_t)slot * (blocks + 1);
+            if (rest == NULL) {
+                rest = PyMem_Malloc((size_t)(TH_SB_COUNT * (blocks + 1)) * sizeof(int64_t));
+                if (rest == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                    break;          /* GCOVR_EXCL_LINE: allocation-failure path, which only forgoes the stop */
                 }
-                th_sb_bound_rows(cand, buf, len, row, block + 1, blocks);
-                ready[slot] = 1;
             }
-            if (ready[slot] && cand->score + row[block + 1] <= 0) {
+            int64_t *row = rest + (Py_ssize_t)slot * (blocks + 1);
+            ready[slot] = 1;
+            if (cand->kind == TH_SB_LATIN) {
+                th_sb_bound_rows(cand, buf, len, row, block + 1, blocks);
+            } else {
+                pending[pending_count] = cand;
+                pending_rows[pending_count++] = row;
+            }
+        }
+        th_sb_bound_rows_non_latin(pending, pending_rows, pending_count, buf, len, block + 1, blocks);
+        for (int slot = 0; slot < TH_SB_COUNT; slot++) {
+            th_sb_candidate *cand = &candidates->sb[slot];
+            if (ready[slot] && cand->alive && cand->score + rest[(Py_ssize_t)slot * (blocks + 1) + block + 1] <= 0) {
                 cand->alive = 0;
             }
         }

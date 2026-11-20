@@ -310,10 +310,17 @@ def test_detect_settles_through_the_cache() -> None:
     assert calls.settled == [(None, False, False)]
 
 
-def test_detect_through_the_cache_stops_candidates_that_cannot_win() -> None:
+@pytest.mark.parametrize(
+    "raw",
+    [
+        pytest.param("Привет, как дела? Это тест русского текста. ".encode("windows-1251") * 20, id="cyrillic"),
+        pytest.param("שלום, מה שלומך? זהו טקסט בעברית לבדיקה. ".encode("windows-1255") * 20, id="hebrew"),
+        pytest.param("日本語の文章をここに書きます。カタカナも少し。".encode("shift_jis") * 60, id="shift-jis"),
+    ],
+)
+def test_detect_through_the_cache_stops_candidates_that_cannot_win(raw: bytes) -> None:
     # past the first block, a candidate that can no longer end positive stops scoring: the winner and the positive
     # scores, all a cached detection reads, stay as they are, while a TLD hint keeps every candidate
-    raw: Final[bytes] = "Привет, как дела? Это тест русского текста. ".encode("windows-1251") * 20
     winner, scores = _scored(detect(raw, None))
     cached_winner, cached_scores = _scored(detect(raw, None, {}, _Calls().settle))
     assert (cached_winner, [row for row in cached_scores if row[1] > 0]) == (
