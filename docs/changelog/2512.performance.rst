@@ -1,0 +1,2 @@
+``minify_css`` no longer rescans the inner calls of a deeply nested value once per enclosing function, cutting the
+minification of nested ``var()`` fallbacks about fivefold.
