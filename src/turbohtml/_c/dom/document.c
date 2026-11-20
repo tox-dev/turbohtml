@@ -815,6 +815,24 @@ static int url_simple_path_byte(unsigned char ch) {
     return (unsigned)((ch | 0x20) - 'a') < 26 || (unsigned)(ch - '0') < 10 || ch == '-' || ch == '_';
 }
 
+/* Whether bytes[start:end] is a path the URL parser keeps as written: plain segment bytes and dots between slashes,
+   with no segment that is "." or "..", which the parser would collapse. */
+static int url_simple_path(const char *bytes, Py_ssize_t start, Py_ssize_t end) {
+    Py_ssize_t segment = start;
+    for (Py_ssize_t index = start; index <= end; index++) {
+        if (index == end || bytes[index] == '/') {
+            Py_ssize_t length = index - segment;
+            if (length > 0 && length < 3 && bytes[segment] == '.' && bytes[index - 1] == '.') {
+                return 0;
+            }
+            segment = index + 1;
+        } else if (bytes[index] != '.' && !url_simple_path_byte((unsigned char)bytes[index])) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static PyObject *url_resolve_simple_web(PyObject *base, PyObject *target) {
     if (!PyUnicode_IS_ASCII(base) || !PyUnicode_IS_ASCII(target) || PyUnicode_GET_LENGTH(target) == 0) {
         return NULL;
@@ -825,24 +843,19 @@ static PyObject *url_resolve_simple_web(PyObject *base, PyObject *target) {
     }
     const char *base_bytes = (const char *)PyUnicode_1BYTE_DATA(base);
     Py_ssize_t base_len = PyUnicode_GET_LENGTH(base);
-    Py_ssize_t last_slash = authority_end;
-    for (Py_ssize_t index = authority_end + 1; index < base_len; index++) {
-        unsigned char ch = (unsigned char)base_bytes[index];
-        if (ch != '/' && !url_simple_path_byte(ch)) {
-            return NULL;
-        }
-        if (ch == '/') {
-            last_slash = index;
-        }
+    if (!url_simple_path(base_bytes, authority_end + 1, base_len)) {
+        return NULL;
+    }
+    Py_ssize_t last_slash = base_len - 1;
+    while (base_bytes[last_slash] != '/') {
+        last_slash--;
     }
     const char *target_bytes = (const char *)PyUnicode_1BYTE_DATA(target);
     Py_ssize_t target_len = PyUnicode_GET_LENGTH(target);
     int rooted = target_bytes[0] == '/';
-    for (Py_ssize_t index = rooted; index < target_len; index++) {
-        unsigned char ch = (unsigned char)target_bytes[index];
-        if (!url_simple_path_byte(ch)) {
-            return NULL;
-        }
+    /* a leading "//" starts an authority */
+    if ((rooted && target_len > 1 && target_bytes[1] == '/') || !url_simple_path(target_bytes, rooted, target_len)) {
+        return NULL;
     }
     Py_ssize_t prefix_len = rooted ? authority_end : last_slash + 1;
     PyObject *result = PyUnicode_New(prefix_len + target_len, 127);
@@ -1294,9 +1307,35 @@ PyObject *th_url_base_resolve(PyObject *href, PyObject *fallback) {
     return result;
 }
 
+/* Whether the URL parser would hand `url` back unchanged: a lower-case web scheme and host
+   th_url_document_web_authority accepts, every host label non-empty and none of them Punycode the parser would decode,
+   and a path of plain segment bytes. A caller's own base URL is usually like this, and skipping the parse halves
+   base_url(). */
+static int url_already_canonical_web(PyObject *url) {
+    Py_ssize_t authority_end = th_url_document_web_authority(url);
+    if (authority_end < 0) {
+        return 0;
+    }
+    const char *bytes = (const char *)PyUnicode_1BYTE_DATA(url);
+    Py_ssize_t length = PyUnicode_GET_LENGTH(url);
+    Py_ssize_t label = (Py_ssize_t)((const char *)memchr(bytes, ':', (size_t)authority_end) - bytes) + 3;
+    for (Py_ssize_t index = label; index <= authority_end; index++) {
+        if (index == authority_end || bytes[index] == '.') {
+            if (index == label || (index - label >= 4 && memcmp(bytes + label, "xn--", 4) == 0)) {
+                return 0;
+            }
+            label = index + 1;
+        }
+    }
+    return url_simple_path(bytes, authority_end + 1, length);
+}
+
 /* The URL standard's parse of an absolute base, with no HTML base policy applied: NULL with a ValueError when the base
    does not parse, which a special scheme without a host does not. */
 PyObject *th_url_base_parse(PyObject *href) {
+    if (url_already_canonical_web(href)) {
+        return Py_NewRef(href);
+    }
     PyObject *input = th_url_parser_input(href);
     if (input == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */

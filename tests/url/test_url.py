@@ -13,6 +13,18 @@ from turbohtml import Element, parse, parse_fragment
     ("html", "fallback", "expected"),
     [
         pytest.param('<base href="/sub/page">', "http://site.com/dir/", "http://site.com/sub/page", id="relative-base"),
+        pytest.param(
+            '<base href="sub/page.html">', "http://site.com/dir/", "http://site.com/dir/sub/page.html", id="dotted-name"
+        ),
+        pytest.param(
+            '<base href="/.well-known/x.y">',
+            "http://site.com/dir/",
+            "http://site.com/.well-known/x.y",
+            id="dot-led-name",
+        ),
+        pytest.param('<base href="a/../b">', "http://site.com/dir/", "http://site.com/dir/b", id="double-dot-segment"),
+        pytest.param('<base href="./a">', "http://site.com/dir/", "http://site.com/dir/a", id="dot-segment"),
+        pytest.param('<base href="//other.com/p">', "http://site.com/dir/", "http://other.com/p", id="authority"),
         pytest.param('<base href="http://abs.com/x">', "http://site.com/", "http://abs.com/x", id="absolute-base"),
         pytest.param('<base href="data:text/plain,x">', "http://site.com/", "http://site.com/", id="data-base"),
         pytest.param('<base href="JaVaScRiPt:alert(1)">', "http://site.com/", "http://site.com/", id="javascript-base"),
@@ -108,6 +120,12 @@ def test_base_url_empty_href_rejects_malformed_fallback(fallback: str) -> None:
         pytest.param("https://site.com/p#old", "https://site.com/p#old", id="fragment-kept"),
         pytest.param("https://h:99999/", "https://h:99999/", id="unparsable-kept-as-written"),
         pytest.param("", "", id="empty-kept"),
+        pytest.param("http://site.com/a/./b", "http://site.com/a/b", id="dot-segment-collapsed"),
+        pytest.param("http://site.com/a/../b", "http://site.com/b", id="double-dot-segment-collapsed"),
+        pytest.param("http://site.com/.well-known/a.b", "http://site.com/.well-known/a.b", id="dotted-segments-kept"),
+        pytest.param("http://site.com/.a/b", "http://site.com/.a/b", id="dot-led-short-segment-kept"),
+        pytest.param("http://a..org/x", "http://a..org/x", id="empty-host-label"),
+        pytest.param("http://xn--bcher-kva.org/p", "http://xn--bcher-kva.org/p", id="punycode-host-label"),
     ],
 )
 def test_base_url_normalizes_fallback_without_base_element(fallback: str, expected: str) -> None:
