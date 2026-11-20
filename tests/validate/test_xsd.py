@@ -4009,6 +4009,15 @@ def test_schema_with_foreign_no_namespace_child() -> None:
     assert xsd_ok(schema, "<r><a>x</a></r>")
 
 
+def test_schema_with_relaxng_element_in_appinfo() -> None:
+    schema = (
+        f'<xs:schema {_XS}><xs:element name="r" type="xs:string"><xs:annotation><xs:appinfo>'
+        '<rng:element xmlns:rng="http://relaxng.org/ns/structure/1.0" name="r"/>'
+        "</xs:appinfo></xs:annotation></xs:element></xs:schema>"
+    )
+    assert xsd_ok(schema, "<r>x</r>")
+
+
 def test_complex_content_mixed() -> None:
     schema = (
         f"<xs:schema {_XS}>"

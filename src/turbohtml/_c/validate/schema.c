@@ -241,6 +241,7 @@ typedef struct {
     qname name;
     qname type;
     qname base;
+    const char *ns; /* XSD_NS or RNG_NS when the name is in that namespace, else NULL */
 } sqname_entry;
 static const sqname_entry *schema_node_entry(const struct th_schema *schema, th_node *node);
 static const qname *schema_node_qname(const struct th_schema *schema, th_node *node);
@@ -551,24 +552,29 @@ static qname node_qname(attr_scope *scope, th_node *element, const Py_UCS4 *name
 /* The on-the-spot resolution a below-threshold schema uses; defined after th_schema, which is opaque here. */
 static qname schema_direct_qname(const struct th_schema *schema, th_node *node);
 
+/* XSD_NS or RNG_NS when the name is in that namespace, else NULL. A name in no namespace has a NULL uri of length 0,
+   which u_eq_ascii never reads. */
+static const char *schema_ns_of(const qname *name) {
+    if (u_eq_ascii(name->uri, name->uri_len, XSD_NS)) {
+        return XSD_NS;
+    }
+    return u_eq_ascii(name->uri, name->uri_len, RNG_NS) ? RNG_NS : NULL;
+}
+
+/* ns is XSD_NS or RNG_NS itself, never a copy, so the namespace compares as a pointer. */
 static int is_schema_el(const struct th_schema *schema, th_node *node, const char *ns, const char *local) {
     if (node->type != TH_NODE_ELEMENT) {
         return 0;
     }
-    const qname *cached = schema_node_qname(schema, node);
+    const sqname_entry *entry = schema_node_entry(schema, node);
+    if (entry != NULL) {
+        return entry->ns == ns && u_eq_ascii(entry->name.local, entry->name.local_len, local);
+    }
     /* a schema below the cache threshold resolves the name on the spot; the direct walk is cheap at that size */
-    qname direct;
-    if (cached == NULL) {
-        direct = schema_direct_qname(schema, node);
-        cached = &direct;
-    }
-    if (!u_eq_ascii(cached->local, cached->local_len, local)) {
-        return 0;
-    }
-    if (cached->uri == NULL) {
-        return 0;
-    }
-    return u_eq_ascii(cached->uri, cached->uri_len, ns);
+    const qname direct = schema_direct_qname(schema, node);
+    /* GCOVR_EXCL_BR_START: only RELAX NG resolves here, after pruning every element outside its namespace */
+    return u_eq_ascii(direct.local, direct.local_len, local) && u_eq_ascii(direct.uri, direct.uri_len, ns);
+    /* GCOVR_EXCL_BR_STOP */
 }
 
 /* The first element child of `node` in the schema namespace `ns` with local name
@@ -944,9 +950,11 @@ typedef struct th_schema {
     /* the schema tree's attribute scope; a compile and every validate() call bring their own, so a schema shared
        across threads stays read-only */
     attr_scope *tree_ns;
-    /* every schema element node's resolved qname, sorted by node pointer for is_schema_el */
+    /* every schema element node's resolved qname, in document order */
     sqname_entry *sqnames;
     Py_ssize_t sqname_count;
+    /* each schema element node's sqnames position, by its th_node seq; a parsed schema numbers its nodes uniquely */
+    int32_t *sqname_by_seq;
     /* every pattern facet and RELAX NG pattern param in document order, and the distinct ones sorted by text for
        regex_full_match to search */
     struct rpattern *regex_patterns, **regex_sorted;
@@ -966,6 +974,8 @@ typedef struct th_schema {
     /* the xs:any particle that consumed each child of the complex element a validate() call matches */
     th_node **wild_claims;
     size_t wild_claim_cap;
+    /* the resolved names of the children of the complex element a validate() call matches, by position */
+    qname *child_names;
     /* XSD name lookup list of one validate() call, refilled for each element, and the index over it that an element
        with many attributes builds */
     struct edecl *edecl_items;
@@ -981,6 +991,7 @@ typedef struct th_schema {
     size_t child_count, child_cap;
     /* per sqnames entry of an XSD schema, at the same index: what xsd_cache_facets classified the element as */
     struct xnode *xnodes;
+    int decls_resolved; /* xsd_resolve_decls has filled each element and attribute xnode's want */
     /* the xmlns declarations in scope on the instance walk of one validate() call */
     nsscope ns;
     int complex_extension; /* a complexContent extension exists, so the compile-time xs:all extension check has work to
@@ -1006,7 +1017,7 @@ static inline int schema_stack_low(th_schema *schema) {
 
 /* Look up a schema element node's precomputed qname. schema_build_qname_cache enters every
    element node of the schema tree before any classification runs, and is_schema_el only ever
-   asks about schema element nodes, so the search always hits. */
+   asks about schema element nodes, so the lookup always hits. */
 static qname schema_direct_qname(const struct th_schema *schema, th_node *node) {
     return node_qname(schema->tree_ns, node, node->text, node->text_len);
 }
@@ -1015,20 +1026,7 @@ static const sqname_entry *schema_node_entry(const th_schema *schema, th_node *n
     if (schema->sqname_count == 0) { /* a schema below the cache threshold resolves directly; see the build gate */
         return NULL;
     }
-    Py_ssize_t lo = 0, hi = schema->sqname_count - 1;
-    while (lo <= hi) { /* GCOVR_EXCL_BR_LINE: the searched-for node is always present, so the loop exits by return */
-        Py_ssize_t mid = lo + ((hi - lo) >> 1);
-        th_node *at = schema->sqnames[mid].node;
-        if (at == node) {
-            return &schema->sqnames[mid];
-        }
-        if (at < node) {
-            lo = mid + 1;
-        } else {
-            hi = mid - 1;
-        }
-    }
-    return NULL; /* GCOVR_EXCL_LINE: every schema element node is cached, so the search never misses */
+    return &schema->sqnames[schema->sqname_by_seq[node->seq]];
 }
 
 static const qname *schema_node_qname(const th_schema *schema, th_node *node) {
@@ -1106,12 +1104,21 @@ static void schema_fill_qname(th_schema *schema, th_node *element, Py_ssize_t at
     schema->sqnames[at].name = node_qname_scoped(schema, element->text, element->text_len, 0);
     schema->sqnames[at].type = attr_qname_scoped(schema, element, "type", 4);
     schema->sqnames[at].base = attr_qname_scoped(schema, element, "base", 4);
+    schema->sqnames[at].ns = schema_ns_of(&schema->sqnames[at].name);
 }
 
-static int sqname_cmp(const void *left, const void *right) {
-    th_node *left_node = ((const sqname_entry *)left)->node;
-    th_node *right_node = ((const sqname_entry *)right)->node;
-    return (left_node > right_node) - (left_node < right_node);
+/* Index the entries by node seq, so a lookup, made per schema node an instance node visits, costs one load. */
+static int schema_index_qnames_by_seq(th_schema *schema) {
+    /* the tree stamps each node it makes with the count it has made so far */
+    const uint32_t seqs = th_tree_node_count(schema->tree);
+    schema->sqname_by_seq = arena_alloc(&schema->mem, (size_t)seqs * sizeof(int32_t));
+    if (schema->sqname_by_seq == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return -1;                       /* GCOVR_EXCL_LINE */
+    }
+    for (Py_ssize_t index = 0; index < schema->sqname_count; index++) {
+        schema->sqname_by_seq[schema->sqnames[index].node->seq] = (int32_t)index;
+    }
+    return 0;
 }
 
 static int schema_build_qname_cache(th_schema *schema) {
@@ -1154,8 +1161,7 @@ static int schema_build_qname_cache(th_schema *schema) {
             if (node == document) {
                 walk_release(marks, local);
                 schema->sqname_count = count;
-                qsort(schema->sqnames, (size_t)count, sizeof(sqname_entry), sqname_cmp);
-                return 0;
+                return schema_index_qnames_by_seq(schema);
             }
         }
     }
