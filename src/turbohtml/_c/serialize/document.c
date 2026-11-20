@@ -1367,9 +1367,7 @@ PyObject *th_markup_string(const Py_UCS4 *data, Py_ssize_t length) {
     return string_from_bits(data, length, bits);
 }
 
-/* A Text node's characters where they already sit: a span's in the input's own width, a realized node's as UCS-4.
-   Reading a span in place leaves it unrealized, so .text neither widens it nor keeps a UCS-4 copy in the arena. */
-static const void *text_characters(th_tree *tree, th_node *node, int *kind) {
+const void *th_node_chars(th_tree *tree, th_node *node, int *kind) {
     if (text_is_span(node)) {
         *kind = tree->kind;
         return (const char *)tree->data + text_span_offset(node) * tree->kind;
@@ -1378,17 +1376,7 @@ static const void *text_characters(th_tree *tree, th_node *node, int *kind) {
     return node->text;
 }
 
-/* The OR of the characters, stopping once it holds a bit past the width that `kind` can carry narrower: the result
-   only needs to tell the output width apart, and text stored at `kind` never needs a wider one. */
-static Py_UCS4 text_width_bits(const void *data, int kind, Py_ssize_t length) {
-    /* most Text nodes are a few characters, where setting up the vector loops costs more than the scan */
-    if (length < 32) {
-        Py_UCS4 bits = 0;
-        for (Py_ssize_t index = 0; index < length; index++) {
-            bits |= PyUnicode_READ(kind, data, index);
-        }
-        return bits;
-    }
+Py_UCS4 th_chars_width_bits_long(const void *data, int kind, Py_ssize_t length) {
     Py_UCS4 limit = kind == PyUnicode_1BYTE_KIND ? 0x7F : kind == PyUnicode_2BYTE_KIND ? 0xFF : 0xFFFF;
     Py_UCS4 bits = 0;
     /* blocks keep the inner loops free of exits, so they vectorize, and a wide character ends the scan early */
@@ -1453,6 +1441,49 @@ static PyObject *snapshot_text_string(th_tree *tree, th_node *root, th_node *fir
 /* A subtree holding a single Text node with characters, the common case of a leaf element or a lone Text node, gets
    its str built straight from where those characters sit: no UCS-4 snapshot, no realized span, and a memcpy whenever
    the storage width is the output width. Several Text nodes take the snapshot walk. */
+/* Each pairing of widths gets its own loop over typed pointers, so the compiler vectorizes every one. */
+void th_chars_copy(void *destination, int destination_kind, const void *source, int source_kind, Py_ssize_t length) {
+    if (destination_kind == source_kind) {
+        memcpy(destination, source, (size_t)length * (size_t)source_kind);
+    } else if (destination_kind == PyUnicode_1BYTE_KIND && source_kind == PyUnicode_2BYTE_KIND) {
+        Py_UCS1 *out = destination;
+        const Py_UCS2 *in = source;
+        for (Py_ssize_t index = 0; index < length; index++) {
+            out[index] = (Py_UCS1)in[index];
+        }
+    } else if (destination_kind == PyUnicode_1BYTE_KIND) {
+        Py_UCS1 *out = destination;
+        const Py_UCS4 *in = source;
+        for (Py_ssize_t index = 0; index < length; index++) {
+            out[index] = (Py_UCS1)in[index];
+        }
+    } else if (destination_kind == PyUnicode_2BYTE_KIND && source_kind == PyUnicode_1BYTE_KIND) {
+        Py_UCS2 *out = destination;
+        const Py_UCS1 *in = source;
+        for (Py_ssize_t index = 0; index < length; index++) {
+            out[index] = (Py_UCS2)in[index];
+        }
+    } else if (destination_kind == PyUnicode_2BYTE_KIND) {
+        Py_UCS2 *out = destination;
+        const Py_UCS4 *in = source;
+        for (Py_ssize_t index = 0; index < length; index++) {
+            out[index] = (Py_UCS2)in[index];
+        }
+    } else if (source_kind == PyUnicode_1BYTE_KIND) {
+        Py_UCS4 *out = destination;
+        const Py_UCS1 *in = source;
+        for (Py_ssize_t index = 0; index < length; index++) {
+            out[index] = (Py_UCS4)in[index];
+        }
+    } else {
+        Py_UCS4 *out = destination;
+        const Py_UCS2 *in = source;
+        for (Py_ssize_t index = 0; index < length; index++) {
+            out[index] = (Py_UCS4)in[index];
+        }
+    }
+}
+
 /* Latin-1 storage copied out as ASCII, checking the bytes in the same pass, so ASCII text costs one copy and no
    separate width scan; a byte past 0x7F swaps the copy for a Latin-1 one. */
 static PyObject *ascii_text_string(const Py_UCS1 *characters, Py_ssize_t length) {
@@ -1480,24 +1511,21 @@ static PyObject *ascii_text_string(const Py_UCS1 *characters, Py_ssize_t length)
     return result;
 }
 
-/* Whether a span sits in ASCII input, from a check of the whole input made once per tree; a span much shorter than
-   the input checks itself instead. Every tree whose spans reach a node's text records its input's length: the parse
-   entry points set it, and a normalized input replaces it with its own. */
-static int span_in_ascii_input(th_tree *tree, th_node *node) {
+int th_tree_input_ascii(th_tree *tree, Py_ssize_t reading) {
     if (tree->source_ascii == 0) {
-        if (node->text_len < tree->length / 4) {
+        if (reading < tree->length / 4) {
             return 0;
         }
-        tree->source_ascii = text_width_bits(tree->data, PyUnicode_1BYTE_KIND, tree->length) <= 0x7F ? 1 : -1;
+        tree->source_ascii = th_chars_width_bits(tree->data, PyUnicode_1BYTE_KIND, tree->length) <= 0x7F ? 1 : -1;
     }
     return tree->source_ascii > 0;
 }
 
 static PyObject *single_text_string(th_tree *tree, th_node *node) {
     int kind;
-    const void *characters = text_characters(tree, node, &kind);
+    const void *characters = th_node_chars(tree, node, &kind);
     if (kind == PyUnicode_1BYTE_KIND) {
-        if (!span_in_ascii_input(tree, node)) {
+        if (!th_tree_input_ascii(tree, node->text_len)) {
             return ascii_text_string(characters, node->text_len);
         }
         PyObject *result = PyUnicode_New(node->text_len, 0x7F);
@@ -1506,37 +1534,13 @@ static PyObject *single_text_string(th_tree *tree, th_node *node) {
         }
         return result;
     }
-    Py_UCS4 bits = text_width_bits(characters, kind, node->text_len);
+    Py_UCS4 bits = th_chars_width_bits(characters, kind, node->text_len);
     Py_UCS4 maxchar = bits <= 0x7F ? 0x7F : bits <= 0xFF ? 0xFF : bits <= 0xFFFF ? 0xFFFF : 0x10FFFF;
     PyObject *result = PyUnicode_New(node->text_len, th_str_maxchar(maxchar));
     if (result == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
         return NULL;      /* GCOVR_EXCL_LINE: allocation failure */
     }
-    int result_kind = PyUnicode_KIND(result);
-    void *destination = PyUnicode_DATA(result);
-    Py_ssize_t length = node->text_len;
-    if (result_kind == kind) {
-        memcpy(destination, characters, (size_t)length * (size_t)kind);
-    } else if (result_kind == PyUnicode_1BYTE_KIND) {
-        /* a narrower output only ever comes from wider storage whose characters all fit it */
-        for (Py_ssize_t index = 0; index < length; index++) {
-            ((Py_UCS1 *)destination)[index] = (Py_UCS1)PyUnicode_READ(kind, characters, index);
-        }
-#ifndef PYPY_VERSION
-    } else {
-        /* a 2-byte output that is not a copy comes from UCS-4 storage holding no character past U+FFFF */
-        for (Py_ssize_t index = 0; index < length; index++) {
-            ((Py_UCS2 *)destination)[index] = (Py_UCS2)((const Py_UCS4 *)characters)[index];
-        }
-    }
-#else
-    } else {
-        /* PyPy has no 2-byte str, so BMP text stored at two bytes widens */
-        for (Py_ssize_t index = 0; index < length; index++) {
-            ((Py_UCS4 *)destination)[index] = ((const Py_UCS2 *)characters)[index];
-        }
-    }
-#endif
+    th_chars_copy(PyUnicode_DATA(result), PyUnicode_KIND(result), characters, kind, node->text_len);
     return result;
 }
 

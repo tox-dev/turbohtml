@@ -1854,6 +1854,89 @@ static int str_concat(xp_ctx *ctx, const xp_result *arg, xp_result *out) {
     return 0;
 }
 
+/* A member's string-value where it already sits, in the width it is stored at: a text or comment, the text a
+   single-child chain of elements ends in, or an attribute value. 0 when it has to be built. */
+static inline int concat_item_chars(th_tree *tree, xp_item item, const void **chars, int *kind, Py_ssize_t *len) {
+    *chars = NULL;
+    *kind = PyUnicode_4BYTE_KIND;
+    *len = 0;
+    if (item.attr == -2) {
+        return 0;
+    }
+    if (xp_is_attribute(item.attr)) {
+        const th_node_attr *attr = xp_item_attribute(tree, item);
+        *chars = attr->value;
+        *len = attr->value == NULL ? 0 : attr->value_len;
+        return 1;
+    }
+    th_node *leaf = item.node;
+    if (leaf->type == TH_NODE_ELEMENT) {
+        th_node *child = leaf->first_child;
+        leaf = child != NULL && child->next_sibling == NULL && child->type == TH_NODE_TEXT ? child
+                                                                                           : concat_chain_text(leaf);
+        if (leaf == NULL) {
+            return 0;
+        }
+    } else if (leaf->type != TH_NODE_TEXT && leaf->type != TH_NODE_COMMENT) {
+        return 0;
+    }
+    *len = leaf->text_len;
+    *chars = *len == 0 ? NULL : th_node_chars(tree, leaf, kind);
+    return 1;
+}
+
+/* str:concat at the root of an evaluation for Python, when every member's string-value sits in place: the str is
+   sized, its width found, and the characters copied in, each pass reading the members where they sit, so the text
+   is neither widened to a UCS-4 buffer nor scanned and narrowed back, and source spans stay unrealized. Spans of an
+   ASCII input skip the width scan. 1 without touching out when a member's string-value has to be built, which
+   str_concat then does. */
+static int concat_object(xp_ctx *ctx, const xp_nodeset *nodes, xp_result *out) {
+    struct th_tree *tree = ctx->tree;
+    const void *chars;
+    int kind;
+    Py_ssize_t len;
+    Py_ssize_t total = 0;
+    int wide = 0;
+    xp_gather seen;
+    for (Py_ssize_t index = 0; index < nodes->len; index++) {
+        if (!concat_item_chars(tree, nodes->items[index], &chars, &kind, &len)) {
+            return 1;
+        }
+        wide |= kind != PyUnicode_1BYTE_KIND && len > 0;
+        /* members repeat at most the allowance, so the total stays within the text the tree holds */
+        if (len > XP_GATHER_ALLOWANCE - total &&
+            charge_repeated(&seen, ctx, nodes, NULL, index, len, total <= XP_GATHER_ALLOWANCE) < 0) {
+            return -1;
+        }
+        total += len;
+    }
+    Py_UCS4 bits = 0;
+    /* only spans are stored a byte a character, all in the tree's input */
+    int scan = wide || !th_tree_input_ascii(tree, total);
+    for (Py_ssize_t index = 0; scan && index < nodes->len && bits <= 0xFFFF; index++) {
+        concat_item_chars(tree, nodes->items[index], &chars, &kind, &len);
+        bits |= th_chars_width_bits(chars, kind, len);
+    }
+    Py_UCS4 maxchar = bits <= 0x7F ? 0x7F : bits <= 0xFF ? 0xFF : bits <= 0xFFFF ? 0xFFFF : 0x10FFFF;
+    PyObject *object = PyUnicode_New(total, th_str_maxchar(maxchar));
+    if (object == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    int object_kind = PyUnicode_KIND(object);
+    char *destination = PyUnicode_DATA(object);
+    for (Py_ssize_t index = 0; index < nodes->len; index++) {
+        concat_item_chars(tree, nodes->items[index], &chars, &kind, &len);
+        if (len > 0) {
+            th_chars_copy(destination, object_kind, chars, kind, len);
+            destination += len * object_kind;
+        }
+    }
+    memset(out, 0, sizeof(*out));
+    out->kind = XP_PYSTRING;
+    out->object = object;
+    return 0;
+}
+
 /* str:replace(string, search, replace): every non-overlapping literal occurrence of
    `search` in `string` swapped for `replace`. An empty `search` leaves the input
    untouched (no zero-width match loop). Out of line, so its match loop keeps its own registers: inlined, it shares
@@ -2504,7 +2587,10 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
             *ctx->feature = "str:concat on a non-node-set";
             rc = -4;
         } else {
-            rc = str_concat(ctx, &args[0], out);
+            rc = ctx->root->want_object && idx == prog->root ? concat_object(ctx, &args[0].nodes, out) : 1;
+            if (rc > 0) {
+                rc = str_concat(ctx, &args[0], out);
+            }
         }
     } else if (func_is(fn, "str:replace")) {
         rc = str_replace(ctx, args, out);

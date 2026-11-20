@@ -2064,7 +2064,7 @@ done:
 }
 
 /* Evaluate a compiled program against a context item with the current scope and the XSLT extension functions.
-   Returns the xp_eval status; fills *out on success. condition is set when the caller only converts *out to a
+   Returns the xp_eval_at status; fills *out on success. condition is set when the caller only converts *out to a
    boolean (xp_eval_condition_at). */
 static int eval_program_as(engine *eng, const xp_program *prog, const xp_item *context, Py_ssize_t pos, Py_ssize_t size,
                            xp_result *out, int condition) {

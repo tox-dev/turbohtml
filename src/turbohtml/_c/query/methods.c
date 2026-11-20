@@ -1283,7 +1283,7 @@ static PyObject *xpath_item_to_py(module_state *state, PyObject *handle, th_tree
     return node_wrap(state, handle, item.node);
 }
 
-/* Translate an xp_eval status into a Python error: -4 a TypeError (a value where a
+/* Translate an XPath evaluation status into a Python error: -4 a TypeError (a value where a
    node-set is required), -5 an XPathDepthError (an expression nested past the evaluator cap),
    -3 a ValueError (an unbound variable or an unbound prefix), -1 an allocation failure or an
    already-set exception (an unknown function, a wrong-arity call, a malformed regex, or an
@@ -2031,6 +2031,8 @@ static PyObject *xpath_result_to_py(module_state *state, PyObject *handle, th_tr
             }
 #endif
         }
+    } else if (result->kind == XP_PYSTRING) {
+        out = result->object; /* taken over, so xp_result_free has nothing to release */
     } else {
         out = xpath_scalar_to_py(result); /* NULL with the error set on an unforced allocation failure */
     }
@@ -2067,7 +2069,7 @@ static PyObject *xpath_eval_object(PyObject *self, PyObject *arg, const xp_bindi
         status = callbacks ? xp_eval_snapshot(prog, tree, origin, vars, namespaces,
                                               extensions != NULL ? xpath_call_extension : NULL, &ext_ctx,
                                               xpath_before_python, &result, &feature)
-                           : xp_eval(prog, tree, origin, vars, namespaces, NULL, NULL, &result, &feature);
+                           : xp_eval_object(prog, tree, origin, vars, namespaces, &result, &feature);
         if (status == 0) {
             out = xpath_result_to_py(state, handle, tree, smart_strings, &result, callbacks ? &ext_ctx : NULL);
         }
@@ -2110,7 +2112,7 @@ static PyObject *xpath_run_program(module_state *state, PyObject *handle, th_nod
     status = callbacks
                  ? xp_eval_snapshot(prog, tree, origin, vars, NULL, extensions != NULL ? xpath_call_extension : NULL,
                                     &ext_ctx, xpath_before_python, &result, &feature)
-                 : xp_eval(prog, tree, origin, vars, NULL, NULL, NULL, &result, &feature);
+                 : xp_eval_object(prog, tree, origin, vars, NULL, &result, &feature);
     if (status == 0) {
         out = xpath_result_to_py(state, handle, tree, smart_strings, &result, callbacks ? &ext_ctx : NULL);
     }

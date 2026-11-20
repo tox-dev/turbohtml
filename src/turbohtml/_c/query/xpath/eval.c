@@ -5995,12 +5995,12 @@ static TH_NOINLINE void xp_caches_free(xp_caches *caches) {
     PyMem_Free(caches);
 }
 
-/* xp_eval_at and xp_eval_condition_at: one top-level evaluation, with exists set when the caller only converts the
-   value to a boolean. */
+/* xp_eval_at, xp_eval_condition_at and xp_eval_object: one top-level evaluation, with exists set when the caller only
+   converts the value to a boolean, and want_object when it turns the value into a Python object. */
 static int eval_at(const xp_program *prog, struct th_tree *tree, const xp_item *context, struct th_node *known_root,
                    Py_ssize_t pos, Py_ssize_t size, const xp_bindings *vars, const xp_namespaces *namespaces,
                    xp_extension_fn extension, void *extension_ctx, xp_lang_memo **langs, xp_id_cache *ids,
-                   xp_result *out, const char **feature, int exists) {
+                   xp_result *out, const char **feature, int exists, int want_object) {
     if (namespaces == NULL && prog->bound.len > 0) {
         namespaces = &prog->bound;
     }
@@ -6008,7 +6008,7 @@ static int eval_at(const xp_program *prog, struct th_tree *tree, const xp_item *
 #ifdef TH_OPERATION_LIMIT
     size_t operations = 0;
 #endif
-    xp_root root = {known_root, 0, known_root != NULL, ids, {NULL, NULL}};
+    xp_root root = {known_root, 0, known_root != NULL, ids, {NULL, NULL}, want_object};
     xp_ctx ctx = {
         tree,        context->node, context->attr, pos,  size, feature, vars, namespaces, extension, extension_ctx,
         0,           &caches,       NULL,          NULL, NULL, NULL,    0,    &root,      langs,
@@ -6031,7 +6031,7 @@ int xp_eval_at(const xp_program *prog, struct th_tree *tree, const xp_item *cont
                xp_extension_fn extension, void *extension_ctx, xp_lang_memo **langs, xp_id_cache *ids, xp_result *out,
                const char **feature) {
     return eval_at(prog, tree, context, known_root, pos, size, vars, namespaces, extension, extension_ctx, langs, ids,
-                   out, feature, 0);
+                   out, feature, 0, 0);
 }
 
 int xp_eval_condition_at(const xp_program *prog, struct th_tree *tree, const xp_item *context,
@@ -6039,7 +6039,7 @@ int xp_eval_condition_at(const xp_program *prog, struct th_tree *tree, const xp_
                          const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
                          xp_lang_memo **langs, xp_id_cache *ids, xp_result *out, const char **feature) {
     return eval_at(prog, tree, context, known_root, pos, size, vars, namespaces, extension, extension_ctx, langs, ids,
-                   out, feature, 1);
+                   out, feature, 1, 0);
 }
 
 int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_node *context, xp_extension_fn extension,
@@ -6353,7 +6353,7 @@ int xp_pattern_walk_start(const xp_program *prog, struct th_tree *tree, struct t
     walk->tree = tree;
     walk->name_test = name_test;
     walk->name_test_ctx = name_test_ctx;
-    walk->root = (xp_root){root, 0, 1, NULL, {NULL, NULL}};
+    walk->root = (xp_root){root, 0, 1, NULL, {NULL, NULL}, 0};
     walk->count = count;
     xp_ctx ctx = walk_context(walk, (xp_item){root, -1}, NULL, NULL, feature);
     int32_t level = 1;
@@ -6377,11 +6377,10 @@ int xp_pattern_match(xp_pattern_walk *walk, xp_item item, xp_extension_fn extens
     return walk_member(walk->prog, walk, &ctx, walk->count, item);
 }
 
-int xp_eval(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,
-            const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx, xp_result *out,
-            const char **feature) {
-    return xp_eval_at(prog, tree, &(xp_item){context, -1}, NULL, 1, 1, vars, namespaces, extension, extension_ctx, NULL,
-                      NULL, out, feature);
+int xp_eval_object(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,
+                   const xp_namespaces *namespaces, xp_result *out, const char **feature) {
+    return eval_at(prog, tree, &(xp_item){context, -1}, NULL, 1, 1, vars, namespaces, NULL, NULL, NULL, NULL, out,
+                   feature, 0, 1);
 }
 
 int xp_eval_snapshot(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,

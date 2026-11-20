@@ -93,13 +93,18 @@ static inline int ns_append(xp_nodeset *ns, struct th_node *node, Py_ssize_t att
 }
 
 /* The four XPath 1.0 value types an expression can evaluate to. */
-enum xp_result_kind { XP_NODESET, XP_NUMBER, XP_STRING, XP_BOOLEAN };
+/* XP_PYSTRING is a string already built as a str, which only xp_eval_object returns: its caller takes the reference,
+   and xp_result_free leaves it alone. */
+enum xp_result_kind { XP_NODESET, XP_NUMBER, XP_STRING, XP_BOOLEAN, XP_PYSTRING };
 
 typedef struct {
     enum xp_result_kind kind;
     xp_nodeset nodes; /* XP_NODESET (document-ordered, duplicate-free) */
     double number;    /* XP_NUMBER */
-    Py_UCS4 *string;  /* XP_STRING, owned */
+    union {
+        Py_UCS4 *string;  /* XP_STRING, owned */
+        PyObject *object; /* XP_PYSTRING, owned */
+    };
     Py_ssize_t string_len;
     int boolean; /* XP_BOOLEAN */
 } xp_result;
@@ -153,21 +158,18 @@ struct th_node;
 typedef int (*xp_extension_fn)(void *ctx, xp_item context, const Py_UCS4 *name, Py_ssize_t name_len,
                                const xp_result *args, int argc, xp_result *out);
 
-/* Evaluate a compiled program against a context node. vars supplies $name bindings
-   (NULL when none); namespaces supplies prefix-to-URI bindings for prefixed name tests
-   (NULL when none); extension/extension_ctx supply user functions (extension NULL when
-   none). Returns 0 with *out filled (the caller frees it with xp_result_free). Returns
-   -3 for an evaluation error that maps to ValueError (a reference to an unbound variable,
-   or a name test whose prefix is not bound), -4 for a type error that maps to TypeError
-   (a value used where a node-set is required), or -5 for an expression nested past
-   XP_MAX_DEPTH or the thread's C stack, which maps to XPathDepthError (a ValueError subclass),
-   with *feature set to a short name for the message. Returns -1 on allocation failure or
-   when a Python error is already set (a malformed regex, an extension failure, or an
-   unknown-function/wrong-arity call reported with the function name). */
+/* Evaluate a compiled program against a context node for a caller that turns the result into a Python object, so a
+   string result may come back as XP_PYSTRING, built as the str straight away instead of through UCS-4. vars supplies
+   $name bindings (NULL when none); namespaces supplies prefix-to-URI bindings for prefixed name tests (NULL when
+   none). Returns 0 with *out filled (the caller frees it with xp_result_free). Returns -3 for an evaluation error that
+   maps to ValueError (a reference to an unbound variable, or a name test whose prefix is not bound), -4 for a type
+   error that maps to TypeError (a value used where a node-set is required), or -5 for an expression nested past
+   XP_MAX_DEPTH or the thread's C stack, which maps to XPathDepthError (a ValueError subclass), with *feature set to a
+   short name for the message. Returns -1 on allocation failure or when a Python error is already set (a malformed
+   regex, or an unknown-function/wrong-arity call reported with the function name). */
 struct th_tree;
-int xp_eval(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,
-            const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx, xp_result *out,
-            const char **feature);
+int xp_eval_object(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,
+                   const xp_namespaces *namespaces, xp_result *out, const char **feature);
 
 int xp_eval_snapshot(const xp_program *prog, struct th_tree *tree, struct th_node *context, const xp_bindings *vars,
                      const xp_namespaces *namespaces, xp_extension_fn extension, void *extension_ctx,
@@ -188,13 +190,13 @@ void xp_id_cache_clear(xp_id_cache *cache);
 typedef struct xp_lang_memo xp_lang_memo;
 void xp_lang_memo_free(xp_lang_memo *memo);
 
-/* Like xp_eval, but seeds the context item, position and size instead of the node with 1/1. context is a node, or
-   an attribute or namespace node of one (context->attr, see xp_item). The XSLT engine reuses this so position()/last()
-   at the top of a select or test expression report the item's place in the current node list (xslt.c). known_root is
-   NULL, or the root `/` selects for context and for every other node the evaluation can meet, through vars and
-   extension included: the engine evaluates once per instruction and node, all of them under its source root, so it
-   passes that rather than have each evaluation climb to it. langs is NULL, or a slot holding NULL or a memo that
-   outlives the call and that the caller ends with xp_lang_memo_free, for the same reason: lang() then climbs each
+/* Like xp_eval_object, but seeds the context item, position and size instead of the node with 1/1. context is a node,
+   or an attribute or namespace node of one (context->attr, see xp_item). The XSLT engine reuses this so
+   position()/last() at the top of a select or test expression report the item's place in the current node list
+   (xslt.c). known_root is NULL, or the root `/` selects for context and for every other node the evaluation can meet,
+   through vars and extension included: the engine evaluates once per instruction and node, all of them under its source
+   root, so it passes that rather than have each evaluation climb to it. langs is NULL, or a slot holding NULL or a memo
+   that outlives the call and that the caller ends with xp_lang_memo_free, for the same reason: lang() then climbs each
    ancestor about once per run rather than once per evaluation. ids is NULL, or a zeroed cache the caller owns
    and ends with xp_id_cache_clear, so the id() index outlives the call: the engine indexes its source once
    per run rather than walk it once per node. */
@@ -224,8 +226,8 @@ int xp_eval_pattern_at(const xp_program *prog, struct th_tree *tree, struct th_n
    attribute step, and descendant and descendant-or-self steps without a predicate that reads the position. A walk
    keeps what it learns about the nodes it passes, so its answers hold only while the extension state the predicates
    read (the XSLT current node) stays the same. xp_pattern_walk_start resolves the name tests, through name_test when
-   one is given and as xp_eval_at does otherwise, and returns 0 with *out set or a negative status as xp_eval does;
-   xp_pattern_match returns 1 or 0, or such a status. */
+   one is given and as xp_eval_at does otherwise, and returns 0 with *out set or a negative status as xp_eval_object
+   does; xp_pattern_match returns 1 or 0, or such a status. */
 typedef struct xp_pattern_walk xp_pattern_walk;
 int xp_pattern_walks_back(const xp_program *prog);
 int xp_pattern_walk_start(const xp_program *prog, struct th_tree *tree, struct th_node *root, xp_name_test_fn name_test,
