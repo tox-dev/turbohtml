@@ -242,9 +242,9 @@ PyObject *turbohtml_bleach_allow_relative(PyObject *module, PyObject *schemes);
    (METH_VARARGS). */
 PyObject *turbohtml_sanitize_policy(PyObject *module, PyObject *args);
 
-/* Implemented in dom/element.c. _build_element(tag, args, mapping_type) is the turbohtml.build call: a leading
-   mapping sets the attributes, a str argument becomes a Text child, a node passes through (METH_VARARGS). */
-PyObject *turbohtml_build_element(PyObject *module, PyObject *args);
+/* Implemented in dom/element.c. _build_element(tag, mapping_type, *parts) is the turbohtml.build call: a leading
+   mapping sets the attributes, a str argument becomes a Text child, a node passes through (METH_FASTCALL). */
+PyObject *turbohtml_build_element(PyObject *module, PyObject *const *args, Py_ssize_t nargs);
 PyObject *turbohtml_sanitize(PyObject *module, PyObject *args);
 
 /* Implemented in annotation.c, the inscriptis annotation output processors over

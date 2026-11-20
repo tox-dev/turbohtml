@@ -1772,6 +1772,14 @@ def test_ordered_list_past_marker_limit_stays_a_list(html: str, options: Markdow
     )
 
 
+def test_ordered_list_item_ordinal_follows_an_edit() -> None:
+    page: Final[Document] = parse("<ol><li>a<li>b</ol>")
+    item: Final[Element] = page.select("li")[1]
+    assert item.to_markdown() == "2. b"
+    page.select("ol")[0].insert(0, Element("li"))
+    assert item.to_markdown() == "3. b"
+
+
 def test_ordered_list_ordinals_with_explicit_default_options() -> None:
     assert parse("<ol reversed><li>a</li></ol>").to_markdown(Markdown()) == '<ol reversed=""><li>a</li></ol>'
 

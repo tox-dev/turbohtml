@@ -324,6 +324,7 @@ int th_validate_markup_name(PyObject *name, int is_attr);
 /* Create an empty tree to own programmatically constructed nodes. Returns NULL on
    allocation failure (no Python error is set). */
 th_tree *th_tree_new(void);
+th_tree *th_tree_new_small(void);
 
 /* Whether the tree was parsed under XML rules, so name lookups are case-sensitive
    rather than folded to the HTML parser's lowercased names. */
@@ -346,6 +347,9 @@ extern const Py_UCS4 th_empty_text[1];
 /* Construct a text/comment/doctype/cdata node (by enum th_node_type) owning a copy
    of the data code points in the tree's arena. NULL on allocation failure. */
 th_node *th_tree_make_data_node(th_tree *tree, int type, const Py_UCS4 *data, Py_ssize_t len);
+
+/* th_tree_make_data_node for a Text node holding the code points of the str text, widened straight into the arena. */
+th_node *th_tree_make_text_str(th_tree *tree, PyObject *text);
 
 /* Construct an empty document-fragment node (a TH_NODE_CONTENT) in the tree's
    arena: the container the Range content operations fill. NULL on allocation

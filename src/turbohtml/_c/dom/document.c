@@ -1681,13 +1681,22 @@ static void handle_dealloc(PyObject *self) {
     PyTypeObject *type = Py_TYPE(self);
     HandleObject *handle = (HandleObject *)self;
     handle_clear_caches(handle);
-    PyMem_Free(handle->index_offsets);
-    PyMem_Free(handle->index_nodes);
-    PyMem_Free(handle->hash_overrides);
+    /* most handles never build these, so the allocator is called only for what is there */
+    if (handle->index_offsets != NULL) {
+        PyMem_Free(handle->index_offsets);
+    }
+    if (handle->index_nodes != NULL) {
+        PyMem_Free(handle->index_nodes);
+    }
+    if (handle->hash_overrides != NULL) {
+        PyMem_Free(handle->hash_overrides);
+    }
     if (handle->bindings != handle->inline_bindings) {
         PyMem_Free(handle->bindings);
     }
-    PyMem_Free(handle->binding_overflow);
+    if (handle->binding_overflow != NULL) {
+        PyMem_Free(handle->binding_overflow);
+    }
     path_id_map_free(handle->path_ids);
     path_positions_free(handle->path_positions);
     path_positions_free(handle->path_child_positions);
@@ -3881,6 +3890,21 @@ int tree_register(PyObject *module, module_state *state) {
         /* allocation failure cannot be forced from a test */
         state->document_type == NULL || state->shadow_root_type == NULL) { /* GCOVR_EXCL_BR_LINE */
         return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+#ifndef PYPY_VERSION
+    ((PyTypeObject *)state->element_type)->tp_vectorcall = element_vectorcall;
+#endif
+    state->tag_maker_type = PyType_FromModuleAndSpec(module, &tag_maker_spec, NULL);
+    /* allocation failure cannot be forced from a test */
+    if (state->tag_maker_type == NULL ||                                        /* GCOVR_EXCL_BR_LINE */
+        PyModule_AddObjectRef(module, "TagMaker", state->tag_maker_type) < 0) { /* GCOVR_EXCL_BR_LINE */
+        return -1;                                                              /* GCOVR_EXCL_LINE: alloc-fail */
+    }
+    state->tag_factory_type = PyType_FromModuleAndSpec(module, &tag_factory_spec, NULL);
+    /* allocation failure cannot be forced from a test */
+    if (state->tag_factory_type == NULL ||                                          /* GCOVR_EXCL_BR_LINE */
+        PyModule_AddObjectRef(module, "TagFactory", state->tag_factory_type) < 0) { /* GCOVR_EXCL_BR_LINE */
+        return -1;                                                                  /* GCOVR_EXCL_LINE: alloc-fail */
     }
     state->parser_type = PyType_FromModuleAndSpec(module, &stream_spec, NULL);
     /* allocation failure cannot be forced from a test */

@@ -60,6 +60,12 @@ from ._stubs.dom import (
     StaticRange as StaticRange,
 )
 from ._stubs.dom import (
+    TagFactory as TagFactory,
+)
+from ._stubs.dom import (
+    TagMaker as TagMaker,
+)
+from ._stubs.dom import (
     Text as Text,
 )
 from ._stubs.dom import (

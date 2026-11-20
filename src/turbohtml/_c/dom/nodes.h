@@ -1026,6 +1026,11 @@ extern PyType_Spec serialize_iter_spec;
 extern PyType_Spec node_spec;
 extern PyType_Spec attrs_spec;
 extern PyType_Spec element_spec;
+extern PyType_Spec tag_maker_spec;
+extern PyType_Spec tag_factory_spec;
+/* The _html module definition, for finding its state from a type a Python class derives from. */
+extern struct PyModuleDef htmlmodule;
+PyObject *element_vectorcall(PyObject *type, PyObject *const *args, size_t nargsf, PyObject *kwnames);
 extern PyType_Spec minify_spec;
 extern PyType_Spec indent_spec;
 extern PyType_Spec xpath_compiled_spec;

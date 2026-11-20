@@ -4,11 +4,11 @@ import copy
 import re
 from collections import OrderedDict
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import pytest
 
-from turbohtml import Comment, Document, Element, Text, parse, parse_fragment
+from turbohtml import Comment, Document, DocumentFragment, Element, Text, parse, parse_fragment
 from turbohtml.build import E, ElementMaker, document
 
 if TYPE_CHECKING:
@@ -186,6 +186,7 @@ def test_constructor_children_must_be_iterable() -> None:
         pytest.param("__deepcopy__", id="deepcopy"),
         pytest.param("__setstate__", id="setstate"),
         pytest.param("__wrapped__", id="wrapped"),
+        pytest.param("__", id="bare-double-underscore"),
     ],
 )
 def test_dunder_lookup_falls_through(maker: ElementMaker, name: str) -> None:
@@ -195,6 +196,172 @@ def test_dunder_lookup_falls_through(maker: ElementMaker, name: str) -> None:
 
 def test_deepcopy_is_not_hijacked_by_getattr(maker: ElementMaker) -> None:
     assert isinstance(copy.deepcopy(maker), ElementMaker)
+
+
+def test_factory_names_its_tag() -> None:
+    assert repr(E.div) == "E.div"
+
+
+def test_factory_copies_by_its_tag() -> None:
+    assert copy.copy(E.section)("x").serialize() == "<section>x</section>"
+
+
+def test_factory_takes_no_keyword_arguments() -> None:
+    with pytest.raises(TypeError, match=r"E\.div\(\) takes no keyword arguments"):
+        E.div(id="x")  # ty: ignore[unknown-argument]  # the builder takes attributes as a leading mapping
+
+
+def test_subclass_attribute_wins_over_a_tag() -> None:
+    class Maker(ElementMaker):
+        span = "not a tag"
+
+    assert Maker().span == "not a tag"
+    assert Maker().b("x").serialize() == "<b>x</b>"
+
+
+def test_instance_attribute_wins_over_a_tag() -> None:
+    class Maker(ElementMaker):
+        def __init__(self) -> None:
+            self.em = "set"
+
+    assert Maker().em == "set"
+
+
+def test_non_str_attribute_name_is_a_type_error(maker: ElementMaker) -> None:
+    lookup = type(maker).__getattribute__  # getattr() checks the name itself; the slot reaches the C lookup unchecked
+    with pytest.raises(TypeError, match=r"attribute name must be string|expected str"):
+        lookup(maker, 5)  # ty: ignore[invalid-argument-type]  # the name check is the point
+
+
+@pytest.mark.parametrize(
+    "tag",
+    [
+        pytest.param("_x", id="one-leading-underscore"),
+        pytest.param("__x", id="no-trailing-underscores"),
+        pytest.param("__x_", id="one-trailing-underscore"),
+        pytest.param("x__", id="no-leading-underscores"),
+    ],
+)
+def test_underscore_names_that_are_not_dunders_name_tags(tag: str) -> None:
+    assert getattr(E, tag)().tag == tag
+
+
+def test_invalid_tag_is_rejected() -> None:
+    with pytest.raises(ValueError, match="contains an invalid character"):
+        E("a b")
+
+
+def test_doctype_child_is_rejected() -> None:
+    (doctype, *_) = parse("<!DOCTYPE html><p>").children
+    with pytest.raises(ValueError, match="a doctype can only be a child of a Document"):
+        E.p("a", doctype, "b")
+
+
+def test_empty_string_child_is_an_empty_text_node() -> None:
+    (child,) = E.p("").children
+    assert isinstance(child, Text)
+    assert not child.data
+
+
+def test_document_child_is_rejected() -> None:
+    with pytest.raises(TypeError, match="a Document cannot be inserted as a child"):
+        E.div(parse("<p>x</p>"))
+
+
+def test_bad_child_leaves_earlier_nodes_in_place() -> None:
+    host = E.div(E.span("kept"))
+    (span,) = host.children
+    with pytest.raises(TypeError, match="child must be a node"):
+        E.p(span, 42)  # ty: ignore[invalid-argument-type]  # neither a node nor a string
+    assert host.serialize() == "<div><span>kept</span></div>"
+
+
+def test_fragment_child_moves_its_children() -> None:
+    fragment = DocumentFragment()
+    fragment.append(E.b("1"))
+    fragment.append(E.i("2"))
+    assert E.p("a", fragment, "c").serialize() == "<p>a<b>1</b><i>2</i>c</p>"
+
+
+_DATA_ATTRS: Final[str] = " ".join(f'data-{index}="{index}"' for index in range(40))
+
+
+@pytest.mark.parametrize(
+    ("attrs", "expected"),
+    [
+        pytest.param({"Data-X": "1", "data-x": "2"}, '<p data-x="1"></p>', id="folded-repeat-keeps-first"),
+        pytest.param({"class": ["a", "b"]}, '<p class="a b"></p>', id="list-value-joins"),
+        pytest.param({"title": "v" * 80}, f'<p title="{"v" * 80}"></p>', id="long-value"),
+        pytest.param({"a" * 70: "x"}, f'<p {"a" * 70}="x"></p>', id="long-name"),
+        pytest.param({"dätä": "x"}, '<p dätä="x"></p>', id="non-ascii-name"),
+        pytest.param(
+            {f"data-{index}": str(index) for index in range(40)},
+            f"<p {_DATA_ATTRS}></p>",
+            id="wide-dict",
+        ),
+    ],
+)
+def test_dict_attributes(attrs: Mapping[str, str | list[str]], expected: str) -> None:
+    assert E.p(attrs).serialize() == expected
+    assert Element("p", attrs).serialize() == expected
+
+
+@pytest.mark.parametrize(
+    ("name", "message"),
+    [
+        pytest.param("", "attribute name must not be empty", id="empty"),
+        pytest.param(f"{'a' * 70} b", "contains an invalid character", id="long-ascii"),
+        pytest.param("dä tä", "contains an invalid character", id="non-ascii"),
+    ],
+)
+def test_dict_attribute_name_is_checked(name: str, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        Element("p", {name: "x"})
+
+
+def test_dict_attribute_name_must_be_a_str() -> None:
+    with pytest.raises(TypeError, match="attribute name must be a str"):
+        Element("p", {5: "x"})  # ty: ignore[invalid-argument-type]  # the name check is the point
+
+
+@pytest.mark.parametrize("tag", [pytest.param("br", id="void"), pytest.param("frame", id="frame")])
+def test_constructor_rejects_children_of_a_void_element(tag: str) -> None:
+    with pytest.raises(ValueError, match=f"void element '{tag}' cannot have children"):
+        Element(tag, None, [Text("a")])
+
+
+def test_constructor_rejects_a_lone_child_that_is_not_a_node() -> None:
+    with pytest.raises(TypeError, match="child must be a node"):
+        Element("p", None, [42])  # ty: ignore[invalid-argument-type]  # neither a node nor a string
+
+
+@pytest.mark.parametrize(
+    ("call", "expected"),
+    [
+        pytest.param(lambda: Element(tag="p"), "<p></p>", id="keyword-tag"),
+        pytest.param(lambda: Element("p", children=[Text("a")]), "<p>a</p>", id="keyword-children"),
+        pytest.param(lambda: Element("p", {"id": "x"}, [Text("a")]), '<p id="x">a</p>', id="three-positional"),
+        pytest.param(lambda: Element("p", None, [Text("a"), Text("b")]), "<p>ab</p>", id="several-children"),
+        pytest.param(lambda: Element("br", None, []), "<br>", id="void-without-children"),
+    ],
+)
+def test_constructor_argument_shapes(call: Callable[[], Element], expected: str) -> None:
+    assert call().serialize() == expected
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(Element, id="none"),
+        pytest.param(
+            lambda: Element("p", None, None, None),  # ty: ignore[too-many-positional-arguments]  # the count is the point
+            id="four",
+        ),
+    ],
+)
+def test_constructor_rejects_argument_counts(call: Callable[[], Element]) -> None:
+    with pytest.raises(TypeError):
+        call()
 
 
 @pytest.mark.parametrize(

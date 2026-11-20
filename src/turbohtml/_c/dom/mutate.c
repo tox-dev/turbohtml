@@ -35,6 +35,15 @@ th_tree *th_tree_new(void) {
     return PyMem_Calloc(1, sizeof(th_tree));
 }
 
+/* An empty tree for one constructed element or text node, whose arena starts small. */
+th_tree *th_tree_new_small(void) {
+    th_tree *tree = th_tree_new();
+    if (tree != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        tree->small_arena = 1;
+    }
+    return tree;
+}
+
 void th_tree_set_quirks(th_tree *tree, int quirks) {
     tree->quirks = quirks;
 }
@@ -139,6 +148,25 @@ th_node *th_tree_make_data_node(th_tree *tree, int type, const Py_UCS4 *data, Py
         node->text = owned;
         node->text_len = len;
     }
+    return node;
+}
+
+th_node *th_tree_make_text_str(th_tree *tree, PyObject *text) {
+    th_node *node = th_tree_make_data_node(tree, TH_NODE_TEXT, NULL, 0);
+    Py_ssize_t len = PyUnicode_GET_LENGTH(text);
+    if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (len == 0) {
+        return node;
+    }
+    Py_UCS4 *owned = arena_alloc(tree, len * (Py_ssize_t)sizeof(Py_UCS4));
+    if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyUnicode_AsUCS4(text, owned, len, 0); /* cannot fail: owned holds every code point and no NUL is asked for */
+    node->text = owned;
+    node->text_len = len;
     return node;
 }
 

@@ -23,16 +23,15 @@ from __future__ import annotations
 
 __lazy_modules__ = [
     "collections.abc",
-    f"{__spec__.parent}._html",  # ty: ignore[missing-union-attribute]  # imported modules have a spec
 ]
 
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Final, TypeAlias
 
-from ._html import build_document, build_element
+from ._html import TagMaker, build_document, build_element
 
 if TYPE_CHECKING:
-    from ._html import Document, Element, Node
+    from ._html import Document, Element, Node, TagFactory
 
 #: Attributes accepted by :class:`turbohtml.Element`: a name maps to a string, a token list, or ``None`` for a bare
 #: boolean attribute such as ``disabled``.
@@ -43,33 +42,7 @@ Attributes: TypeAlias = "Mapping[str, str | list[str] | None]"
 Content: TypeAlias = "Attributes | Node | str"
 
 
-def _build(tag: str, args: tuple[Content, ...]) -> Element:
-    # Build one element: a leading mapping sets its attributes, and the rest become children in order.
-    #
-    # :raises ValueError: if the tag or an attribute name carries a character HTML forbids there, or if a
-    #     void element such as ``br`` or ``img`` is given children.
-    # :raises TypeError: if an attribute mapping is not the first argument.
-    return build_element(tag, args, Mapping)
-
-
-class _TagFactory:
-    # The callable returned by ``E.<tag>``; it remembers the tag name and builds that element when called.
-    __slots__ = ("_tag",)
-
-    def __init__(self, tag: str) -> None:
-        # Remember the tag name this factory builds.
-        self._tag = tag
-
-    def __call__(self, *args: Content) -> Element:
-        # Build the element from a leading attribute mapping and the child nodes and strings that follow.
-        #
-        # :raises ValueError: if the tag or an attribute name carries a character HTML forbids there, or if a
-        #     void element such as ``br`` or ``img`` is given children.
-        # :raises TypeError: if an attribute mapping is not the first argument.
-        return _build(self._tag, args)
-
-
-class ElementMaker:
+class ElementMaker(TagMaker):
     """
     A factory whose attribute access names the tag to build: ``E.div`` returns a callable that builds a ``<div>``.
 
@@ -77,17 +50,15 @@ class ElementMaker:
     equivalent; the call form takes a tag that is not a Python identifier.
     """
 
-    def __getattr__(self, tag: str) -> _TagFactory:
-        """
-        Return the factory for ``tag``; dunder lookups fall through so copy and pickle protocols are not hijacked.
+    if TYPE_CHECKING:
+        # TagMaker answers a missing attribute in C: a Python __getattr__ frame costs more than the element it builds.
+        def __getattr__(self, tag: str) -> TagFactory:
+            """
+            Return the factory for ``tag``; a dunder name raises AttributeError, so copy and pickle are not hijacked.
 
-        :param tag: the tag name.
-        :returns: the factory that builds ``tag`` elements.
-        :raises AttributeError: if ``tag`` is a dunder name.
-        """
-        if tag.startswith("__") and tag.endswith("__"):
-            raise AttributeError(tag)
-        return _TagFactory(tag)
+            :param tag: the tag name.
+            :returns: the factory that builds ``tag`` elements.
+            """
 
     def __call__(self, tag: str, /, *args: Content) -> Element:
         """
@@ -100,7 +71,7 @@ class ElementMaker:
         :raises TypeError: if an attribute mapping is not the first argument.
         :returns: the element built from ``tag``, its attributes, and its children.
         """
-        return _build(tag, args)
+        return build_element(tag, Mapping, *args)
 
 
 #: The shared builder: ``E.div(...)`` or ``E("div", ...)`` builds a ``<div>`` element.
