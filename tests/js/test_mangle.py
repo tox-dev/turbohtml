@@ -51,6 +51,13 @@ _NODE: Final[str | None] = shutil.which("node")
             "function f(b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,a){return b+c+d+e+f+g+h+i+j+k+l+m+n+o+p+q+r+s+t+a+a+a}",
             id="many-bindings-most-used-first",
         ),
+        # a binding read more times than the program has symbols still sorts first
+        pytest.param(
+            f"function f({','.join(f'p{index}' for index in range(17))})"
+            f"{{return {'+'.join(f'p{index}' for index in range(17))}{'+p16' * 30}}}",
+            f"function f(b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,a){{return b+c+d+e+f+g+h+i+j+k+l+m+n+o+p+q+a{'+a' * 30}}}",
+            id="many-bindings-uses-past-symbol-count",
+        ),
         pytest.param("function f(a1){var a1=g()}", "function f(a){g()}", id="parameter-redeclared-unread"),
         pytest.param(
             "function transform(value){return value+a+b+c}",
