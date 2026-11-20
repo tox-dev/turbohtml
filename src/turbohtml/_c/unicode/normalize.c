@@ -162,71 +162,52 @@ static int quick_check(int kind, const void *data, Py_ssize_t len, int form, Py_
     return TH_QC_YES;
 }
 
-/* The decomposed sequence: the code points with their combining classes alongside, so reordering and recomposing
-   read each class once, and whether a mark follows one of a higher class, the only case reordering changes. */
-typedef struct {
-    Py_UCS4 *points;
-    uint8_t *classes;
-    Py_ssize_t len;
-    uint8_t last_class;
-    int unordered;
-} th_norm_seq;
-
-static void seq_push(th_norm_seq *seq, Py_UCS4 cp) {
-    uint8_t klass = ccc_of(cp);
-    seq->unordered |= klass != 0 && klass < seq->last_class;
-    seq->last_class = klass;
-    seq->classes[seq->len] = klass;
-    seq->points[seq->len++] = cp;
-}
-
-/* Append the decomposition row `number` (1-based) of a table, its run in the shared pool, to `seq`. */
-static void append_row(th_norm_seq *seq, const uint16_t *offsets, const uint8_t *lengths, uint16_t number) {
+/* Append the decomposition row `number` (1-based) of a table, its run in the shared pool, to `out` at `at`; returns the
+   new length. */
+static Py_ssize_t append_row(Py_UCS4 *out, Py_ssize_t at, const uint16_t *offsets, const uint8_t *lengths,
+                             uint16_t number) {
     for (uint8_t index = 0; index < lengths[number - 1]; index++) {
-        seq_push(seq, th_norm_pool[offsets[number - 1] + index]);
+        out[at++] = th_norm_pool[offsets[number - 1] + index];
     }
+    return at;
 }
 
-/* Decompose input[0,len) into `seq` (Hangul arithmetically, everything else through the tables at the `compat` depth);
-   `seq` holds at most len * TH_NORM_MAX_EXPANSION code points. */
-static void decompose(int kind, const void *data, Py_ssize_t len, th_norm_seq *seq, int compat) {
+/* Decompose input[0,len) into `out` (Hangul arithmetically, everything else through the tables at the `compat` depth);
+   `out` holds at most len * TH_NORM_MAX_EXPANSION code points. Returns the decomposed length. */
+static Py_ssize_t decompose(int kind, const void *data, Py_ssize_t len, Py_UCS4 *out, int compat) {
+    Py_ssize_t at = 0;
     for (Py_ssize_t index = 0; index < len; index++) {
         Py_UCS4 cp = PyUnicode_READ(kind, data, index);
         Py_UCS4 sindex = cp - HANGUL_SBASE;
         if (sindex < HANGUL_SCOUNT) {
-            /* jamo are starters, class 0 */
-            seq->classes[seq->len] = 0;
-            seq->points[seq->len++] = HANGUL_LBASE + sindex / HANGUL_NCOUNT;
-            seq->classes[seq->len] = 0;
-            seq->points[seq->len++] = HANGUL_VBASE + sindex % HANGUL_NCOUNT / HANGUL_TCOUNT;
+            out[at++] = HANGUL_LBASE + sindex / HANGUL_NCOUNT;
+            out[at++] = HANGUL_VBASE + sindex % HANGUL_NCOUNT / HANGUL_TCOUNT;
             if (sindex % HANGUL_TCOUNT != 0) {
-                seq->classes[seq->len] = 0;
-                seq->points[seq->len++] = HANGUL_TBASE + sindex % HANGUL_TCOUNT;
+                out[at++] = HANGUL_TBASE + sindex % HANGUL_TCOUNT;
             }
-            seq->last_class = 0;
             continue;
         }
         uint16_t number = compat ? compat_number(cp) : 0;
         if (number != 0) {
-            append_row(seq, th_norm_compat_offset, th_norm_compat_length, number);
+            at = append_row(out, at, th_norm_compat_offset, th_norm_compat_length, number);
         } else if ((number = canon_number(cp)) != 0) {
-            append_row(seq, th_norm_canon_offset, th_norm_canon_length, number);
+            at = append_row(out, at, th_norm_canon_offset, th_norm_canon_length, number);
         } else {
-            seq_push(seq, cp);
+            out[at++] = cp;
         }
     }
+    return at;
 }
 
 /* Equal combining classes must retain input order (Unicode canonical ordering, spec 3.11). */
-static int reorder_run(Py_UCS4 *seq, uint8_t *classes, Py_ssize_t len) {
-    Py_UCS4 *const ordered = PyMem_Malloc((size_t)len * (sizeof(Py_UCS4) + 1));
+static int reorder_run(Py_UCS4 *seq, Py_ssize_t len) {
+    Py_UCS4 *const ordered = PyMem_Malloc((size_t)len * sizeof(Py_UCS4));
     if (ordered == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return -1;         /* GCOVR_EXCL_LINE: allocation failure */
     }
-    uint8_t *const ordered_classes = (uint8_t *)(ordered + len);
     Py_ssize_t offsets[256] = {0};
     for (Py_ssize_t index = 0; index < len; index++) {
-        offsets[classes[index]]++;
+        offsets[ccc_of(seq[index])]++;
     }
     Py_ssize_t total = 0;
     for (size_t klass = 0; klass < 256; klass++) {
@@ -235,48 +216,40 @@ static int reorder_run(Py_UCS4 *seq, uint8_t *classes, Py_ssize_t len) {
         total += count;
     }
     for (Py_ssize_t index = 0; index < len; index++) {
-        Py_ssize_t at = offsets[classes[index]]++;
-        ordered[at] = seq[index];
-        ordered_classes[at] = classes[index];
+        ordered[offsets[ccc_of(seq[index])]++] = seq[index];
     }
     memcpy(seq, ordered, (size_t)len * sizeof(Py_UCS4));
-    memcpy(classes, ordered_classes, (size_t)len);
     PyMem_Free(ordered);
     return 0;
 }
 
-/* Put each run of combining marks into canonical order, moving the classes with their code points. */
-static int reorder(Py_UCS4 *seq, uint8_t *classes, Py_ssize_t len) {
+static int reorder(Py_UCS4 *seq, Py_ssize_t len) {
     Py_ssize_t run_start = 0;
     for (Py_ssize_t index = 1; index < len; index++) {
         Py_UCS4 cp = seq[index];
-        uint8_t klass = classes[index];
+        uint8_t klass = ccc_of(cp);
         if (klass == 0) {
             run_start = index + 1;
             continue;
         }
         /* Stable counting avoids quadratic shifts in long, out-of-order mark runs. */
-        if (index - run_start >= 32 && classes[index - 1] > klass) {
+        if (index - run_start >= 32 && ccc_of(seq[index - 1]) > klass) {
             Py_ssize_t end = index + 1;
-            while (end < len && classes[end] != 0) {
+            while (end < len && ccc_of(seq[end]) != 0) {
                 end++;
             }
-            /* GCOVR_EXCL_BR_START: allocation failure */
-            if (reorder_run(seq + run_start, classes + run_start, end - run_start) < 0) {
-                /* GCOVR_EXCL_BR_STOP */
-                return -1; /* GCOVR_EXCL_LINE: allocation failure */
+            if (reorder_run(seq + run_start, end - run_start) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;                                           /* GCOVR_EXCL_LINE: allocation failure */
             }
             index = end - 1;
             continue;
         }
         Py_ssize_t back = index;
-        while (back > 0 && classes[back - 1] > klass) {
+        while (back > 0 && ccc_of(seq[back - 1]) > klass) {
             seq[back] = seq[back - 1];
-            classes[back] = classes[back - 1];
             back--;
         }
         seq[back] = cp;
-        classes[back] = klass;
     }
     return 0;
 }
@@ -284,13 +257,13 @@ static int reorder(Py_UCS4 *seq, uint8_t *classes, Py_ssize_t len) {
 /* Recompose the ordered sequence in place: fold each unblocked combining mark into its starter (Hangul arithmetically,
    everything else through the table). A mark is blocked when a preceding mark of equal-or-higher class stands between
    it and the starter (last_class tracks that). Returns the composed length. */
-static Py_ssize_t compose(Py_UCS4 *seq, const uint8_t *classes, Py_ssize_t len) {
+static Py_ssize_t compose(Py_UCS4 *seq, Py_ssize_t len) {
     Py_ssize_t out_len = 0;
     Py_ssize_t starter_at = -1;
     int last_class = 0;
     for (Py_ssize_t index = 0; index < len; index++) {
         Py_UCS4 cp = seq[index];
-        int klass = classes[index];
+        int klass = ccc_of(cp);
         if (starter_at >= 0 && (last_class < klass || last_class == 0)) {
             Py_UCS4 composed = pair_compose(seq[starter_at], cp);
             if (composed != 0) {
@@ -310,7 +283,7 @@ static Py_ssize_t compose(Py_UCS4 *seq, const uint8_t *classes, Py_ssize_t len) 
 static const char *const form_names[] = {"NFC", "NFD", "NFKC", "NFKD"};
 
 /* The (form, text) arguments of normalize and is_normalized, with the errors their Python wrappers raised: a form
-   outside the four names is a ValueError, one that cannot be a mapping key the TypeError hashing it raises. */
+   outside the four names is a ValueError, one that cannot be a dict key the TypeError a dict lookup raises. */
 static int parse_form_text(const char *name, PyObject *const *args, Py_ssize_t count, PyObject *kwnames, int *form) {
     if (kwnames != NULL) {
         PyErr_Format(PyExc_TypeError, "%s() takes no keyword arguments", name);
@@ -333,8 +306,14 @@ static int parse_form_text(const char *name, PyObject *const *args, Py_ssize_t c
                 return 0;
             }
         }
-    } else if (PyObject_Hash(form_name) == -1) {
-        return -1;
+    } else {
+        /* the Python wrapper looked the name up in a dict, so an unhashable one raises that lookup's TypeError */
+        PyObject *forms = PyDict_New();
+        int found = forms == NULL ? -1 : PyDict_Contains(forms, form_name); /* GCOVR_EXCL_BR_LINE: allocation */
+        Py_XDECREF(forms);
+        if (found < 0) {
+            return -1;
+        }
     }
     PyErr_Format(PyExc_ValueError, "invalid normalization form %R", form_name);
     return -1;
@@ -393,25 +372,20 @@ static PyObject *normalize_full(int kind, const void *data, Py_ssize_t len, int 
     int compat = form == TH_NFKC || form == TH_NFKD;
     /* len is a code-point count from a live str, far under the overflow bound; keep the guard on one line for the gate
      */
-    if (len > PY_SSIZE_T_MAX / (Py_ssize_t)(TH_NORM_MAX_EXPANSION * (sizeof(Py_UCS4) + 1))) { /* GCOVR_EXCL_BR_LINE */
+    if (len > PY_SSIZE_T_MAX / (Py_ssize_t)(TH_NORM_MAX_EXPANSION * sizeof(Py_UCS4))) { /* GCOVR_EXCL_BR_LINE */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: a str this long cannot be allocated to reach here */
     }
-    size_t capacity = (size_t)(len - prefix) * TH_NORM_MAX_EXPANSION;
-    Py_UCS4 *buf = PyMem_Malloc(capacity * (sizeof(Py_UCS4) + 1));
+    Py_UCS4 *buf = PyMem_Malloc((size_t)(len - prefix) * TH_NORM_MAX_EXPANSION * sizeof(Py_UCS4));
     if (buf == NULL) {           /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    th_norm_seq seq = {buf, (uint8_t *)(buf + capacity), 0, 0, 0};
-    decompose(kind, (const char *)data + prefix * kind, len - prefix, &seq, compat);
-    if (seq.unordered) {
-        if (reorder(buf, seq.classes, seq.len) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            PyMem_Free(buf);                          /* GCOVR_EXCL_LINE: allocation failure */
-            return PyErr_NoMemory();                  /* GCOVR_EXCL_LINE: allocation failure */
-        }
+    Py_ssize_t count = decompose(kind, (const char *)data + prefix * kind, len - prefix, buf, compat);
+    if (reorder(buf, count) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyMem_Free(buf);           /* GCOVR_EXCL_LINE: allocation failure */
+        return PyErr_NoMemory();   /* GCOVR_EXCL_LINE: allocation failure */
     }
-    Py_ssize_t count = seq.len;
     if (form == TH_NFC || form == TH_NFKC) {
-        count = compose(buf, seq.classes, count);
+        count = compose(buf, count);
     }
     PyObject *result = build_result(kind, data, prefix, buf, count);
     PyMem_Free(buf);

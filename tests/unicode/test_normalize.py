@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import unicodedata
 from itertools import product
 from typing import Final
@@ -173,9 +174,11 @@ def test_non_string_form_raises_value_error(bad: int | None) -> None:
 
 
 def test_unhashable_form_raises_the_dict_key_type_error() -> None:
-    with pytest.raises(TypeError, match="unhashable type: 'list'"):
+    with pytest.raises(TypeError) as lookup:
+        {}.get(["NFC"])
+    with pytest.raises(TypeError, match=f"^{re.escape(str(lookup.value))}$"):
         normalize(["NFC"], "x")  # ty: ignore[invalid-argument-type]  # exercises the form lookup
-    with pytest.raises(TypeError, match="unhashable type: 'list'"):
+    with pytest.raises(TypeError, match=f"^{re.escape(str(lookup.value))}$"):
         is_normalized(["NFC"], "x")  # ty: ignore[invalid-argument-type]  # exercises the form lookup
 
 
