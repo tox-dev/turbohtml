@@ -1,0 +1,4 @@
+Detecting an encoding takes fewer instructions: Windows-1251 text about half as many, a repeated :func:`detect
+<turbohtml.detect.detect>` of a short ASCII or byte-order-marked input about a third, and :class:`EncodingDetector
+<turbohtml.detect.EncodingDetector>` fed 16-byte chunks about a third. The detector now runs construction, ``feed``,
+``reset``, ``done`` and ``result`` in C; an instance no longer accepts arbitrary attributes or weak references.
