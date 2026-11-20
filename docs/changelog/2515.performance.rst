@@ -1,0 +1,2 @@
+XSLT transforms with ``method="text"`` output build their result string in one pass, and template lookup skips match sets
+and caches it does not need, so text-heavy transforms run about twice as fast.

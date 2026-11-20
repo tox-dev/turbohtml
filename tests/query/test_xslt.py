@@ -965,6 +965,16 @@ def test_transform_key_use_over_node_set_argument() -> None:
     assert _run('<r><want cat="x"/><item cat="x"/><item cat="x"/><item cat="y"/></r>', body) == "2"
 
 
+def test_transform_key_over_node_set_takes_each_of_many_nodes_once() -> None:
+    body = (
+        '<xsl:key name="k" match="item" use="@cat"/>'
+        '<xsl:template match="/"><xsl:value-of select="count(key(\'k\', r/want/@cat))"/></xsl:template>'
+    )
+    # every fifth item matches, a stride whose hash slots collide as the set of taken nodes grows
+    items = "".join(f'<item cat="{index % 5}"/>' for index in range(1500))
+    assert _run(f'<r><want cat="0"/><want cat="0"/>{items}</r>', body) == "300"
+
+
 def test_transform_key_over_node_set_is_a_union() -> None:
     body = (
         '<xsl:key name="k" match="item" use="@cat|@tag"/>'
@@ -2230,6 +2240,21 @@ def test_transform_mode_mismatch_falls_to_builtin() -> None:
         '<xsl:template match="n" mode="b">B</xsl:template>'
     )
     assert _run("<r><n>text</n></r>", body) == "text"
+
+
+def test_transform_root_rules_pick_by_mode() -> None:
+    body = (
+        '<xsl:template match="/">D<xsl:apply-templates select="/" mode="m"/></xsl:template>'
+        '<xsl:template match="/" mode="m">M</xsl:template>'
+        '<xsl:template match="/" mode="n">N</xsl:template>'
+    )
+    assert _run("<r/>", body) == "DM"
+
+
+def test_transform_many_wildcard_rules_cache_their_dispatch() -> None:
+    rules = "".join(f'<xsl:template match="*[@k={index}]">{index}</xsl:template>' for index in range(16))
+    body = f'<xsl:template match="/"><xsl:apply-templates select="r/*"/></xsl:template>{rules}'
+    assert _run('<r><a k="3"/><b k="15"/><c k="99">x</c><a k="3"/></r>', body) == "315x3"
 
 
 def test_transform_avt_expression_with_quoted_brace() -> None:
