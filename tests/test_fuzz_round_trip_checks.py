@@ -1867,10 +1867,16 @@ def test_content_chunks_reject_dropped_chunk(
     consumer: type[EncodingDetector | HTMLParser],
     data: bytes,
 ) -> None:
-    feed = consumer.feed
-    mocker.patch.object(
-        consumer, "feed", autospec=True, side_effect=lambda stream, chunk: len(chunk) == 1 or feed(stream, chunk)
+    feed: Final[Callable[[EncodingDetector | HTMLParser, bytes | str], None]] = cast(
+        "Callable[[EncodingDetector | HTMLParser, bytes | str], None]", consumer.feed
     )
+
+    # a C method under autospec is a plain mock, not a descriptor, so it would never receive the instance
+    def drop_single_byte_chunks(stream: EncodingDetector | HTMLParser, chunk: bytes | str) -> None:
+        if len(chunk) != 1:
+            feed(stream, chunk)
+
+    mocker.patch.object(consumer, "feed", drop_single_byte_chunks)
     with pytest.raises(AssertionError, match="Content API mismatch"):
         check(data, Header(0, 0, 1))
 
