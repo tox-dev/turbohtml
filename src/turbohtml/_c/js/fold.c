@@ -388,6 +388,22 @@ static void fold_void(F *folder, int32_t idx) {
     folder->changed = 1;
 }
 
+/* A fresh `void 0`, or -1 on allocation failure. */
+static int32_t make_undefined(F *folder) {
+    int32_t undef = jm_node_new(folder->prog, JN_UNARY);
+    if (undef < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        return -1;   /* GCOVR_EXCL_LINE */
+    }
+    fold_void(folder, undef);
+    return folder->prog->nodes[undef].str == NULL ? -1 : undef; /* GCOVR_EXCL_BR_LINE: alloc failure */
+}
+
+/* Whether an expression is `void X` for a pure X: undefined, with nothing to evaluate. */
+static int is_bare_undefined(F *folder, int32_t idx) {
+    const jm_node *node = &folder->prog->nodes[idx];
+    return node->kind == JN_UNARY && node->op == JT_IDENT && ident_is(node, "void") && is_pure_const(folder, node->a);
+}
+
 static int pattern_binds(F *folder, int32_t idx, const char *name) {
     if (idx < 0) {
         return 0;
@@ -1219,14 +1235,20 @@ static void fold_if_return_chain(F *folder, int32_t first) {
         int32_t index = guards[position];
         int32_t then = branch_stmt(folder, prog->nodes[index].b);
         int32_t next = prog->nodes[index].next;
-        if (then < 0 || prog->nodes[then].kind != JN_RETURN || prog->nodes[then].a < 0 || next < 0 ||
-            prog->nodes[next].kind != JN_RETURN || prog->nodes[next].a < 0) {
+        if (then < 0 || prog->nodes[then].kind != JN_RETURN || next < 0 || prog->nodes[next].kind != JN_RETURN ||
+            (prog->nodes[then].a < 0 && prog->nodes[next].a < 0)) {
             continue;
         }
         if (folder->deepest >= prog->rewrite_limit) {
             break; /* this guard and the ones before it stay statements */
         }
-        int32_t cond = make_cond(folder, prog->nodes[index].a, prog->nodes[then].a, prog->nodes[next].a);
+        /* a bare return returns undefined, so `if(c)return;return b` is `return c?void 0:b` */
+        int32_t then_value = prog->nodes[then].a >= 0 ? prog->nodes[then].a : make_undefined(folder);
+        int32_t next_value = prog->nodes[next].a >= 0 ? prog->nodes[next].a : make_undefined(folder);
+        if (then_value < 0 || next_value < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+            break;                              /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        int32_t cond = make_cond(folder, prog->nodes[index].a, then_value, next_value);
         if (cond < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
             break;      /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -1309,6 +1331,42 @@ static void fold_guard_jump(F *folder, int32_t first, int jump_kind) {
     }
 }
 
+/* A tail `return c?a:void 0` returns a when c holds and undefined otherwise, which falling off the end returns too,
+   so it is `if(c)return a`; `return c?void 0:b` is `if(!c)return b`. In `return x,c?a:void 0` the test keeps the
+   sequence's leading elements: `if(x,c)return a`. */
+static void fold_tail_conditional(F *folder, int32_t ret, int32_t cond, int32_t cond_prev) {
+    jm_program *prog = folder->prog;
+    int32_t test = prog->nodes[cond].a;
+    int32_t kept;
+    if (is_bare_undefined(folder, prog->nodes[cond].c)) {
+        kept = prog->nodes[cond].b;
+    } else if (is_bare_undefined(folder, prog->nodes[cond].b)) {
+        kept = prog->nodes[cond].c;
+        test = negate_for_test(folder, test);
+        if (test < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+            return;     /* GCOVR_EXCL_LINE */
+        }
+    } else {
+        return;
+    }
+    int32_t inner = jm_node_new(prog, JN_RETURN);
+    if (inner < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        return;      /* GCOVR_EXCL_LINE */
+    }
+    prog->nodes[inner].a = kept;
+    prog->nodes[kept].next = -1;
+    prog->nodes[test].next = -1;
+    if (cond_prev >= 0) {
+        prog->nodes[cond_prev].next = test;
+        test = prog->nodes[ret].a; /* the sequence, now ending in the test */
+    }
+    prog->nodes[ret].kind = JN_IF;
+    prog->nodes[ret].a = test;
+    prog->nodes[ret].b = inner;
+    prog->nodes[ret].c = -1;
+    folder->changed = 1;
+}
+
 /* A `return` ending a function body is redundant when it returns undefined: falling off the end
    already completes with undefined (10.2.1.4). A bare tail `return` is unlinked, and a tail
    `return void X` -- or `return a,b,void X` after the sequence merge -- keeps only its operands'
@@ -1347,6 +1405,10 @@ static void fold_tail_return(F *folder, int32_t block) {
         }
     }
     const jm_node *tail = &prog->nodes[value];
+    if (tail->kind == JN_COND) {
+        fold_tail_conditional(folder, last, value, value_prev);
+        return;
+    }
     if (!(tail->kind == JN_UNARY && tail->op == JT_IDENT && ident_is(tail, "void"))) {
         return;
     }
@@ -2306,6 +2368,14 @@ static void walk(F *folder, int32_t idx, int32_t depth) {
     /* then transform this node against its now-folded children */
     node = &folder->prog->nodes[idx];
     switch (node->kind) {
+    case JN_RETURN:
+        /* `return void 0` and a bare `return` both return undefined (14.10.1); the bare form is shorter, and the
+           one the guard and tail folds read */
+        if (node->a >= 0 && is_bare_undefined(folder, node->a)) {
+            node->a = -1;
+            folder->changed = 1;
+        }
+        return;
     case JN_UNARY:
         if (node->op == JT_NOT) {
             const jm_node *operand = &folder->prog->nodes[node->a];
@@ -2361,15 +2431,11 @@ static void walk(F *folder, int32_t idx, int32_t depth) {
                 /* `typeof X op "undefined"` is true exactly when X's value is undefined (13.5.3),
                    so it shortens to the strict `void 0===X` / `void 0!==X`; X's evaluation (and any
                    throw from it) is identical on both forms since X is not a bare name. */
-                int32_t undef = jm_node_new(folder->prog, JN_UNARY);
+                int32_t undef = make_undefined(folder);
                 if (undef < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path keeps the typeof */
                     return;      /* GCOVR_EXCL_LINE */
                 }
-                fold_void(folder, undef);
-                node = &folder->prog->nodes[idx];             /* the two allocations may have moved the arena */
-                if (folder->prog->nodes[undef].str == NULL) { /* GCOVR_EXCL_BR_LINE: alloc failure */
-                    return;                                   /* GCOVR_EXCL_LINE */
-                }
+                node = &folder->prog->nodes[idx]; /* the two allocations may have moved the arena */
                 node->op = node->op == JT_EQ_EQ || node->op == JT_EQ_EQ_EQ ? JT_EQ_EQ_EQ : JT_NE_EQ;
                 node->a = undef;
                 node->b = folder->prog->nodes[typeof_side].a;

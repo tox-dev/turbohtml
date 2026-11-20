@@ -230,6 +230,48 @@ _NODE: Final[str | None] = shutil.which("node")
         pytest.param(
             "function f(){return void g(),h()}", "function f(){return void g(),h()}", id="tail-seq-valued-kept"
         ),
+        # a return of undefined is a bare return anywhere in a body, which a guard then folds; a tail conditional
+        # with an undefined branch becomes an if, since falling off the end returns undefined too
+        pytest.param(
+            "function f(){for(;;){if(a)return void 0;g()}}",
+            "function f(){for(;;){if(a)return;g()}}",
+            id="return-undefined-bare",
+        ),
+        pytest.param(
+            "function f(){if(a)return void 0;g();h()}", "function f(){a||(g(),h())}", id="return-undefined-guard"
+        ),
+        pytest.param(
+            "function f(){for(;;){if(a)return void g();h()}}",
+            "function f(){for(;;){if(a)return void g();h()}}",
+            id="return-void-call-kept",
+        ),
+        pytest.param("function f(){if(a)return;return b}", "function f(){if(!a)return b}", id="bare-then-return"),
+        pytest.param("function f(){if(a)return b;return}", "function f(){if(a)return b}", id="bare-next-return"),
+        pytest.param(
+            "function f(){for(;;){if(a)return;return b}}",
+            "function f(){for(;;)return a?void 0:b}",
+            id="bare-return-merged",
+        ),
+        pytest.param(
+            "function f(){for(;;){if(a)return;return}}",
+            "function f(){for(;;){if(a)return;return}}",
+            id="both-bare-returns-kept",
+        ),
+        pytest.param(
+            "function f(){return a==null?void 0:a.b}",
+            "function f(){if(a!=null)return a.b}",
+            id="tail-cond-undefined-then",
+        ),
+        pytest.param(
+            "function f(){return a?a.b:void 0}", "function f(){if(a)return a.b}", id="tail-cond-undefined-else"
+        ),
+        pytest.param(
+            "function f(){g();return a?a.b:void 0}", "function f(){if(g(),a)return a.b}", id="tail-cond-undefined-seq"
+        ),
+        pytest.param("function f(){return a?b:c}", "function f(){return a?b:c}", id="tail-cond-valued-kept"),
+        pytest.param(
+            "function f(){return a?b:void g()}", "function f(){return a?b:void g()}", id="tail-cond-void-call-kept"
+        ),
         pytest.param(
             "function f(){for(;;){return void g()}}",
             "function f(){for(;;)return void g()}",
@@ -2135,6 +2177,13 @@ def test_indirect_eval_leaves_locals_renamable() -> None:
             "function f(a,b){return[a===1?g(b,1):g(b,2),!a||b?g(3):g(4)]}"
             "console.log(JSON.stringify([f(1,0),f(2,5),f(0,0),log]))",
             id="hoisted-call",
+        ),
+        pytest.param(
+            "var log=[];function g(v){log.push(v);return v}"
+            "function f(a){if(a===1)return void 0;if(a===2)return;g(a);return a>3?g(a+1):void 0}"
+            "function*h(a){if(a)return void 0;yield 1}"
+            "console.log(JSON.stringify([f(1),f(2),f(3),f(4),log,[...h(0)],[...h(1)]]))",
+            id="undefined-returns",
         ),
         pytest.param(
             "var o={valueOf(){return 2}};"
