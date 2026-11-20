@@ -1,0 +1,2 @@
+:func:`turbohtml.detect.normalize` and :func:`turbohtml.detect.is_normalized` call straight into C, and normalizing
+Hangul jamo, combining marks and decomposed text is faster, up to about a third for Hangul.

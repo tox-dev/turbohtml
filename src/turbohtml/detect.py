@@ -42,24 +42,21 @@ import string
 from dataclasses import dataclass
 from functools import cache
 from itertools import starmap
-from types import MappingProxyType
 from typing import Final, Literal
 
 from ._html import (
     DetectStream,
     codec_label,
     detect_rank,
+    is_normalized,
+    normalize,
 )
 from ._html import decode as native_decode
 from ._html import detect as native_detect
 from ._html import detect_language as native_detect_language
-from ._html import is_normalized as native_is_normalized
-from ._html import normalize as native_normalize
 
 #: The Unicode normalization forms :func:`normalize` and :func:`is_normalized` accept.
 NormalizationForm = Literal["NFC", "NFD", "NFKC", "NFKD"]
-
-_FORMS: Final[MappingProxyType[str, int]] = MappingProxyType({"NFC": 0, "NFD": 1, "NFKC": 2, "NFKD": 3})
 
 
 def _refuse_encode(text: str, errors: str = "strict", /) -> tuple[bytes, int]:  # ruff:ignore[unused-function-argument]  # the codec API passes errors; the refusal ignores it
@@ -378,52 +375,6 @@ class LanguageMatch:
     confidence: float
     script: str | None
     name: str | None = None
-
-
-def normalize(form: NormalizationForm, text: str, /) -> str:
-    """
-    Return *text* in a Unicode normalization form (UAX #15), the C successor to :func:`unicodedata.normalize`.
-
-    The four forms pair a decomposition depth with whether the result is recomposed: ``NFD`` fully decomposes and
-    canonically orders combining marks, ``NFC`` decomposes then recomposes, and the ``NFK*`` forms decompose
-    compatibility equivalents too (folding ligatures, superscripts, and width variants onto their plain characters).
-    ``NFC`` is what you want to compare or store user text so ``"é"`` written as a base plus a combining accent equals
-    ``"é"`` written as one code point; ``NFKC`` additionally flattens presentation variants. A quick check returns
-    already-normalized text (the common case) without allocating.
-
-    :param form: the normalization form, one of ``"NFC"``, ``"NFD"``, ``"NFKC"``, ``"NFKD"``.
-    :param text: the string to normalize.
-    :returns: the normalized string, the same object when it was already normalized.
-    :raises ValueError: when *form* is not one of the four names.
-    :raises TypeError: when *text* is not a ``str``.
-    """
-    try:
-        code = _FORMS[form]
-    except KeyError:
-        msg = f"invalid normalization form {form!r}"
-        raise ValueError(msg) from None
-    return native_normalize(code, text)
-
-
-def is_normalized(form: NormalizationForm, text: str, /) -> bool:
-    """
-    Return whether *text* is already in a Unicode normalization form, the :func:`unicodedata.is_normalized` peer.
-
-    This decides the same question as ``normalize(form, text) == text`` but the quick check settles almost every string
-    in a single scan, without building the normalized copy.
-
-    :param form: the normalization form, one of ``"NFC"``, ``"NFD"``, ``"NFKC"``, ``"NFKD"``.
-    :param text: the string to test.
-    :returns: ``True`` when *text* is unchanged by :func:`normalize` for *form*.
-    :raises ValueError: when *form* is not one of the four names.
-    :raises TypeError: when *text* is not a ``str``.
-    """
-    try:
-        code = _FORMS[form]
-    except KeyError:
-        msg = f"invalid normalization form {form!r}"
-        raise ValueError(msg) from None
-    return native_is_normalized(code, text)
 
 
 __all__ = [

@@ -68,9 +68,9 @@ PyObject *turbohtml_detect_language(PyObject *module, PyObject *args);
    the name is not one of ours; the label choice the registry search function used to make. METH_O. */
 PyObject *turbohtml_codec_label(PyObject *module, PyObject *name);
 
-/* Implemented in unicode/normalize.c. _normalize(form, text) applies one of the
-   four Unicode normalization forms (form 0..3 = NFC, NFD, NFKC, NFKD) to text;
-   _is_normalized(form, text) tests membership. Both are METH_FASTCALL | METH_KEYWORDS. */
+/* Implemented in unicode/normalize.c. normalize(form, text) applies one of the
+   four Unicode normalization forms, named "NFC", "NFD", "NFKC" or "NFKD", to text;
+   is_normalized(form, text) tests membership. Both are METH_FASTCALL | METH_KEYWORDS. */
 PyObject *turbohtml_normalize(PyObject *module, PyObject *const *args, Py_ssize_t count, PyObject *kwnames);
 PyObject *turbohtml_is_normalized(PyObject *module, PyObject *const *args, Py_ssize_t count, PyObject *kwnames);
 /* _collapse_whitespace(text) joins the text's words with single spaces, the str.split() fold (METH_O). */

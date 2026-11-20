@@ -322,61 +322,17 @@ def test_detect_checks_its_arguments(args: tuple[bytes | list[str] | None, ...],
         detect(*args)  # ty: ignore[no-matching-overload]  # rejected at runtime
 
 
-_ENTRY_NAMES: Final[tuple[str, str]] = ("_normalize", "_is_normalized")
+_ENTRY_NAMES: Final[tuple[str, str]] = ("normalize", "is_normalized")
 
 
 @pytest.mark.parametrize("name", _ENTRY_NAMES)
-@pytest.mark.parametrize("args", [pytest.param((0,), id="one"), pytest.param((0, "a", "b"), id="three")])
-def test_engine_entry_takes_exactly_two_arguments(name: str, args: tuple[int | str, ...]) -> None:
-    with pytest.raises(TypeError, match="function takes exactly 2 arguments"):
+@pytest.mark.parametrize("args", [pytest.param(("NFC",), id="one"), pytest.param(("NFC", "a", "b"), id="three")])
+def test_engine_entry_takes_exactly_two_arguments(name: str, args: tuple[str, ...]) -> None:
+    with pytest.raises(TypeError, match=f"{name}\\(\\) takes exactly 2 arguments \\({len(args)} given\\)"):
         getattr(_engine, name)(*args)
 
 
 @pytest.mark.parametrize("name", _ENTRY_NAMES)
 def test_engine_entry_rejects_keyword_arguments(name: str) -> None:
     with pytest.raises(TypeError, match=f"{name}\\(\\) takes no keyword arguments"):
-        getattr(_engine, name)(0, text="x")
-
-
-@pytest.mark.parametrize("name", _ENTRY_NAMES)
-@pytest.mark.parametrize(
-    ("form", "error", "message"),
-    [
-        # a 32-bit C long (Windows) overflows on the long conversion before the int range check
-        pytest.param(
-            2**31,
-            OverflowError,
-            "signed integer is greater than maximum|Python int too large to convert to C long",
-            id="above-int",
-        ),
-        pytest.param(
-            -(2**31) - 1,
-            OverflowError,
-            "signed integer is less than minimum|Python int too large to convert to C long",
-            id="below-int",
-        ),
-        pytest.param(2**63, OverflowError, "Python int too large to convert to C long", id="above-long"),
-        pytest.param(-(2**70), OverflowError, "Python int too large to convert to C long", id="below-long"),
-        # PyPy words the conversion error as "expected integer, got <type> object"
-        pytest.param(
-            "NFC", TypeError, "'str' object cannot be interpreted as an integer|expected integer, got str", id="str"
-        ),
-        pytest.param(
-            None,
-            TypeError,
-            "'NoneType' object cannot be interpreted as an integer|expected integer, got NoneType",
-            id="none",
-        ),
-    ],
-)
-def test_engine_entry_rejects_a_form_code_that_is_not_an_int_in_range(
-    name: str, form: int | str | None, error: type[Exception], message: str
-) -> None:
-    with pytest.raises(error, match=message):
-        getattr(_engine, name)(form, "é")
-
-
-@pytest.mark.parametrize("name", _ENTRY_NAMES)
-@pytest.mark.parametrize("form", [pytest.param(2**31 - 1, id="int-max"), pytest.param(-(2**31), id="int-min")])
-def test_engine_entry_accepts_the_int_extremes(name: str, form: int) -> None:
-    assert isinstance(getattr(_engine, name)(form, "é"), (str, bool))
+        getattr(_engine, name)("NFC", text="x")
