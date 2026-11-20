@@ -747,6 +747,13 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
             "function f(){try{}catch(e){var e=g()}}",
             id="unread-catch-redeclaration-kept",
         ),
+        pytest.param("var a=g(),b=h();a+b", "var a=g(),b=h();a+b", id="top-level-inline-kept"),
+        pytest.param("let a=g(),b=h();a+b", "let a=g(),b=h();a+b", id="top-level-let-inline-kept"),
+        pytest.param(
+            "function f(){var a=g(),b=h(a);return a+b}",
+            "function f(){var a=g(),b=h(a);return a+b}",
+            id="inline-twice-read-kept",
+        ),
         pytest.param(
             "var a=g(),b=h();k([a,b])",
             "var a=g(),b=h();k([a,b])",
@@ -1080,6 +1087,207 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
     ],
 )
 def test_compresses(source: str, expected: str) -> None:
+    assert minify_js(source) == expected
+
+
+# a literal binding a closure reads takes its value there when nothing before it in the function's first statement can
+# call that closure first
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            "function f(p){var b,a=1;return function(){return[a,a,b]}}",
+            "function f(b){var a;return function(){return[1,1,a]}}",
+            id="none",
+        ),
+        pytest.param(
+            "function f(p){var b='s',a=1;return function(){return[a,a,b]}}",
+            "function f(a){return function(){return[1,1,'s']}}",
+            id="string",
+        ),
+        pytest.param(
+            "function f(p){var b=1n,a=1;return function(){return[a,a,b]}}",
+            "function f(b){var a=1n;return function(){return[1,1,a]}}",
+            id="bigint",
+        ),
+        pytest.param(
+            "function f(p){var b=/r/,a=1;return function(){return[a,a,b]}}",
+            "function f(b){var a=/r/;return function(){return[1,1,a]}}",
+            id="regex",
+        ),
+        pytest.param(
+            "function f(p){var b=function(){},a=1;return function(){return[a,a,b]}}",
+            "function f(b){var a=function(){};return function(){return[1,1,a]}}",
+            id="function",
+        ),
+        pytest.param(
+            "function f(p){var b=()=>0,a=1;return function(){return[a,a,b]}}",
+            "function f(b){var a=()=>0;return function(){return[1,1,a]}}",
+            id="arrow",
+        ),
+        pytest.param(
+            "function f(p){var b=[,1],a=1;return function(){return[a,a,b]}}",
+            "function f(b){var a=[,1];return function(){return[1,1,a]}}",
+            id="hole",
+        ),
+        pytest.param(
+            "function f(p){var b=`t`,a=1;return function(){return[a,a,b]}}",
+            "function f(b){var a=`t`;return function(){return[1,1,a]}}",
+            id="template",
+        ),
+        pytest.param(
+            "function f(p){var b=`t${p}`,a=1;return function(){return[a,a,b]}}",
+            "function f(c){var b=`t${c}`,a=1;return function(){return[a,a,b]}}",
+            id="template-substitution",
+        ),
+        pytest.param(
+            "function f(p){var b=p,a=1;return function(){return[a,a,b]}}",
+            "function f(b){var a=b;return function(){return[1,1,a]}}",
+            id="param",
+        ),
+        pytest.param(
+            "function f(p){var b=G,a=1;return function(){return[a,a,b]}}",
+            "function f(c){var b=G,a=1;return function(){return[a,a,b]}}",
+            id="free-name",
+        ),
+        pytest.param(
+            "var T=h();function f(p){var b=T,a=1;return function(){return[a,a,b]}}",
+            "var T=h();function f(c){var b=T,a=1;return function(){return[a,a,b]}}",
+            id="top-level-name",
+        ),
+        pytest.param(
+            "function f(p){var b=!p,a=1;return function(){return[a,a,b]}}",
+            "function f(b){var a=!b;return function(){return[1,1,a]}}",
+            id="not",
+        ),
+        pytest.param(
+            "function f(p){var b=typeof p,a=1;return function(){return[a,a,b]}}",
+            "function f(b){var a=typeof b;return function(){return[1,1,a]}}",
+            id="typeof",
+        ),
+        pytest.param(
+            "function f(p){var b=void g(),a=1;return function(){return[a,a,b]}}",
+            "function f(c){var b=void g(),a=1;return function(){return[a,a,b]}}",
+            id="void-call",
+        ),
+        pytest.param(
+            "function f(p){var b=-1,a=1;return function(){return[a,a,b]}}",
+            "function f(a){return function(){return[1,1,-1]}}",
+            id="negative",
+        ),
+        pytest.param(
+            "function f(p){var b=-p,a=1;return function(){return[a,a,b]}}",
+            "function f(c){var b=-c,a=1;return function(){return[a,a,b]}}",
+            id="negate-name",
+        ),
+        pytest.param(
+            "function f(p){var b=1/3,a=1;return function(){return[a,a,b]}}",
+            "function f(b){var a=1/3;return function(){return[1,1,a]}}",
+            id="arithmetic",
+        ),
+        pytest.param(
+            "function f(p){var b=p/3,a=1;return function(){return[a,a,b]}}",
+            "function f(c){var b=c/3,a=1;return function(){return[a,a,b]}}",
+            id="arithmetic-name",
+        ),
+        pytest.param(
+            "function f(p){var b=3/p,a=1;return function(){return[a,a,b]}}",
+            "function f(c){var b=3/c,a=1;return function(){return[a,a,b]}}",
+            id="name-divides",
+        ),
+        pytest.param(
+            "function f(p){var b=[p,[1]],a=1;return function(){return[a,a,b]}}",
+            "function f(b){var a=[b,[1]];return function(){return[1,1,a]}}",
+            id="array",
+        ),
+        pytest.param(
+            "function f(p){var b=[...p],a=1;return function(){return[a,a,b]}}",
+            "function f(c){var b=[...c],a=1;return function(){return[a,a,b]}}",
+            id="spread",
+        ),
+        pytest.param(
+            "function f(p){var b={a:p,c(){}},a=1;return function(){return[a,a,b]}}",
+            "function f(b){var a={a:b,c(){}};return function(){return[1,1,a]}}",
+            id="object",
+        ),
+        pytest.param(
+            "function f(p){var b={[p]:1},a=1;return function(){return[a,a,b]}}",
+            "function f(c){var b={[c]:1},a=1;return function(){return[a,a,b]}}",
+            id="computed-key",
+        ),
+        pytest.param(
+            "function f(p){var b={...p},a=1;return function(){return[a,a,b]}}",
+            "function f(c){var b={...c},a=1;return function(){return[a,a,b]}}",
+            id="object-spread",
+        ),
+        pytest.param(
+            "function f(p){var c=p,b=c,a=1;return function(){return[a,a,b,c]}}",
+            "function f(c){var a=c,b=a;return function(){return[1,1,b,a]}}",
+            id="var-name",
+        ),
+        pytest.param(
+            "function f(p){var b=k,a=1;return function(){return[a,a,b]};function k(){}}",
+            "function f(b){var a=function(){};return function(){return[1,1,a]}}",
+            id="function-name",
+        ),
+        pytest.param(
+            "try{}catch(e){(function(){var b=e,a=1;return function(){return[a,a,b]}})()}",
+            "try{}catch(a){(function(){var b=a;return function(){return[1,1,b]}}())}",
+            id="catch-name",
+        ),
+        pytest.param(
+            "function f(p){var b={a:g()},a=1;return function(){return[a,a,b]}}",
+            "function f(c){var b={a:g()},a=1;return function(){return[a,a,b]}}",
+            id="object-call",
+        ),
+        pytest.param(
+            "function f(p){var b=g(),a=1;return function(){return[a,a,b]}}",
+            "function f(c){var b=g(),a=1;return function(){return[a,a,b]}}",
+            id="call",
+        ),
+        pytest.param(
+            "function f(p){var b=p.x,a=1;return function(){return[a,a,b]}}",
+            "function f(c){var b=c.x,a=1;return function(){return[a,a,b]}}",
+            id="member",
+        ),
+        pytest.param(
+            "function f(p){var b=[[[[[[[[1]]]]]]]],a=1;return function(){return[a,a,b]}}",
+            "function f(c){var b=[[[[[[[[1]]]]]]]],a=1;return function(){return[a,a,b]}}",
+            id="deep",
+        ),
+        pytest.param(
+            "function f(p){var b=c,a=1;let c=p;return function(){return[a,a,b,c]}}",
+            "function f(d){var c=a,b=1;let a=d;return function(){return[b,b,c,a]}}",
+            id="let-name",
+        ),
+        pytest.param(
+            "function f(p){var b=g();var a=1;return function(){return[a,a,b]}}",
+            "function f(c){var b=g(),a=1;return function(){return[a,a,b]}}",
+            id="second-statement",
+        ),
+        pytest.param(
+            "function f(p){var b=1,a=1;return function(){return a}}",
+            "function f(a){return function(){return 1}}",
+            id="single-read",
+        ),
+        pytest.param(
+            "function f(p){var b=g(),a=1;return function(){return a}}",
+            "function f(c){var b=g(),a=1;return function(){return a}}",
+            id="single-read-after-call",
+        ),
+        pytest.param(
+            "function f(p){let b=1,a=1;return function(){return[a,b]}}",
+            "function f(a){return function(){return[1,1]}}",
+            id="let-single-read",
+        ),
+        pytest.param(
+            "function f(p){let b=g(),a=1;return function(){return[a,b]}}",
+            "function f(c){let b=g(),a=1;return function(){return[a,b]}}",
+            id="let-single-read-after-call",
+        ),
+    ],
+)
+def test_propagates_past_inert_initializers(source: str, expected: str) -> None:
     assert minify_js(source) == expected
 
 

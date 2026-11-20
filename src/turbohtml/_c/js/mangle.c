@@ -1756,6 +1756,14 @@ static void drop_unread_expr_name(jm_program *prog, jm_node *node, int *changed)
    more to do. */
 enum { HOISTED = 2, HOISTED_HERE = 4 };
 
+/* Whether reading the binding sym can neither throw nor run code: a local var, parameter, function or catch binding,
+   which no temporal dead zone guards. */
+static int reads_quietly(const jm_program *prog, int32_t sym) {
+    const jm_sym *binding = &prog->syms[sym];
+    return prog->scopes[binding->scope].parent >= 0 &&
+           ((1U << binding->decl) & (1U << 0 | 1U << 3 | 1U << 4 | 1U << 5)) != 0;
+}
+
 /* Whether two nodes are the same name, resolving to the same binding, or the same number or string literal. */
 static int same_leaf(const jm_program *prog, int32_t left, int32_t right) {
     const jm_node *first = &prog->nodes[left];
@@ -1784,14 +1792,8 @@ static int quiet_test(const jm_program *prog, int32_t idx, int height) {
     case JN_NUM:
     case JN_STRING:
         return 1;
-    case JN_IDENT: {
-        if (node->sym < 0) {
-            return 0;
-        }
-        const jm_sym *sym = &prog->syms[node->sym];
-        return prog->scopes[sym->scope].parent >= 0 &&
-               (sym->decl == 0 || sym->decl == 3 || sym->decl == 4 || sym->decl == 5);
-    }
+    case JN_IDENT:
+        return node->sym >= 0 && reads_quietly(prog, node->sym);
     case JN_UNARY:
         return node->op == JT_NOT && quiet_test(prog, node->a, height - 1);
     case JN_BINARY:
@@ -2085,6 +2087,74 @@ static int expand_shorthand_ref(jm_program *prog, int32_t sym) {
     return 1;
 }
 
+/* Whether evaluating the initializer at idx runs no code of the program: a literal, a function, a read of a local no
+   temporal dead zone guards, `!`, `typeof` or `void` of one, a sign over a number, arithmetic on two numbers, and an
+   array, an object with plain keys or a template without substitutions built of such values. height levels bound the
+   descent. */
+static int inert_init(const jm_program *prog, int32_t idx, int height) {
+    if (idx < 0) {
+        return 1;
+    }
+    const jm_node *node = &prog->nodes[idx];
+    if (height == 0) {
+        return 0;
+    }
+    switch (node->kind) {
+    case JN_NUM:
+    case JN_STRING:
+    case JN_BIGINT:
+    case JN_REGEX:
+    case JN_FUNC:
+    case JN_ARROW:
+    case JN_HOLE:
+    case JN_QUASI:
+        return 1;
+    case JN_IDENT:
+        return node->sym >= 0 && reads_quietly(prog, node->sym);
+    case JN_UNARY:
+        if (node->op == JT_NOT || node->op == JT_IDENT) { /* !, typeof and void convert nothing */
+            return inert_init(prog, node->a, height - 1);
+        }
+        return prog->nodes[node->a].kind == JN_NUM;
+    case JN_BINARY:
+        return prog->nodes[node->a].kind == JN_NUM && prog->nodes[node->b].kind == JN_NUM;
+    case JN_ARRAY:
+    case JN_TEMPLATE:
+        for (int32_t item = node->a; item >= 0; item = prog->nodes[item].next) {
+            if (prog->nodes[item].kind == JN_SPREAD ||
+                (node->kind == JN_TEMPLATE && prog->nodes[item].kind != JN_QUASI) ||
+                !inert_init(prog, item, height - 1)) {
+                return 0;
+            }
+        }
+        return 1;
+    case JN_OBJECT:
+        for (int32_t prop = node->a; prop >= 0; prop = prog->nodes[prop].next) {
+            if (prog->nodes[prop].kind != JN_PROP || (prog->nodes[prop].flags & JN_F_COMPUTED) ||
+                !inert_init(prog, prog->nodes[prop].b, height - 1)) {
+                return 0;
+            }
+        }
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/* Whether nothing before the declarator declr runs code of the program, when its statement opens its function's
+   body: only the initializers of the declarators left of it run, so no closure that reads it can be called first. */
+static int opens_function(const jm_program *prog, int32_t sym, int32_t stmt, int32_t declr) {
+    if (stmt != prog->scopes[prog->syms[sym].scope].first_stmt) {
+        return 0;
+    }
+    for (int32_t before = prog->nodes[stmt].a; before != declr; before = prog->nodes[before].next) {
+        if (!inert_init(prog, prog->nodes[before].b, 8)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* Whether the binding's declaration dominates its one read with a value that survives the move:
    a value let/const must have no read before initialization. Cross-scope reads require the first
    initializer in the function, before a caller could run. A regex may ride only into the very next
@@ -2096,8 +2166,7 @@ static int read_sees_initialized(jm_program *prog, int32_t sym, int32_t stmt, in
     TH_WORK_STEP();
     if (prog->syms[sym].decl >= 1 && is_value_literal(prog, init)) {
         return prog->syms[sym].min_ref >= declr &&
-               (prog->syms[sym].ref_scope == prog->syms[sym].scope ||
-                (stmt == prog->scopes[prog->syms[sym].scope].first_stmt && prog->nodes[stmt].a == declr));
+               (prog->syms[sym].ref_scope == prog->syms[sym].scope || opens_function(prog, sym, stmt, declr));
     }
     if (prog->nodes[init].kind == JN_REGEX && prog->syms[sym].ref_scope == prog->syms[sym].scope &&
         prog->nodes[stmt].next >= 0 && single_shot_stmt(prog, prog->nodes[stmt].next) &&
@@ -2106,7 +2175,7 @@ static int read_sees_initialized(jm_program *prog, int32_t sym, int32_t stmt, in
     }
     if (prog->syms[sym].decl != 0 || !is_value_literal(prog, init) ||
         stmt != prog->scopes[prog->syms[sym].scope].first_stmt ||
-        (prog->syms[sym].ref_scope != prog->syms[sym].scope && prog->nodes[stmt].a != declr)) {
+        (prog->syms[sym].ref_scope != prog->syms[sym].scope && !opens_function(prog, sym, stmt, declr))) {
         return 0;
     }
     return !prog->syms[sym].read_before_init;
@@ -2294,8 +2363,7 @@ static int propagate_value_literals(jm_program *prog, int32_t global) {
         }
         if (prog->syms[sym].min_ref < declr ||
             (prog->syms[sym].decl == 0 && stmt != prog->scopes[prog->syms[sym].scope].first_stmt) ||
-            (prog->syms[sym].ref_scope != prog->syms[sym].scope &&
-             (stmt != prog->scopes[prog->syms[sym].scope].first_stmt || prog->nodes[stmt].a != declr))) {
+            (prog->syms[sym].ref_scope != prog->syms[sym].scope && !opens_function(prog, sym, stmt, declr))) {
             continue;
         }
         if (plans == NULL) {
