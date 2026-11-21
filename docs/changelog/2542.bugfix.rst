@@ -1,0 +1,2 @@
+A streaming ``Tokenizer`` keeps a long named character reference run in one text token, as ``tokenize()`` does,
+instead of splitting its text once it passed 4096 code points.
