@@ -1746,9 +1746,9 @@ def test_minify_built_doctype_identifier_html_cannot_spell(
 ) -> None:
     reduced = _doctype("<!DOCTYPE html>").__reduce__()
     assert isinstance(reduced, tuple)
-    reconstruct, (kind, *_) = reduced
+    reconstruct, ([(kind, *_)], xml) = reduced
     # the pickle hook rebuilds the identifiers as given, so it reaches the ones neither parser stores
-    node: Final[Doctype] = reconstruct(kind, ("html", public_id, system_id), [])
+    node: Final[Doctype] = reconstruct([(kind, ("html", public_id, system_id), 0)], xml)
     assert node.serialize(Html(layout=Minify())) == expected
 
 

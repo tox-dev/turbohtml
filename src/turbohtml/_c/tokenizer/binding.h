@@ -185,6 +185,9 @@ PyObject *turbohtml_tree_parse_fragment(PyObject *module, PyObject *args, PyObje
 /* Rebuild a node and its subtree from a pickle (kind, data, children) triple,
    wired as the private _reconstruct() the node __reduce__ points pickle at. */
 PyObject *turbohtml_reconstruct(PyObject *module, PyObject *args);
+/* Rebuild a node and its subtree from the flat preorder (kind, data, child count) records the node __reduce__ writes,
+   wired as the private _reconstruct_tree(). */
+PyObject *turbohtml_reconstruct_tree(PyObject *module, PyObject *args);
 
 /* Build a complete HTML5 document (doctype, <html>, <head> with an optional
    <meta charset> and <title>, <body>) from head and body node lists, wired as

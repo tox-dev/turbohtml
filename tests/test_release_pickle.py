@@ -35,3 +35,15 @@ if TYPE_CHECKING:
 )
 def test_released_pickle_paths(payload: bytes, expected: type | FunctionType) -> None:
     assert pickle.loads(payload) is expected  # ruff:ignore[suspicious-pickle-usage]  # fixed released-path payloads
+
+
+def test_released_nested_node_pickle_loads() -> None:
+    # 1.16.0 pickled each child as its own nested _reconstruct call
+    payload = (
+        b"\x80\x04\x95\x81\x00\x00\x00\x00\x00\x00\x00\x8c\x0fturbohtml._html\x94\x8c\x0c_reconstruct\x94\x93\x94(K"
+        b"\x01\x8c\x01p\x94}\x94\x8c\x05class\x94]\x94\x8c\x01a\x94as\x86\x94]\x94(h\x02(K\x02\x8c\x01x\x94]\x94K"
+        b"\x00t\x94R\x94h\x02(K\x01\x8c\x01b\x94}\x94\x86\x94]\x94h\x02(K\x02\x8c\x01y\x94]\x94K\x00t\x94R\x94aK"
+        b"\x00t\x94R\x94eK\x00t\x94R\x94."
+    )
+    node = pickle.loads(payload)  # ruff:ignore[suspicious-pickle-usage]  # fixed released payload
+    assert node.html == '<p class="a">x<b>y</b></p>'

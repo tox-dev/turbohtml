@@ -1221,6 +1221,21 @@ def test_pickled_xml_document_round_trips() -> None:
     assert _roundtrip(document).equals(document)
 
 
+def test_pickled_tree_at_the_depth_cap_round_trips_on_a_small_thread_stack() -> None:
+    document = parse(f"{'<div>' * 510}t")
+    clones: list[Node] = []
+    # a pickle that nests per tree level overflowed a 512 KiB stack at about 300 levels on Python 3.11 to 3.13
+    previous = threading.stack_size(512 * 1024)
+    try:
+        worker = threading.Thread(target=lambda: clones.append(_roundtrip(document)))
+        worker.start()
+    finally:
+        threading.stack_size(previous)
+    worker.join()
+    assert len(clones) == 1
+    assert clones[0].equals(document)
+
+
 @pytest.mark.parametrize(
     ("select", "expected"),
     [
