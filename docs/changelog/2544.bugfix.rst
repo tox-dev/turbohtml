@@ -1,2 +1,2 @@
-``minify_js()`` raises ``MemoryError`` again when an allocation for its scope analysis or fold bookkeeping fails, instead
-of returning its output.
+``minify_js()`` raises ``MemoryError`` again when an allocation for its scope analysis or fold bookkeeping fails,
+instead of returning its output.
