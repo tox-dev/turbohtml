@@ -656,6 +656,12 @@ static Py_ssize_t stack_depth_bound(const th_tree *tree) {
     return tree->open_len + tree->open_templates;
 }
 
+/* The depth an append can reach, for the DOM cap: an entry removed from below open elements can stay their ancestor,
+   one level the stack no longer counts. */
+static Py_ssize_t cap_depth_bound(const th_tree *tree) {
+    return stack_depth_bound(tree) + tree->stack_slack;
+}
+
 static int is_html_template(const th_node *node) {
     return node->ns == TH_NS_HTML && node->atom == TH_TAG_TEMPLATE;
 }
@@ -671,7 +677,7 @@ static void note_template_pushed(th_tree *tree) {
     tree->open_templates++;
     tree->stack_tracked = 1;
     note_stack_depth(tree);
-    if (stack_depth_bound(tree) + 1 >= TH_MAX_TREE_DEPTH) {
+    if (cap_depth_bound(tree) + 1 >= TH_MAX_TREE_DEPTH) {
         tree->depth_near_cap = 1;
     }
 }
@@ -707,7 +713,7 @@ static inline int stack_push_checks(th_tree *tree, th_node *node) {
         return 1;
     }
     tree->nest_bound &= TH_NEST_CAPPED;
-    if (stack_depth_bound(tree) + 1 >= TH_MAX_TREE_DEPTH) {
+    if (cap_depth_bound(tree) + 1 >= TH_MAX_TREE_DEPTH) {
         tree->depth_near_cap = 1;
     }
     if (tree->open_blocks != NULL || tree->open_len > STACK_LAZY_BLOCKS) {
@@ -992,6 +998,53 @@ static int has_ancestors_at_least(const th_node *node, Py_ssize_t limit) {
     return 0;
 }
 
+/* How many ancestors node has; the DOM cap keeps it at most TH_MAX_TREE_DEPTH. */
+static Py_ssize_t ancestor_count(const th_node *node) {
+    Py_ssize_t count = 0;
+    for (const th_node *up = node->parent; up != NULL; up = up->parent) {
+        count++;
+    }
+    return count;
+}
+
+/* The adoption agency's move and the option copy into a selectedcontent build with plain appends, so they can nest
+   nodes past the cap: under a formatting clone, or under a selectedcontent deeper than the option. Walking root's
+   subtree in document order, a node with TH_MAX_TREE_DEPTH ancestors hands its children to its own parent, right after
+   itself, as an append the cap refused would have placed them; the moved nodes keep their order, so the text does too.
+   A refused node stays refused for later appends. */
+static TH_NOINLINE void cap_moved_subtree(th_tree *tree, th_node *root) {
+    Py_ssize_t base = ancestor_count(root);
+    Py_ssize_t depth = base;
+    th_node *stop = root->next_sibling;
+    th_node *node = root;
+    for (;;) {
+        if (depth >= TH_MAX_TREE_DEPTH && node->first_child != NULL) {
+            tree->depth_capped = 1;
+            node->cap_refused = 1;
+            th_node *after = node->next_sibling;
+            while (node->first_child != NULL) {
+                th_node *child = node->first_child;
+                node_remove(child);
+                node_insert_before(node->parent, child, after);
+            }
+        }
+        th_node *down = depth < TH_MAX_TREE_DEPTH ? node->first_child : NULL;
+        if (down != NULL) {
+            node = down;
+            depth++;
+            continue;
+        }
+        while (depth > base && node->next_sibling == NULL) {
+            node = node->parent;
+            depth--;
+        }
+        node = node->next_sibling;
+        if (depth == base && node == stop) {
+            return;
+        }
+    }
+}
+
 /* The open-element stack is never refused, but the DOM stops at TH_MAX_TREE_DEPTH levels: an append under a parent with
    that many ancestors goes to the parent's parent instead (Blink attaches the same way). Nodes the capped parent placed
    after itself were created after it, so they stay in front of the new node: the insertion point is after them. A
@@ -1000,9 +1053,13 @@ static int has_ancestors_at_least(const th_node *node, Py_ssize_t limit) {
    A template's content fragment counts as its template. A parent the cap refused once keeps refusing: the adoption
    agency can lift a refused element back under the cap, and an append into it would then land before the nodes already
    sent after it. A refused element the option copy into a selectedcontent detached from the tree takes appends again,
-   since nothing above it is left to send them to. deep says whether the stack can reach the cap; when it cannot, only a
-   refused parent moves. */
-static TH_NOINLINE void cap_insertion_walk(th_tree *tree, th_node **parent, th_node **before, int deep) {
+   since nothing above it is left to send them to. While the depth bound stays below the cap, only a refused parent
+   moves. */
+static TH_NOINLINE void cap_insertion_walk(th_tree *tree, th_node **parent, th_node **before) {
+    int deep = cap_depth_bound(tree) + 1 >= TH_MAX_TREE_DEPTH;
+    if (!deep && !tree->depth_capped) {
+        return;
+    }
     th_node *anchor = (*parent)->type == TH_NODE_CONTENT ? (*parent)->parent : *parent;
     if (anchor->parent == NULL ||
         (!anchor->cap_refused && !(deep && has_ancestors_at_least(*parent, TH_MAX_TREE_DEPTH)))) {
@@ -1020,10 +1077,7 @@ static TH_NOINLINE void cap_insertion_walk(th_tree *tree, th_node **parent, th_n
 static void insertion_location_target(th_tree *tree, th_node *target, th_node **parent, th_node **before) {
     insertion_location_place(tree, target, parent, before);
     if (tree->depth_near_cap && *before == NULL) {
-        int deep = stack_depth_bound(tree) + 1 >= TH_MAX_TREE_DEPTH;
-        if (deep || tree->depth_capped) {
-            cap_insertion_walk(tree, parent, before, deep);
-        }
+        cap_insertion_walk(tree, parent, before);
     }
 }
 
@@ -2359,6 +2413,9 @@ static void replace_target_children(th_tree *tree, th_select_cache *cache, th_no
             node_remove(target->first_child);
         }
         deep_copy_children(tree, option, target);
+        if (tree->depth_near_cap) {
+            cap_moved_subtree(tree, target);
+        }
     }
     cache->filled = (uint8_t)cache->target_count;
 }
@@ -2583,6 +2640,14 @@ static void afe_remove_at(th_tree *tree, Py_ssize_t index) {
    formatting element and its furthest block, which hold no special element and so no template. */
 static void stack_remove_at(th_tree *tree, Py_ssize_t index) {
     tree->open[index]->left_stack = 1;
+    if (index < tree->open_len - 1) {
+        tree->stack_slack++;
+        /* a push below TH_HAS_MEMO_DEPTH skips the cap check, so slack that alone brings such a stack to the cap
+           turns the insertion check on now */
+        if (tree->stack_slack + TH_HAS_MEMO_DEPTH + 1 >= TH_MAX_TREE_DEPTH) {
+            tree->depth_near_cap = 1;
+        }
+    }
     Py_ssize_t old_len = tree->open_len;
     memmove(&tree->open[index], &tree->open[index + 1], (size_t)(tree->open_len - index - 1) * sizeof(th_node *));
     tree->open_len--;
@@ -3035,6 +3100,8 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
         th_node *common = fmt_stack > 0 /* GCOVR_EXCL_BR_LINE */ ? tree->open[fmt_stack - 1] : tree->document;
         Py_ssize_t bookmark = afe_index_of(tree, fmt);
         th_node *old_select = furthest->reaches_selectedcontent ? select_reaching(furthest->parent) : NULL;
+        /* the move deepens nothing unless the furthest block ends no shallower than it started */
+        Py_ssize_t furthest_depth = tree->depth_near_cap ? ancestor_count(furthest) : 0;
         th_node *node, *last = furthest;
         Py_ssize_t node_idx = furthest_idx;
         /* The inner loop runs until it reaches the formatting element; the
@@ -3104,6 +3171,9 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
             child = next;
         }
         node_append(furthest, fmt_clone);
+        if (tree->depth_near_cap && ancestor_count(furthest) >= furthest_depth) {
+            cap_moved_subtree(tree, last);
+        }
         if (tree->select_state != NULL) {
             tree->select_state->recheck = 1;
         }

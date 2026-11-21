@@ -138,6 +138,8 @@ struct th_tree {
     int depth_near_cap; /* the depth bound has reached the cap once; set and never cleared, so an insertion checks only
                            then */
     int depth_capped;   /* the DOM cap moved a node, so the tree is flatter than the markup it came from */
+    Py_ssize_t stack_slack; /* entries removed from the middle of the stack: each can stay an ancestor of the elements
+                               above it, one DOM level the stack no longer counts */
     Py_ssize_t open_cap;
     th_stack_block *open_blocks; /* per-block summaries of open, built once the stack passes one block; NULL before */
     Py_ssize_t open_block_cap;

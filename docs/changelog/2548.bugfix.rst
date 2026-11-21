@@ -1,0 +1,4 @@
+The parser keeps the DOM within its documented 512-level cap when the adoption agency moves a subtree, when closing a
+form or a misnested ``<a>`` removes an element from the middle of the open-element stack, and when it copies a selected
+option into a deep ``<selectedcontent>``: such markup used to nest elements past 512 levels, ``<form><div></form>``
+repeated 600 times reaching 1019.
