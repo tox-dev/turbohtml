@@ -691,19 +691,8 @@ def test_reset_forgets_a_suspended_charref_run() -> None:
 def test_unterminated_charref_run_streams_in_linear_time(prefix: str, run: str, work_steps: WorkSteps) -> None:
     # a reference still open at the end of a feed resumes its scan there instead of restarting at its '&'
     document = prefix + run * 20_000
-    assert _coalesced(_stream_fed_in_chunks(document)) == _coalesced([_shape(token) for token in tokenize(document)])
+    assert _stream_fed_in_chunks(document) == [_shape(token) for token in tokenize(document)]
     work_steps.assert_linear(lambda n: partial(_stream_fed_in_chunks, prefix + run * n), (5_000, 20_000))
-
-
-def _coalesced(shapes: list[_Shape]) -> list[_Shape]:
-    # a long run may reach the parser as several text tokens; the tree builder joins them, so compare their text joined
-    merged: list[_Shape] = []
-    for shape in shapes:
-        if merged and shape.token_type is TokenType.TEXT and merged[-1].token_type is TokenType.TEXT:
-            merged[-1] = merged[-1]._replace(data=f"{merged[-1].data}{shape.data}")
-        else:
-            merged.append(shape)
-    return merged
 
 
 def _stream_fed_in_chunks(document: str) -> list[_Shape]:
@@ -828,7 +817,7 @@ def test_streamed_named_reference_matches_one_shot(prefix: str, stem: str, endin
     assert [(error.code, error.line, error.col) for error in split.errors] == [
         (error.code, error.line, error.col) for error in whole.errors
     ]
-    assert _coalesced(_stream_fed_in_chunks(document)) == _coalesced([_shape(token) for token in tokenize(document)])
+    assert _stream_fed_in_chunks(document) == [_shape(token) for token in tokenize(document)]
 
 
 @pytest.mark.parametrize(
@@ -941,7 +930,7 @@ def test_streamed_named_reference_matches_one_shot_in_each_mode(
     tokenizer = Tokenizer(**options)
     streamed = [_shape(token) for char in document for token in tokenizer.feed(char)]
     streamed += [_shape(token) for token in tokenizer.close()]
-    assert _coalesced(streamed) == _coalesced([_shape(token) for token in tokenize(document, **options)])
+    assert streamed == [_shape(token) for token in tokenize(document, **options)]
 
 
 @pytest.mark.parametrize("prefix", ["", "<title>"])
