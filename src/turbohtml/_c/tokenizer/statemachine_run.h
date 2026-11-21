@@ -13,10 +13,6 @@ static inline void TH_NAME(charref_push)(th_tokenizer *self, th_buf *dest, Py_UC
     }
 }
 
-/* Text a named reference past its longest name has gathered before it is emitted as a token. The run is text either
-   way, so the limit only bounds how much of it a streamed reference holds: one feed plus this many code points. */
-#define TH_CHARREF_TEXT_FLUSH 4096
-
 /* Resolve a character reference starting at the '&' under self->pos, appending
    the decoded code points to dest. in_attr selects the legacy attribute rule
    (a named reference without a trailing ';' is left literal when followed by
@@ -41,11 +37,6 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
            that follow are text: they go out as they arrive, and a ';' that ends them is reported here */
         Py_ssize_t from = amp + self->ref_scanned;
         Py_ssize_t tail_end = from;
-        if (dest == &self->text && self->text.len == 0) {
-            self->text_open = 1;
-            self->text_line = self->line;
-            self->text_col = self->col + self->ref_dropped + self->ref_scanned;
-        }
         while (tail_end < len &&
                (is_ascii_alpha(TH_READ(tail_end)) || (TH_READ(tail_end) >= '0' && TH_READ(tail_end) <= '9'))) {
             TH_WORK_STEP();
@@ -55,9 +46,6 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
         if (tail_end >= len && !self->eof) {
             self->ref_dropped += tail_end - from;
             self->input.len = from;
-            if (dest == &self->text && self->text.len >= TH_CHARREF_TEXT_FLUSH) {
-                flush_text(self);
-            }
             return -1;
         }
         if (self->ref_decided == 1 && tail_end < len && TH_READ(tail_end) == ';') {
@@ -298,9 +286,6 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
         for (Py_ssize_t index = cursor; index < len; index++) {
             TH_WORK_STEP();
             TH_NAME(charref_push)(self, dest, TH_READ(index));
-        }
-        if (dest == &self->text && self->text.len >= TH_CHARREF_TEXT_FLUSH) {
-            flush_text(self);
         }
         self->ref_dropped += len - (amp + 1);
         self->input.len = amp + 1;

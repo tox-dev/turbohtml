@@ -281,6 +281,7 @@ def test_html_check_flags_a_serializer_that_drops_content() -> None:
         pytest.param("<pre>&#13;x</pre>", id="carriage-return"),
         pytest.param("<a><table><a>x", id="nested-anchor"),
         pytest.param("<script><!--<script></script>x", id="script-double-escape"),
+        pytest.param(f"{'<div>' * 510}<table><tr><td>x", id="flattened-at-the-depth-cap"),
     ],
 )
 def test_html_check_skips_trees_the_standard_does_not_round_trip(markup: str) -> None:

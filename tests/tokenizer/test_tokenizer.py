@@ -691,19 +691,8 @@ def test_reset_forgets_a_suspended_charref_run() -> None:
 def test_unterminated_charref_run_streams_in_linear_time(prefix: str, run: str, work_steps: WorkSteps) -> None:
     # a reference still open at the end of a feed resumes its scan there instead of restarting at its '&'
     document = prefix + run * 20_000
-    assert _coalesced(_stream_fed_in_chunks(document)) == _coalesced([_shape(token) for token in tokenize(document)])
+    assert _stream_fed_in_chunks(document) == [_shape(token) for token in tokenize(document)]
     work_steps.assert_linear(lambda n: partial(_stream_fed_in_chunks, prefix + run * n), (5_000, 20_000))
-
-
-def _coalesced(shapes: list[_Shape]) -> list[_Shape]:
-    # a long run may reach the parser as several text tokens; the tree builder joins them, so compare their text joined
-    merged: list[_Shape] = []
-    for shape in shapes:
-        if merged and shape.token_type is TokenType.TEXT and merged[-1].token_type is TokenType.TEXT:
-            merged[-1] = merged[-1]._replace(data=f"{merged[-1].data}{shape.data}")
-        else:
-            merged.append(shape)
-    return merged
 
 
 def _stream_fed_in_chunks(document: str) -> list[_Shape]:
@@ -770,29 +759,23 @@ def test_streamed_numeric_reference_matches_one_shot(prefix: str, ending: str, w
     assert split.html == whole.html
 
 
-@pytest.mark.parametrize(
-    "prefix",
-    [
-        pytest.param("&", id="text"),
-        pytest.param("<title>&", id="rcdata"),
-    ],
-)
-def test_unterminated_named_reference_holds_no_run(prefix: str, peak_bytes: PeakBytes) -> None:
-    # past the longest entity name the rest of the run is text, so it leaves the input buffer as it arrives
-    peak: Final[int] = peak_bytes(
-        "import tracemalloc\n"
+@pytest.mark.parametrize("element", ["", "<title>"])
+def test_unterminated_named_reference_holds_no_run(element: str, peak_bytes: PeakBytes) -> None:
+    # past the longest entity name the rest of the run is text, so it leaves the input buffer as it arrives and costs
+    # what the same text without a reference costs, rather than that plus the held input
+    script: Final[str] = (
+        "import sys, tracemalloc\n"
         "from turbohtml import Tokenizer\n"
-        f"prefix = {prefix!r}\n"
         "block = 'a' * 65536\n"
         "tokenizer = Tokenizer()\n"
-        "list(tokenizer.feed(prefix))\n"
+        "list(tokenizer.feed(sys.argv[1]))\n"
         "tracemalloc.start()\n"
         "for _ in range(64):\n"
         "    list(tokenizer.feed(block))\n"
-        "print(tracemalloc.get_traced_memory()[1])\n",
-        (),
+        "print(tracemalloc.get_traced_memory()[1])\n"
     )
-    assert peak < 1024 * 1024, peak
+    plain: Final[int] = peak_bytes(script, (f"{element}a",))
+    assert peak_bytes(script, (f"{element}&",)) < plain + 256 * 1024, plain
 
 
 @pytest.mark.parametrize(
@@ -834,7 +817,7 @@ def test_streamed_named_reference_matches_one_shot(prefix: str, stem: str, endin
     assert [(error.code, error.line, error.col) for error in split.errors] == [
         (error.code, error.line, error.col) for error in whole.errors
     ]
-    assert _coalesced(_stream_fed_in_chunks(document)) == _coalesced([_shape(token) for token in tokenize(document)])
+    assert _stream_fed_in_chunks(document) == [_shape(token) for token in tokenize(document)]
 
 
 @pytest.mark.parametrize(
@@ -947,21 +930,21 @@ def test_streamed_named_reference_matches_one_shot_in_each_mode(
     tokenizer = Tokenizer(**options)
     streamed = [_shape(token) for char in document for token in tokenizer.feed(char)]
     streamed += [_shape(token) for token in tokenizer.close()]
-    assert _coalesced(streamed) == _coalesced([_shape(token) for token in tokenize(document, **options)])
+    assert streamed == [_shape(token) for token in tokenize(document, **options)]
 
 
 @pytest.mark.parametrize("prefix", ["", "<title>"])
-def test_long_named_reference_run_flushes_text_as_it_streams(prefix: str, width_prefix: str) -> None:
-    # the text a streamed reference gathers is emitted in pieces once it passes a few thousand code points
-    document: Final[str] = f"{width_prefix}{prefix}&{'a' * 9_000};tail"
+@pytest.mark.parametrize("reference", ["&", "&quot"])
+def test_long_named_reference_run_streams_as_one_text_token(prefix: str, reference: str, width_prefix: str) -> None:
+    # a run past the longest name leaves the input as it arrives, yet stays one text token as in a one-shot tokenize
+    document: Final[str] = f"{width_prefix}{prefix}{reference}{'a' * 9_000};tail"
     tokenizer = Tokenizer()
     streamed: list[_Shape] = []
-    for offset in range(0, len(document), 4096):
-        streamed.extend(_shape(token) for token in tokenizer.feed(document[offset : offset + 4096]))
+    for offset in range(0, len(document), 98):
+        streamed.extend(_shape(token) for token in tokenizer.feed(document[offset : offset + 98]))
     streamed.extend(_shape(token) for token in tokenizer.close())
-    text = [shape for shape in streamed if shape.token_type is TokenType.TEXT]
-    assert len(text) > 1
-    assert _coalesced(streamed) == _coalesced([_shape(token) for token in tokenize(document)])
+    assert [shape.data[-9:] for shape in streamed if shape.data and "aaaa" in shape.data] == ["aaaa;tail"]
+    assert streamed == [_shape(token) for token in tokenize(document)]
 
 
 def test_streaming_crlf_across_feeds() -> None:

@@ -821,12 +821,12 @@ def _print(tree: Node, serialize: Callable[[Node], str]) -> str:
 
 
 def _reparse_may_differ(root: Node) -> bool:
-    # the root node plus 512 ancestors is the deepest placement the tree builder allows, reached only on a full stack
-    # TH_MAX_TREE_DEPTH (src/turbohtml/_c/dom/tree.h): past 512 open elements a start tag is inserted but not pushed, so
-    # further tags become siblings and reparsing the flattened output nests them differently
+    # an element with 512 ancestors sits at TH_MAX_TREE_DEPTH (src/turbohtml/_c/dom/tree.h), the deepest the DOM
+    # holds: a node that would nest under it attaches beside it instead, and reparsing the flattened output nests it
+    # differently
     max_tree_depth: int = 512
     return (
-        any(sum(1 for _ in element.ancestors) > max_tree_depth for element in root.iter_elements())
+        any(sum(1 for _ in element.ancestors) >= max_tree_depth for element in root.iter_elements())
         or any(_SCRIPT_DOUBLE_ESCAPE.search(script.text) for script in root.iter_elements("script"))
         or any(element.namespace is Namespace.HTML for element in root.iter_elements("plaintext"))
         or any(isinstance(node, Text) and "\r" in node.data for node in root.descendants)
