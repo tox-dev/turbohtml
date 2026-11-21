@@ -121,7 +121,7 @@ def test_element_tree_iter_starts_at_root(tags: tuple[str, ...], expected: list[
 
 def test_element_view_nsmap_is_empty_for_html_and_foreign_elements() -> None:
     tree: Final[ElementView] = fromstring("<div><svg><circle/></svg><math><mi>x</mi></math></div>")
-    maps: Final[list[dict[str, str]]] = [node.nsmap for node in tree.iter()]
+    maps: Final[list[dict[str | None, str]]] = [node.nsmap for node in tree.iter()]
     assert (maps, maps[0] is maps[1]) == ([{}] * 5, False)
 
 
