@@ -62,7 +62,10 @@ def test_capped_run_keeps_each_node_after_the_nodes_before_it(depth: int) -> Non
 
 @pytest.mark.parametrize("depth", [pytest.param(2000, id="2000"), pytest.param(_DEPTH_CAP * 2, id="1024")])
 def test_dom_depth_stays_within_the_cap(depth: int) -> None:
-    document = parse(f"{'<div>' * depth}<table><tr>c<td>E")
+    assert _deepest(parse(f"{'<div>' * depth}<table><tr>c<td>E")) <= _DEPTH_CAP
+
+
+def _deepest(document: Node) -> int:
     deepest = 0
     stack: list[tuple[Node, int]] = [(document, 0)]
     while stack:
@@ -70,7 +73,34 @@ def test_dom_depth_stays_within_the_cap(depth: int) -> None:
         if isinstance(node, Element):
             deepest = max(deepest, level)
         stack.extend((child, level + 1) for child in getattr(node, "children", []) or [])
-    assert deepest <= _DEPTH_CAP
+    return deepest
+
+
+@pytest.mark.parametrize(
+    ("markup", "text"),
+    [
+        # the adoption agency nests the formatting clone under a furthest block the cap kept at its last level
+        pytest.param(f"{'<x>' * 509}<b><p>t</b>u", "tu", id="clone-under-capped-block"),
+        pytest.param(f"{'<x>' * 509}<b>q<p>r<i>s</b>t</i>u", "qrstu", id="clone-over-capped-children"),
+        # the formatting clones between the anchor and its block stack up above it, so nodes deeper in it pass the cap
+        pytest.param(f"{'<x>' * 507}<b><i><s><p>t<span>u</span>v</b>w", "tuvw", id="clone-chain-507"),
+        pytest.param(f"{'<x>' * 510}<b><i><s><p>t<span>u</span>v</b>w", "tuvw", id="clone-chain-510"),
+        pytest.param(
+            f"{'<x>' * 503}<b><i><s><p>t{'<span>' * 6}u{'</span>' * 6}v</b>w", "tuvw", id="clone-chain-past-a-leaf"
+        ),
+        # the agency drops the elements between the anchor and its furthest block from the stack, not the DOM
+        pytest.param(f"<a>{'<x>' * 508}<h1><b><h1><li><div><div><button><li><div><p><a>t", "t", id="dropped-entries"),
+        # a second anchor takes the first off the stack while it stays an ancestor
+        pytest.param(f"<a>{'<x>' * 505}<h1><table><a></table><select><nobr><a>t", "t", id="removed-anchor"),
+        # each closed form leaves the stack from under its open div, one DOM level the stack no longer counts
+        pytest.param(f"{'<form><div></form>' * 600}t", "t", id="removed-forms-shallow-stack"),
+        pytest.param(f"{'<form><b></form>' * 600}<p>t", "t", id="removed-forms-formatting"),
+    ],
+)
+def test_dom_depth_stays_within_the_cap_when_the_stack_undercounts(markup: str, text: str) -> None:
+    document = parse(markup)
+    assert _deepest(document) <= _DEPTH_CAP
+    assert document.text == text
 
 
 # a cell closed by its own end tag, or by a row or body start, leaves the b after the table in the text
@@ -156,15 +186,7 @@ def test_table_body_past_the_depth_finds_its_table_section(depth: int) -> None:
 
 @pytest.mark.parametrize("depth", _DEPTHS)
 def test_templates_count_toward_the_depth_cap(depth: int) -> None:
-    document = parse(f"{'<template>' * (depth // 2)}<table><tr>c<td>E")
-    deepest = 0
-    stack: list[tuple[Node, int]] = [(document, 0)]
-    while stack:
-        node, level = stack.pop()
-        if isinstance(node, Element):
-            deepest = max(deepest, level)
-        stack.extend((child, level + 1) for child in getattr(node, "children", []) or [])
-    assert deepest <= _DEPTH_CAP
+    assert _deepest(parse(f"{'<template>' * (depth // 2)}<table><tr>c<td>E")) <= _DEPTH_CAP
 
 
 @pytest.mark.parametrize(
