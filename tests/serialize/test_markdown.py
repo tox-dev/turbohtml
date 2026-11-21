@@ -514,6 +514,42 @@ def test_emphasis_stays_after_markdown_reparse(source: str, expected: str) -> No
     assert (first, second) == (expected, expected)
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            "<p><em>[Image OCR]<br>text<br>[End OCR]</em></p>",
+            "*\\[Image OCR\\]  \ntext  \n\\[End OCR\\]*",
+            id="text-between",
+        ),
+        pytest.param("<p><em>a<br>&amp;<br>b</em></p>", "*a  \n&  \nb*", id="decoded-text-between"),
+        pytest.param("<p><em>a<br><code>c</code><br>b</em></p>", "*a  \n`c`  \nb*", id="inline-element-between"),
+        pytest.param(
+            "<p><em>a<br><span><style>x</style>y</span><br>b</em></p>", "*a  \ny  \nb*", id="text-after-dropped"
+        ),
+        pytest.param("<p><em>a<br><br>b</em></p>", "*a<br><br>b*", id="adjacent"),
+        pytest.param("<p><em>a<br> <br>b</em></p>", "*a<br><br> b*", id="space-between"),
+        pytest.param("<p><em>a<br>&#8195;<br>b</em></p>", "*a<br>\u2003<br>b*", id="non-ascii-space-between"),
+        pytest.param("<p><em>a<br><span> </span><br>b</em></p>", "*a<br><br> b*", id="blank-element-between"),
+        pytest.param("<p><em>a<br><script>x</script><br>b</em></p>", "*a<br><br>b*", id="dropped-element-between"),
+        pytest.param(
+            "<p><em>a<br><span><style>x</style></span><br>b</em></p>", "*a<br><br>b*", id="dropped-text-between"
+        ),
+        pytest.param("<p><em>a<br>b<br><br>c</em></p>", "*a  \nb<br><br>c*", id="adjacent-after-separated"),
+        pytest.param("<p><em>a<br><br>b<br>c</em></p>", "*a<br><br>b  \nc*", id="separated-after-adjacent"),
+    ],
+)
+def test_emphasis_breaks_are_tags_only_when_adjacent(source: str, expected: str) -> None:
+    first: Final[str] = md(source)
+    second: Final[str] = md(MarkdownIt("commonmark").render(first))
+    assert (first, second) == (expected, expected)
+
+
+def test_emphasis_breaks_around_converted_element_are_tags() -> None:
+    config: Final[Markdown] = Markdown(converters={"span": lambda _element, content: content})
+    assert parse("<p><em>a<br><span>s</span><br>b</em></p>").to_markdown(config) == "*a<br>s<br>b*"
+
+
 @pytest.mark.parametrize("source", ["<i>.<i>x</i></i>", "<em>.<i>x</i></em>"])
 def test_nested_emphasis_after_punctuation_keeps_separate_delimiters(source: str) -> None:
     assert md(source) == "*._x_*"
@@ -4445,9 +4481,9 @@ def test_text_after_html_block_stays_text(html: str, config: Markdown) -> None:
             id="no-underline-under-lone-tag",
         ),
         pytest.param(
-            "<i><pre>p</pre><br>q<br>r</i><pre>s</pre>",
+            "<i><pre>p</pre><br>q<br><br>r</i><pre>s</pre>",
             Markdown(),
-            "```\np\n```\n\n\\\n*q<br>r*\n\n```\ns\n```",
+            "```\np\n```\n\n\\\n*q<br><br>r*\n\n```\ns\n```",
             id="raw-break-after-code-opens-its-own-line",
         ),
         pytest.param(

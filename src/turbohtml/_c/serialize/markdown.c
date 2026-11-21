@@ -349,8 +349,6 @@ typedef struct {
     int amp_open;               /* the last text node ended in an `&` and name, which the next can finish */
     int deep_block_span;        /* nested inline tags crossed a block boundary */
     int raw_emphasis;           /* HTML tags keep nested delimiters and breaks from changing on reparse */
-    int repeated_emphasis_breaks;
-    th_node *break_parent;
     th_node *br_from;       /* the node md_br_trailing last answered for... */
     th_node *br_link;       /* ...the link it was in... */
     int br_trailing;        /* ...and the answer, which a scan from there has for every node it steps over */
@@ -423,20 +421,79 @@ static int md_needs_raw_emphasis(th_tree *tree, th_node *root) {
     return 0;
 }
 
-static int md_repeated_br_in_emphasis(md_ctx *ctx, th_node *node) {
-    th_node *parent = node->parent;
-    if (!md_is_emphasis_node(parent)) {
+static int md_text_visible(th_tree *tree, th_node *node) {
+    const Py_UCS4 *text = need_text(tree, node);
+    if (text == NULL && node->text_len > 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+        return 0;                             /* GCOVR_EXCL_LINE: the walk reports the failure */
+    }
+    for (Py_ssize_t index = 0; index < node->text_len; index++) {
+        if (!Py_UNICODE_ISSPACE(text[index])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int md_subtree_visible(th_tree *tree, th_node *root) {
+    th_node *current = root;
+    while (current != NULL) {
+        TH_WORK_STEP();
+        if (current->type == TH_NODE_TEXT && md_text_visible(tree, current)) {
+            return 1;
+        }
+        if (current->type == TH_NODE_ELEMENT && is_md_skipped(current)) {
+            while (current != root && current->next_sibling == NULL) {
+                current = current->parent;
+            }
+            current = current == root ? NULL : current->next_sibling;
+            continue;
+        }
+        current = preorder_next(current, root);
+    }
+    return 0;
+}
+
+static int md_is_html_br(const th_node *node) {
+    return node->type == TH_NODE_ELEMENT && node->ns == TH_NS_HTML && node->atom == TH_TAG_BR;
+}
+
+/* Whether the siblings strictly between from and to write a visible character, checking their own text before any
+   subtree. A converter can render any element as nothing, so with converters only text counts. */
+static int md_gap_visible(md_ctx *ctx, th_node *from, th_node *to) {
+    for (th_node *node = from->next_sibling; node != to; node = node->next_sibling) {
+        if (node->type == TH_NODE_TEXT && md_text_visible(ctx->tree, node)) {
+            return 1;
+        }
+    }
+    if (ctx->opt->converters != NULL) {
         return 0;
     }
-    if (ctx->break_parent != parent) {
-        ctx->break_parent = parent;
-        int count = 0;
-        for (th_node *child = parent->first_child; child != NULL && count < 2; child = child->next_sibling) {
-            count += child->type == TH_NODE_ELEMENT && child->ns == TH_NS_HTML && child->atom == TH_TAG_BR;
+    for (th_node *node = from->next_sibling; node != to; node = node->next_sibling) {
+        if (node->type == TH_NODE_ELEMENT && md_subtree_visible(ctx->tree, node)) {
+            return 1;
         }
-        ctx->repeated_emphasis_breaks = count == 2;
     }
-    return ctx->repeated_emphasis_breaks;
+    return 0;
+}
+
+/* Two hard breaks with nothing visible between them would end the paragraph inside the emphasis, so a break next to
+   such a gap is written as a tag. */
+static int md_repeated_br_in_emphasis(md_ctx *ctx, th_node *node) {
+    if (!md_is_emphasis_node(node->parent)) {
+        return 0;
+    }
+    th_node *before = node->prev_sibling;
+    while (before != NULL && !md_is_html_br(before)) {
+        before = before->prev_sibling;
+    }
+    if (before != NULL && !md_gap_visible(ctx, before, node)) {
+        return 1;
+    }
+    th_node *after = node->next_sibling;
+    while (after != NULL && !md_is_html_br(after)) {
+        after = after->next_sibling;
+    }
+    return after != NULL && !md_gap_visible(ctx, node, after);
 }
 
 /* Emit a configured option string, which may hold non-ASCII (a typographic
