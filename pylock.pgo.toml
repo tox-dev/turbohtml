@@ -1011,7 +1011,6 @@ command-line = [
     "pypy",
     "--output",
     "pylock.pgo.toml",
-    "--upgrade",
 ]
 input-path = "pyproject.toml"
 mode = "universal"
@@ -1031,6 +1030,6 @@ cli-project-overrides = [
 
 [tool.nab.validation]
 version = 1
-all-inputs-sha256 = "c51c8a7ea3e0b688dda4b3a8aea09999a3c44a55fd8b970817276a2f3cedf639"
-selection-inputs-sha256 = "b2ac517820b7374c1aee8a6fb262fff3b273e987132df4cd6adc3afec7da4664"
+all-inputs-sha256 = "d248eea0ba0b3a653687e662cfe904273b0dc8018aaf2173341d14308bc67511"
+selection-inputs-sha256 = "3450d9e610e87b6f46426874b23bde1b993f588ad2de65cba405d827503872d7"
 contents-sha256 = "0282035b70d3097200d0fb65185daa1855b0eb4773c4841ce94c8b8cd39ffba0"
