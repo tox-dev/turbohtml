@@ -810,7 +810,8 @@ def test_detect_rank_allocation_failure_raises_memory_error(alloc_sweep: _Sweep)
 
 @pytest.mark.fuzz_build
 def test_detect_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
-    assert set(alloc_sweep(lambda _: detect.detect(b"\xef\xbb\xbftext"), lambda: None)) == {"MemoryError"}
+    # a byte order mark settles without ranking and allocates nothing, so the input is one the ranking has to weigh
+    assert set(alloc_sweep(lambda _: detect.detect(b"caf\xe9 text"), lambda: None)) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
@@ -897,16 +898,13 @@ def test_computed_style_allocation_failure_raises_memory_error(alloc_sweep: _Swe
 
 
 @pytest.mark.fuzz_build
-@pytest.mark.parametrize(
-    "call",
-    [pytest.param(lambda node: node.data, id="data"), pytest.param(lambda node: node.text, id="text")],
-)
-def test_text_access_allocation_failure_raises_memory_error(
-    alloc_sweep: _Sweep, call: Callable[[turbohtml.Text], object]
-) -> None:
-    assert set(alloc_sweep(call, lambda: cast("turbohtml.Text", turbohtml.parse_fragment("a" * 8192).children[0]))) == {
-        "MemoryError"
-    }
+def test_text_access_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
+    # ``text`` of a lone Text node builds its str in place with no PyMem allocation for the hook to fail
+    assert set(
+        alloc_sweep(
+            lambda node: node.data, lambda: cast("turbohtml.Text", turbohtml.parse_fragment("a" * 8192).children[0])
+        )
+    ) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
@@ -1163,7 +1161,8 @@ if TYPE_CHECKING:
     from turbohtml import Document
 
 _SIBLINGS: Final[Document] = parse_xml(f"<r>{'<a/>' * 100}</r>")
-_NESTED: Final[str] = "count(//a[count(//a[count(//a) > 0]) > 0])"
+# each inner count depends on its context node, so the evaluation cannot reuse one result across the outer step
+_NESTED: Final[str] = "count(//a[count(../a[count(../a) > 0]) > 0])"
 _DOUBLING: Final[Document] = parse_xml(
     '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
     '<xsl:output method="text"/><xsl:param name="depth"/>'
