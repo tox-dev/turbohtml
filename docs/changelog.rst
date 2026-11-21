@@ -6,6 +6,49 @@
 
 .. towncrier release notes start
 
+.. _release-1-16-1:
+
+**********************
+ v1.16.1 (2026-11-21)
+**********************
+
+.. _release-1-16-1-fixed:
+
+Fixed
+=====
+
+- ``rewrite()`` now raises ``MemoryError`` when running out of memory after its first edit, instead of calling the next
+  handler with the error pending, which raised ``SystemError`` (:pr:`2540`) by :user:`gaborbernat`.
+- ``to_markdown()`` keeps the whitespace of a ``<pre>``, ``<textarea>`` or ``<listing>`` it writes as raw HTML inside a
+  table cell. The cell's text is folded onto one line, which turned each run of spaces and each line break in such an
+  element into a single space; its line feeds and space runs are now written as character references (:pr:`2541`) by
+  :user:`gaborbernat`.
+- A streaming ``Tokenizer`` keeps a long named character reference run in one text token, as ``tokenize()`` does,
+  instead of splitting its text once it passed 4096 code points (:pr:`2542`) by :user:`gaborbernat`.
+- ``minify_css`` no longer reads memory it never wrote when an allocation fails inside a nested rule's selector or
+  inside a function folded within another function's arguments; it raises ``MemoryError`` as everywhere else
+  (:pr:`2543`) by :user:`gaborbernat`.
+- ``minify_js()`` raises ``MemoryError`` again when an allocation for its scope analysis or fold bookkeeping fails,
+  instead of returning its output (:pr:`2544`) by :user:`gaborbernat`.
+- Text nested past the 512-level depth cap keeps its source order when the adoption agency moves its parent back under
+  the cap: ``<a>``, 500 open elements and eight ``<div>``\s followed by ``<p>y<a>x`` used to read ``xy`` (:pr:`2545`) by
+  :user:`gaborbernat`.
+- A parse that ran out of memory while its open-element stack grew past 64 entries could read past the end of an
+  internal array, and link resolution raised ``SystemError`` instead of ``MemoryError`` when percent-encoding a link ran
+  out of memory (:pr:`2546`) by :user:`gaborbernat`.
+- The parser keeps the DOM within its documented 512-level cap when the adoption agency moves a subtree, when closing a
+  form or a misnested ``<a>`` removes an element from the middle of the open-element stack, and when it copies a
+  selected option into a deep ``<selectedcontent>``: such markup used to nest elements past 512 levels,
+  ``<form><div></form>`` repeated 600 times reaching 1019 (:pr:`2548`) by :user:`gaborbernat`.
+- Pickling a node no longer recurses once per tree level. A node pickles as one flat list of its subtree's nodes, so a
+  tree at the 512-level depth cap pickles on Python 3.11, where it raised ``RecursionError``, and in a thread with a
+  small stack, where a tree a few hundred levels deep crashed the interpreter on Python 3.11 to 3.13. The payload is a
+  third smaller and both pickling and unpickling are faster; pickles written by earlier releases still load (:pr:`2549`)
+  by :user:`gaborbernat`.
+- Parsing markup that leaves formatting elements open far down the stack of open elements, such as
+  ``<i><h1><b><a><s><font><div>`` repeated, now takes linear time: each formatting tag used to scan the whole stack, so
+  50,000 repeats took 3.1 seconds instead of 0.25 (:pr:`2550`) by :user:`gaborbernat`.
+
 .. _release-1-16-0:
 
 **********************

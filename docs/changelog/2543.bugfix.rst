@@ -1,2 +1,0 @@
-``minify_css`` no longer reads memory it never wrote when an allocation fails inside a nested rule's selector or inside
-a function folded within another function's arguments; it raises ``MemoryError`` as everywhere else.

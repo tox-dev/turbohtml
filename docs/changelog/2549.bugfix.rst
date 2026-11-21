@@ -1,4 +1,0 @@
-Pickling a node no longer recurses once per tree level. A node pickles as one flat list of its subtree's nodes, so a
-tree at the 512-level depth cap pickles on Python 3.11, where it raised ``RecursionError``, and in a thread with a small
-stack, where a tree a few hundred levels deep crashed the interpreter on Python 3.11 to 3.13. The payload is a third
-smaller and both pickling and unpickling are faster; pickles written by earlier releases still load.

@@ -1,3 +1,0 @@
-``to_markdown()`` keeps the whitespace of a ``<pre>``, ``<textarea>`` or ``<listing>`` it writes as raw HTML inside a
-table cell. The cell's text is folded onto one line, which turned each run of spaces and each line break in such an
-element into a single space; its line feeds and space runs are now written as character references.
