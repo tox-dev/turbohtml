@@ -735,11 +735,13 @@ static int stack_push(th_tree *tree, th_node *node) {
         tree->open_cap = (Py_ssize_t)cap;
     }
     tree->open[tree->open_len++] = node;
-    if (node != NULL && node->ns == TH_NS_HTML && node->atom == TH_TAG_P) { /* GCOVR_EXCL_BR_LINE: alloc failure */
-        tree->open_p_count++;
-    }
+    int is_p = node != NULL && node->ns == TH_NS_HTML && node->atom == TH_TAG_P; /* GCOVR_EXCL_BR_LINE: alloc failure */
+    tree->open_p_count += is_p;
     if (!stack_push_checks(tree, node)) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return 0;                         /* GCOVR_EXCL_LINE: allocation failure */
+        /* the block summaries could not grow to cover this slot, so the failed parse's unwinding pop must not see it */
+        tree->open_len--;           /* GCOVR_EXCL_LINE: allocation failure */
+        tree->open_p_count -= is_p; /* GCOVR_EXCL_LINE: allocation failure */
+        return 0;                   /* GCOVR_EXCL_LINE: allocation failure */
     }
     tree->stack_version++;
     return 1;
@@ -2503,10 +2505,13 @@ static void select_cache_finish(th_tree *tree) {
     if (state == NULL) {
         return;
     }
-    /* read once: the copies below allocate nodes, so the compiler would reload these after every one */
+    /* read once: the copies below allocate nodes, so the compiler would reload these after every one. Indexed, not
+       an end pointer: a state whose first cache allocation failed holds no caches array, and NULL plus zero is UB */
     const uint8_t recheck = state->recheck;
-    const th_select_cache *end = state->caches + state->count;
-    for (th_select_cache *cache = state->caches; cache != end; cache++) {
+    const Py_ssize_t count = state->count;
+    th_select_cache *caches = state->caches;
+    for (Py_ssize_t index = 0; index < count; index++) {
+        th_select_cache *cache = &caches[index];
         if (cache->disabled || cache->multiple) {
             continue;
         }
