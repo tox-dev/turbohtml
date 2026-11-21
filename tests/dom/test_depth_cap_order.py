@@ -134,6 +134,20 @@ def test_adoption_agency_past_the_depth_keeps_text_order(tail: str, depth: int) 
     assert parse(f"{'<div>' * depth}<b><div>{tail}").text == parse(f"<b><div>{tail}").text
 
 
+@pytest.mark.parametrize(
+    ("tail", "expected"),
+    [
+        pytest.param("<p>y<a>x", "yx", id="text-then-reopened-anchor"),
+        pytest.param("<p><i>y</i><a>x", "yx", id="element-then-reopened-anchor"),
+        pytest.param("<p><i><s>y<a>x", "yx", id="nested-refusals"),
+    ],
+)
+@pytest.mark.parametrize("depth", [pytest.param(300, id="300"), *_DEPTHS])
+def test_adoption_agency_lifting_a_capped_element_keeps_text_order(tail: str, expected: str, depth: int) -> None:
+    # eight blocks run the agency's outer loop to its end, lifting the paragraph the cap refused back under the cap
+    assert parse(f"<a>{'<x>' * depth}{'<div>' * 8}{tail}").text == expected
+
+
 @pytest.mark.parametrize("depth", _DEPTHS)
 def test_table_body_past_the_depth_finds_its_table_section(depth: int) -> None:
     # the table body and its row sit below the divs, so the table-scope searches must reach past the cap to find them
