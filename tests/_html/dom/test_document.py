@@ -47,7 +47,7 @@ def test_reconstruct_propagates_a_construction_failure() -> None:
     # a genuinely broken payload still fails: a non-mapping attrs value cannot build an element,
     # and reconstruction surfaces that TypeError instead of returning a half-built node
     with pytest.raises(TypeError):
-        _reconstruct(kind, ("div", 123), [])  # ty: ignore[invalid-argument-type]  # malformed attrs payload
+        _reconstruct(kind, ("div", 123), [])
 
 
 @pytest.mark.parametrize(
