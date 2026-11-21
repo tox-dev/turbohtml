@@ -38,6 +38,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 import tempfile
@@ -69,6 +70,7 @@ _CRASHES: Final[MappingProxyType[str, str]] = MappingProxyType({
     "schema-arena-gap-overflow": "use-after-poison",
     "parked-wrapper": "use-after-poison",
 })
+_REPORT_KIND: Final[re.Pattern[str]] = re.compile(r"ERROR: (?P<kind>\w+Sanitizer: [\w-]+)")
 # MemorySanitizer flags a read only when every instruction that wrote the bytes was instrumented, so it runs on the
 # harnesses that link no interpreter; origin tracking 2 names the allocation behind each report (LLVM MemorySanitizer
 # documentation, "Origin Tracking")
@@ -156,12 +158,14 @@ def _run_oracles(minutes: float, rng_seed: int, crash_dir: Path) -> int:
     # Run the sanitizer oracles under the ASan preload, so a C fault on the way still aborts with a stack trace.
     _checkout_sparse_wpt()
     env = _asan_preload()
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(_ROOT / "tools"), env.get("PYTHONPATH")]))
     if minutes > 0:
         env = _private_reports(env, crash_dir)
     result = subprocess.run(
         [
             sys.executable,
-            str(_FUZZ / "sanitize_oracles.py"),
+            "-m",
+            "fuzz.sanitize_oracles",
             "--minutes",
             str(minutes),
             "--rng-seed",
@@ -270,9 +274,12 @@ def _self_test() -> int:
                 check=False,
             )
             if result.returncode == 0 or f"ERROR: AddressSanitizer: {report}" not in result.stderr:
+                # name only the report kind that did fire: its stack would publish an unfixed bug's location
+                fired = _REPORT_KIND.search(result.stderr)
+                seen = f"reporting {fired['kind']}" if fired else "with no sanitizer report"
                 print(
                     f"SELF-TEST FAILED: _fuzz_crash({kind!r}) under PYTHONMALLOC={allocator} exited "
-                    f"{result.returncode} without an AddressSanitizer {report} report",
+                    f"{result.returncode} without an AddressSanitizer {report} report, {seen}",
                     file=sys.stderr,
                 )
                 return 1

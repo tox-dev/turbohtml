@@ -158,6 +158,11 @@ static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end
             comment_gap = 1;
             continue;
         }
+        /* the caller skips leading whitespace and comments, so pending_ws and comment_gap are only set after a token
+           has been emitted: out is non-empty whenever either is pending, unless a failed growth dropped that token */
+        if (*out->oom) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return;      /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
         if (token->kind == CSS_DELIM && token->delim == '[') {
             attr_depth++;
         }
@@ -190,11 +195,6 @@ static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end
             cbuf_putc(out, token->delim);
             pending_ws = 0;
             continue;
-        }
-        /* the caller skips leading whitespace and comments, so pending_ws and comment_gap are only set after a token
-           has been emitted: out is non-empty whenever either is pending, unless a failed growth dropped that token */
-        if (*out->oom) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return;      /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         if (pending_ws) {
             css_char last = out->data[out->len - 1];

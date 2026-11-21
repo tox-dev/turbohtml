@@ -1,0 +1,3 @@
+A parse that ran out of memory while its open-element stack grew past 64 entries could read past the end of an internal
+array, and link resolution raised ``SystemError`` instead of ``MemoryError`` when percent-encoding a link ran out of
+memory.

@@ -390,8 +390,9 @@ def _record(tag: str, element: _TreeNode, children: tuple[_Meaning, ...]) -> tup
         tag == "td" and any(child[0] not in _FLOW_INLINE or _holds_block(child) for child in children)
     ):
         # a heading is one line of inline content (CommonMark 4.2), so its blocks and breaks flatten onto it as spaces;
-        # a table cell holds inline content too (GFM 4.10), but a raw <br> keeps its break there
-        children = _line(children, inline=False, breaks=tag == "td")
+        # a table cell holds inline content too (GFM 4.10), but a raw <br> keeps its break there, unless only blocks
+        # that draw nothing follow it, which leaves it ending the cell
+        children = _block_end(_line(children, inline=False, breaks=tag == "td"))
     return (_Meaning(tag, _attributes(tag, element.attrib), children),)
 
 

@@ -2532,6 +2532,53 @@ def test_comments_are_dropped_from_cell_html(html: str, expected: str) -> None:
     assert md(html) == expected
 
 
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param(
+            "<table><td><ul><li><pre>a  b\nc</pre></ul></table>",
+            "| <ul><li><pre>a&#32;&#32;b&#10;c</pre></li></ul> |\n| --- |",
+            id="pre-in-list",
+        ),
+        pytest.param(
+            "<table><td><ul><li><pre>\n\nx</pre></ul></table>",
+            "| <ul><li><pre>&#10;&#10;x</pre></li></ul> |\n| --- |",
+            id="pre-leading-newline",
+        ),
+        pytest.param(
+            "<table><td><ul><li><pre> x </pre></ul></table>",
+            "| <ul><li><pre> x </pre></li></ul> |\n| --- |",
+            id="pre-edge-spaces",
+        ),
+        pytest.param(
+            "<table><td><ol><li><textarea>a b\n  c</textarea></ol></table>",
+            "| <ol><li><textarea>a b&#10;&#32;&#32;c</textarea></li></ol> |\n| --- |",
+            id="textarea",
+        ),
+        pytest.param(
+            "<table><td><ul><li><listing>a  b</listing></ul></table>",
+            "| <ul><li><listing>a&#32;&#32;b</listing></li></ul> |\n| --- |",
+            id="listing",
+        ),
+        pytest.param(
+            "<table><td><table><tr><td><pre>a\n b</pre></table></table>",
+            "| <table><tr><td><pre>a&#10; b</pre></td></tr></table> |\n| --- |",
+            id="pre-in-table",
+        ),
+        pytest.param(
+            "<table><td><ul><li>a  b\nc</ul></table>", "| <ul><li>a b c</li></ul> |\n| --- |", id="flowing-text"
+        ),
+        pytest.param(
+            "<table><td><ul><li><svg><text>a  b</text></svg></ul></table>",
+            "| <ul><li><svg><text>a b</text></svg></li></ul> |\n| --- |",
+            id="foreign-text",
+        ),
+    ],
+)
+def test_cell_html_keeps_preformatted_whitespace(html: str, expected: str) -> None:
+    assert md(html) == expected
+
+
 def test_comments_stay_in_a_raw_html_block() -> None:
     assert md("<table><tr><td rowspan=2><!--c-->a</td></tr><tr><td>b</td></tr></table>") == (
         '<table><tbody><tr><td rowspan="2"><!--c-->a</td></tr><tr><td>b</td></tr></tbody></table>'

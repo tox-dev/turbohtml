@@ -134,6 +134,20 @@ def test_adoption_agency_past_the_depth_keeps_text_order(tail: str, depth: int) 
     assert parse(f"{'<div>' * depth}<b><div>{tail}").text == parse(f"<b><div>{tail}").text
 
 
+@pytest.mark.parametrize(
+    ("tail", "expected"),
+    [
+        pytest.param("<p>y<a>x", "yx", id="text-then-reopened-anchor"),
+        pytest.param("<p><i>y</i><a>x", "yx", id="element-then-reopened-anchor"),
+        pytest.param("<p><i><s>y<a>x", "yx", id="nested-refusals"),
+    ],
+)
+@pytest.mark.parametrize("depth", [pytest.param(300, id="300"), *_DEPTHS])
+def test_adoption_agency_lifting_a_capped_element_keeps_text_order(tail: str, expected: str, depth: int) -> None:
+    # eight blocks run the agency's outer loop to its end, lifting the paragraph the cap refused back under the cap
+    assert parse(f"<a>{'<x>' * depth}{'<div>' * 8}{tail}").text == expected
+
+
 @pytest.mark.parametrize("depth", _DEPTHS)
 def test_table_body_past_the_depth_finds_its_table_section(depth: int) -> None:
     # the table body and its row sit below the divs, so the table-scope searches must reach past the cap to find them
@@ -151,3 +165,21 @@ def test_templates_count_toward_the_depth_cap(depth: int) -> None:
             deepest = max(deepest, level)
         stack.extend((child, level + 1) for child in getattr(node, "children", []) or [])
     assert deepest <= _DEPTH_CAP
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param(
+            f"{'<x>' * 506}<select><ruby><selectedcontent><table><col><option>t<thead><tr><td>u", id="table-section"
+        ),
+        pytest.param(f"<a>{'<x>' * 504}<ruby><select><mi><selectedcontent><mi><option>t<optgroup>u", id="foreign"),
+        pytest.param(
+            f"<b><a>{'<x>' * 500}<object><u><button><div><pre><select><selectedcontent><object><option>t</option><a>u",
+            id="reconstructed",
+        ),
+    ],
+)
+def test_capped_element_the_option_copy_detaches_takes_appends(markup: str) -> None:
+    # the option copy empties the selectedcontent, detaching the capped element still open below it
+    assert not parse(markup).text

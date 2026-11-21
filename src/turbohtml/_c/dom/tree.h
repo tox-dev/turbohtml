@@ -140,6 +140,10 @@ struct th_node {
        space of each run, and the scan's answer depends on whitespace only as a tag-name end and a break in a "-" run,
        which one space still is. */
     uint8_t script_text_closes : 1;
+    /* Tree builder state: the depth cap sent an append meant for this element to its parent instead. A later append
+       keeps going there even once the adoption agency has moved the element shallower, or it would land before the
+       nodes already sent after it. */
+    uint8_t cap_refused : 1;
     /* An attribute value buffer of this element is also the value of another element: a clone takes its source's
        slots, values included, rather than copy them. A value is never written in place, and a deep copy into another
        tree looks these up in its th_copy_memo instead of copying each one again. */

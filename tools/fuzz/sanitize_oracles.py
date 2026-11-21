@@ -37,13 +37,12 @@ from urllib.parse import quote
 
 import html5lib
 import tinycss2
+from fuzz.html5lib_reference import html5lib_parser
 from html5lib.constants import namespaces
 
 from turbohtml import Comment, Element, Namespace, Node, Text, parse_fragment
 from turbohtml.clean import DEFAULT_CSS_PROPERTIES, OnDisallowed, Policy, sanitize, sanitize_node
 from turbohtml.extract import normalize_url
-
-from .html5lib_reference import html5lib_parser
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence

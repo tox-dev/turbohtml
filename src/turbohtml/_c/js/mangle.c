@@ -2690,6 +2690,7 @@ int jm_compress(jm_program *prog, jm_analysis **settled) {
     }
     if (result == 0 || result == 2) {
         *settled = jm_malloc(sizeof **settled);
+        prog->failed |= *settled == NULL; /* GCOVR_EXCL_BR_LINE: allocation failure */
     }
     if (*settled != NULL) {
         (*settled)->mangler = mangler;
