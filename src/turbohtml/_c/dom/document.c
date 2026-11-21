@@ -269,6 +269,7 @@ static PyObject *url_percent_encode_slow(PyObject *url, int check_encoded_dot) {
     char *out = PyMem_Malloc((size_t)len * 3 + 1); /* every byte encodes to at most "%HH" */
     if (out == NULL) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         Py_DECREF(scalar); /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyErr_NoMemory();  /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_ssize_t userinfo_end = -1;
