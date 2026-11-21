@@ -37,11 +37,6 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
            that follow are text: they go out as they arrive, and a ';' that ends them is reported here */
         Py_ssize_t from = amp + self->ref_scanned;
         Py_ssize_t tail_end = from;
-        if (dest == &self->text && self->text.len == 0) {
-            self->text_open = 1;
-            self->text_line = self->line;
-            self->text_col = self->col + self->ref_dropped + self->ref_scanned;
-        }
         while (tail_end < len &&
                (is_ascii_alpha(TH_READ(tail_end)) || (TH_READ(tail_end) >= '0' && TH_READ(tail_end) <= '9'))) {
             TH_WORK_STEP();
