@@ -1225,16 +1225,17 @@ def test_pickled_xml_document_round_trips() -> None:
     assert _roundtrip(document).equals(document)
 
 
-@pytest.mark.skipif(
-    bool(sysconfig.get_config_var("Py_GIL_DISABLED")), reason="a free-threaded build gives each lookup its own wrapper"
-)
+_SHARES_WRAPPERS: Final[bool] = not sysconfig.get_config_var("Py_GIL_DISABLED")
+
+
 @pytest.mark.parametrize("order", [pytest.param((0, 1), id="document-first"), pytest.param((1, 0), id="node-first")])
 def test_pickling_a_document_with_a_node_inside_keeps_the_node_inside(order: tuple[int, int]) -> None:
     document = parse("<p>x</p>")
     pair = (document, _element(document.select_one("p")))
     clone = dict(zip(order, _roundtrip([pair[index] for index in order]), strict=True))
     assert isinstance(clone[0], Document)
-    assert clone[1] is clone[0].select_one("p")
+    # a free-threaded build gives each lookup its own wrapper, so the pickle has no shared one to link
+    assert (clone[1] is clone[0].select_one("p")) is _SHARES_WRAPPERS
 
 
 def test_pickled_wide_subtree_keeps_its_children_in_order() -> None:
