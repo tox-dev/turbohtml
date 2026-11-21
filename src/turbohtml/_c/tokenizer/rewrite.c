@@ -3520,6 +3520,9 @@ PyObject *turbohtml_rewrite(PyObject *module, PyObject *args) {
         }
         if (ctx.track == 1) {
             rw_start_following(&ctx, token);
+            if (ctx.error) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                break;       /* GCOVR_EXCL_LINE: a handler must not run with the MemoryError pending */
+            } /* GCOVR_EXCL_LINE: llvm flags the OOM branch's closing brace */
         }
         switch (token->kind) {
         case TH_START_TAG:
