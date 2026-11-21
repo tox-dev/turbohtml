@@ -64,8 +64,9 @@ and nests with the others (``article:not(:has(img))`` selects the image-less art
 The form and UI pseudo-classes select controls by the state the markup pins down: ``:checked``, ``:disabled`` /
 ``:enabled``, ``:required`` / ``:optional``, ``:read-only`` / ``:read-write``, and ``:default``. ``:lang()`` matches the
 nearest ``lang`` attribute, or ``xml:lang`` on an SVG or MathML element or in an XML tree (with hyphen-prefix ranges, so
-``:lang(en)`` also matches ``en-GB``) and ``:dir()`` the resolved text direction. ``:scope`` is the element the query is
-rooted at, which anchors a relative selector:
+``:lang(en)`` also matches ``en-GB``) and ``:dir()`` the resolved text direction. An empty ``lang=""`` marks the
+language unknown, so it stops inheritance; ``:lang("")`` matches such elements and those with no language at all.
+``:scope`` is the element the query is rooted at, which anchors a relative selector:
 
 .. testcode::
 

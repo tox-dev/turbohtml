@@ -1650,6 +1650,19 @@ def test_ui_pseudo_cases(html: str, selector: str, ids: list[str]) -> None:
         pytest.param('<span id=a lang="english">x</span>', ":lang(en)", [], id="no-hyphen-boundary"),
         pytest.param("<span id=a>x</span>", ":lang(en)", [], id="no-lang-attribute"),
         pytest.param('<span id=a lang="">x</span>', ":lang(en)", [], id="empty-lang-attribute"),
+        pytest.param('<div lang="en"><span id=a lang="">x</span></div>', ":lang(en)", [], id="empty-lang-is-unknown"),
+        pytest.param('<div lang="en"><span id=a lang>x</span></div>', ":lang(en)", [], id="valueless-lang-is-unknown"),
+        # Selectors 4 §11.1: a quoted empty range matches only an element whose language is not tagged
+        pytest.param('<span id=a>x</span><p id=b lang="en">y</p>', ":lang('')", ["a"], id="empty-range-untagged"),
+        pytest.param(
+            '<div lang="en"><span id=a lang="">x</span></div>', ':lang("")', ["a"], id="empty-range-empty-lang"
+        ),
+        pytest.param(
+            '<span id=a>x</span><p id=b lang="en">y</p>', ":lang(en, '')", ["a", "b"], id="empty-range-in-list"
+        ),
+        pytest.param('<span id=a lang="">x</span>', ":lang('*')", [], id="wildcard-needs-a-tagged-language"),
+        pytest.param("<span id=a>x</span>", ":lang(ab, '\")", [], id="mismatched-quotes-are-no-empty-range"),
+        pytest.param("<span id=a>x</span>", ":lang(,)", [], id="unquoted-empty-ranges-match-nothing"),
         # RFC 4647 §3.3.2 extended filtering: a non-matching, non-singleton subtag is
         # skipped, so a range's subtags need only appear in the tag in order
         pytest.param('<span id=a lang="en-Latn-GB">x</span>', ":lang(en-GB)", ["a"], id="extended-skip-script"),
@@ -1678,7 +1691,10 @@ def test_lang_pseudo(html: str, selector: str, ids: list[str]) -> None:
     [
         pytest.param('<svg xml:lang="it"><g id=a /></svg>', ":lang(it)", ["a"], id="foreign-xml-lang-inherited"),
         pytest.param('<svg xml:lang="it" lang="fr" id=a></svg>', ":lang(fr)", [], id="foreign-xml-lang-wins-over-lang"),
-        pytest.param('<svg xml:lang="" lang="fr" id=a></svg>', ":lang(fr)", ["a"], id="foreign-empty-xml-lang-skipped"),
+        pytest.param('<svg xml:lang="" lang="fr" id=a></svg>', ":lang(fr)", [], id="foreign-empty-xml-lang-is-unknown"),
+        pytest.param(
+            '<svg xml:lang="" lang="fr" id=a></svg>', ":lang('')", ["a"], id="foreign-empty-xml-lang-untagged"
+        ),
         pytest.param('<p xml:lang="de"><b id=a>x</b></p>', ":lang(de)", [], id="html-xml-lang-in-no-namespace"),
         pytest.param('<svg lang="es"><g id=a /></svg>', ":lang(es)", ["a"], id="svg-lang"),
         pytest.param('<math lang="fr"><mi id=a>x</mi></math>', ":lang(fr)", [], id="mathml-lang-ignored"),
