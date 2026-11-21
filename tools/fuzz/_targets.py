@@ -300,11 +300,11 @@ def _html_newline_normalization_only(once: str, twice: str) -> bool:
 
 
 def _past_depth_cap(root: turbohtml.Node) -> bool:
-    # the root node plus 512 ancestors is the deepest placement the tree builder allows, reached only on a full stack
-    # TH_MAX_TREE_DEPTH (src/turbohtml/_c/dom/tree.h): past 512 open elements a start tag is inserted but not pushed, so
-    # further tags become siblings and reparsing the flattened output nests them differently
+    # an element with 512 ancestors sits at TH_MAX_TREE_DEPTH (src/turbohtml/_c/dom/tree.h), the deepest the DOM
+    # holds: a node that would nest under it attaches beside it instead, and reparsing the flattened output nests it
+    # differently
     max_tree_depth: int = 512
-    return any(sum(1 for _ in element.ancestors) > max_tree_depth for element in root.iter_elements())
+    return any(sum(1 for _ in element.ancestors) >= max_tree_depth for element in root.iter_elements())
 
 
 def _finding(target: str, origin: str, kind: str, data: bytes, crash_dir: Path) -> str:
