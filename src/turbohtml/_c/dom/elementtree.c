@@ -2426,11 +2426,32 @@ static int view_append_lxml_text(module_state *state, PyObject *target, PyObject
     return status;
 }
 
+/* lxml roots every tree in a document and starts an absolute path there; on a detached copy, `//` inside a predicate
+   searched only below the predicate's context node */
+static int view_root_in_document(PyObject *module, PyObject *root) {
+    PyObject *empty = PyUnicode_FromStringAndSize(NULL, 0);
+    /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
+    PyObject *arguments = empty == NULL ? NULL : PyTuple_Pack(1, empty);
+    Py_XDECREF(empty);
+    PyObject *document = arguments == NULL ? NULL : turbohtml_parse(module, arguments, NULL);
+    Py_XDECREF(arguments);
+    PyObject *html = document == NULL ? NULL : PyObject_GetAttrString(document, "root");
+    int status = html == NULL ? -1 : view_discard(PyObject_CallMethod(html, "replace_with", "O", root));
+    /* GCOVR_EXCL_BR_STOP */
+    Py_XDECREF(html);
+    Py_XDECREF(document);
+    return status;
+}
+
 static PyObject *view_from_lxml(PyObject *module, PyObject *source) {
     module_state *state = PyModule_GetState(module);
     PyObject *root = view_from_lxml_node(state, source);
     if (root == NULL) {
         return NULL;
+    }
+    if (view_root_in_document(module, root) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        Py_DECREF(root);                           /* GCOVR_EXCL_LINE: allocation failure */
+        return NULL;                               /* GCOVR_EXCL_LINE: allocation failure */
     }
     PyObject *stack = PyList_New(0);
     if (stack == NULL || view_push_pair(stack, source, root) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
