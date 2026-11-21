@@ -1,0 +1,2 @@
+XPath on a ``from_lxml()`` copy resolves absolute paths from a document, as lxml does. The copy was a detached tree, so
+``//h1`` inside a predicate searched only below the predicate's context node and ``/html`` matched nothing.

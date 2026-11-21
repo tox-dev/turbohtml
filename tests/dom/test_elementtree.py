@@ -3,7 +3,7 @@ from __future__ import annotations
 import gc
 import weakref
 from copy import deepcopy
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, cast
 
 import pytest
 
@@ -286,6 +286,26 @@ def test_element_tree_lxml_copy_drops_comments_but_keeps_text() -> None:
     source = html.fromstring("<div>one<!--comment-->two<b>bold</b>tail<!--comment-->end</div>")
     copied: Final[ElementView] = from_lxml(source)
     assert tostring(copied, encoding="unicode") == "<div>onetwo<b>bold</b>tailend</div>"
+
+
+@pytest.mark.oracle
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param(".//div[not(.//h2[not(//h1)])]", id="descendant-in-predicate"),
+        pytest.param(".//h2[/html]", id="root-in-predicate"),
+        pytest.param("/html/body/h1", id="absolute"),
+        pytest.param(".//h2[count(//h1) = 1]", id="count"),
+    ],
+)
+def test_element_tree_lxml_copy_resolves_absolute_paths_like_lxml(path: str) -> None:
+    html: Final[ModuleType] = pytest.importorskip("lxml.html")
+    source = html.fromstring("<html><body><div><h2>Preview</h2></div><h1>Title</h1></body></html>")
+    copied: Final[ElementView] = from_lxml(source)
+    assert ([element.tag for element in cast("list[ElementView]", copied.xpath(path))], copied.getparent()) == (
+        [element.tag for element in source.xpath(path)],
+        None,
+    )
 
 
 @pytest.mark.oracle
