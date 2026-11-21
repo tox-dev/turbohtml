@@ -2536,9 +2536,18 @@ static void view_strip_parsed_nodes(NodeObject *owner, int implicit_paragraphs) 
     for (th_node *node = root->first_child; node != NULL;) {
         th_node *following = preorder_next(node, root);
         Py_ssize_t line, column;
-        if (node->type == TH_NODE_COMMENT ||
-            (implicit_paragraphs && node->atom == TH_TAG_P && node->first_child == NULL && node->attr_count == 0 &&
-             !th_node_source_position(tree, node, &line, &column))) {
+        if (node->type == TH_NODE_CONTENT) {
+            /* lxml has no template content fragment: a template's content is its children. following is the first
+               moved child, so the walk still visits the content. */
+            while (node->first_child != NULL) {
+                th_node *child = node->first_child;
+                th_node_remove(child);
+                th_node_insert_before(node->parent, child, node);
+            }
+            th_node_remove(node);
+        } else if (node->type == TH_NODE_COMMENT ||
+                   (implicit_paragraphs && node->atom == TH_TAG_P && node->first_child == NULL &&
+                    node->attr_count == 0 && !th_node_source_position(tree, node, &line, &column))) {
             th_node_remove(node);
         }
         node = following;
@@ -2647,10 +2656,13 @@ static PyObject *view_parse_document(PyObject *module, PyObject *source) {
         return NULL;
     }
     PyObject *arguments = PyTuple_Pack(1, source);
+    /* lxml keeps a <template shadowrootmode> in place as an ordinary template element */
+    PyObject *options = Py_BuildValue("{s:O}", "allow_declarative_shadow_roots", Py_False);
     /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
-    PyObject *document = arguments == NULL ? NULL : turbohtml_parse(module, arguments, NULL);
+    PyObject *document = arguments == NULL || options == NULL ? NULL : turbohtml_parse(module, arguments, options);
     /* GCOVR_EXCL_BR_STOP */
     Py_XDECREF(arguments);
+    Py_XDECREF(options);
     if (document == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure parsing validated str/bytes */
         Py_DECREF(text);    /* GCOVR_EXCL_LINE: allocation failure */
         return NULL;        /* GCOVR_EXCL_LINE: allocation failure */
