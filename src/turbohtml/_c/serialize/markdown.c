@@ -349,13 +349,13 @@ typedef struct {
     int amp_open;               /* the last text node ended in an `&` and name, which the next can finish */
     int deep_block_span;        /* nested inline tags crossed a block boundary */
     int raw_emphasis;           /* HTML tags keep nested delimiters and breaks from changing on reparse */
-    th_node *br_from;       /* the node md_br_trailing last answered for... */
-    th_node *br_link;       /* ...the link it was in... */
-    int br_trailing;        /* ...and the answer, which a scan from there has for every node it steps over */
-    uint8_t escape_mask;    /* the MD_ASCII classes the options escape */
-    uint8_t run_stop;       /* the MD_ASCII classes that end a bulk-copied run */
-    Py_ssize_t break_start; /* where the last hard break was written in out... */
-    Py_ssize_t break_end;   /* ...and where it ended, -1 when there is none */
+    th_node *br_from;           /* the node md_br_trailing last answered for... */
+    th_node *br_link;           /* ...the link it was in... */
+    int br_trailing;            /* ...and the answer, which a scan from there has for every node it steps over */
+    uint8_t escape_mask;        /* the MD_ASCII classes the options escape */
+    uint8_t run_stop;           /* the MD_ASCII classes that end a bulk-copied run */
+    Py_ssize_t break_start;     /* where the last hard break was written in out... */
+    Py_ssize_t break_end;       /* ...and where it ended, -1 when there is none */
 } md_ctx;
 
 static int md_is_emphasis_node(const th_node *node) {
