@@ -1,4 +1,0 @@
-``turbohtml.etree``'s ``document_fromstring``, ``fromstring`` and ``fragment_fromstring`` make a ``<template>``'s
-content its children, as lxml does, and keep a ``<template shadowrootmode>`` as an ordinary template instead of
-attaching a shadow root. Before, ``len()``, iteration and ``itertext()`` on a template saw nothing, and a declarative
-shadow root's content was missing from ``text_content()`` and XPath. ``strip_elements`` now reaches template content.

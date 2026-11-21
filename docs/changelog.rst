@@ -6,6 +6,30 @@
 
 .. towncrier release notes start
 
+.. _release-1-16-3:
+
+**********************
+ v1.16.3 (2026-11-21)
+**********************
+
+.. _release-1-16-3-fixed:
+
+Fixed
+=====
+
+- ``turbohtml.etree`` covers three more ``lxml.html`` behaviors: ``ElementTree.iter`` iterates from the root element,
+  ``ElementView.nsmap`` returns an empty mapping, and ``to_lxml`` / ``to_lxml_html`` strip characters XML cannot carry
+  from text, tails and attribute values instead of raising ``ValueError`` or dropping the attribute (:pr:`2552`) by
+  :user:`gaborbernat`.
+- XPath on a ``from_lxml()`` copy resolves absolute paths from a document, as lxml does. The copy was a detached tree,
+  so ``//h1`` inside a predicate searched only below the predicate's context node and ``/html`` matched nothing
+  (:pr:`2553`) by :user:`gaborbernat`.
+- ``turbohtml.etree``'s ``document_fromstring``, ``fromstring`` and ``fragment_fromstring`` make a ``<template>``'s
+  content its children, as lxml does, and keep a ``<template shadowrootmode>`` as an ordinary template instead of
+  attaching a shadow root. Before, ``len()``, iteration and ``itertext()`` on a template saw nothing, and a declarative
+  shadow root's content was missing from ``text_content()`` and XPath. ``strip_elements`` now reaches template content
+  (:pr:`2554`) by :user:`gaborbernat`.
+
 .. _release-1-16-2:
 
 **********************
