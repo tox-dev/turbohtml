@@ -332,6 +332,14 @@ _STYLESHEET: Final[str] = (
             lambda _: rewrite(_SEED, elements=[("[zq]", lambda element: element.set_attribute("yq", "1"))]),
             id="rewrite-custom-attributes",
         ),
+        pytest.param(
+            lambda _: rewrite(
+                "<!doctype html><!--old--><p>old</p>",
+                comments=lambda comment: comment.set_text("new"),
+                doctype=lambda doctype: doctype.before("<!--before-->"),
+            ),
+            id="rewrite-handler-after-edit",
+        ),
     ],
 )
 def test_tokenizer_consumer_allocation_failure_raises_memory_error(
