@@ -156,12 +156,14 @@ def _run_oracles(minutes: float, rng_seed: int, crash_dir: Path) -> int:
     # Run the sanitizer oracles under the ASan preload, so a C fault on the way still aborts with a stack trace.
     _checkout_sparse_wpt()
     env = _asan_preload()
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(_ROOT / "tools"), env.get("PYTHONPATH")]))
     if minutes > 0:
         env = _private_reports(env, crash_dir)
     result = subprocess.run(
         [
             sys.executable,
-            str(_FUZZ / "sanitize_oracles.py"),
+            "-m",
+            "fuzz.sanitize_oracles",
             "--minutes",
             str(minutes),
             "--rng-seed",
