@@ -669,6 +669,36 @@ static int table_cell_needs_wrap(th_node *node, th_node *root) {
     return 1;
 }
 
+/* Markdown's raw HTML is copied out of a table cell with each run of spaces and line feeds collapsed to one space,
+   which is harmless for flowing text but rewrites the text of a pre, textarea or listing, where whitespace draws as
+   written */
+static int ser_markdown_keeps_whitespace(const th_serialize_opts *opts, th_node *node, th_node *root) {
+    if (opts->markdown != TH_MARKDOWN_HTML_INLINE && opts->markdown != TH_MARKDOWN_HTML_CELL) {
+        return 0;
+    }
+    for (th_node *parent = node->parent; parent != NULL; parent = parent == root ? NULL : parent->parent) {
+        if (parent->ns == TH_NS_HTML &&
+            (parent->atom == TH_TAG_PRE || parent->atom == TH_TAG_TEXTAREA || parent->atom == TH_TAG_LISTING)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Preformatted text with each line feed and each space in a run written as a reference, which the collapse leaves be */
+static void ser_put_markdown_preformatted(sbuf *out, const Py_UCS4 *text, Py_ssize_t len, int formatter) {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (text[index] == '\n') {
+            sbuf_puts(out, "&#10;");
+        } else if (text[index] == ' ' &&
+                   ((index > 0 && text[index - 1] == ' ') || (index + 1 < len && text[index + 1] == ' '))) {
+            sbuf_puts(out, "&#32;");
+        } else {
+            sbuf_put_text(out, text + index, 1, 0, formatter);
+        }
+    }
+}
+
 /* Emit one node under the compact (WHATWG fragment) layout and return the next node
    the walk rooted at root visits, or NULL once the subtree is fully written. Split
    out of serialize_compact so serialize_iter can resume the walk one node at a time
@@ -735,7 +765,11 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
             break; /* void elements have no children or end tag */
         }
         if (ser_needs_leading_newline(tree, node)) {
-            sbuf_putc(out, '\n');
+            if (ser_markdown_keeps_whitespace(opts, node->first_child, root)) {
+                sbuf_puts(out, "&#10;");
+            } else {
+                sbuf_putc(out, '\n');
+            }
         }
         if (is_rawtext_element(node, tree->scripting)) {
             if (opts->markdown != TH_MARKDOWN_HTML_INLINE) {
@@ -781,6 +815,8 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
         }
         if (opts->xml) {
             sbuf_put_xml_text(out, node->text, node->text_len, 0);
+        } else if (ser_markdown_keeps_whitespace(opts, node, root)) {
+            ser_put_markdown_preformatted(out, node->text, node->text_len, opts->formatter);
         } else {
             sbuf_put_text(out, node->text, node->text_len, 0, opts->formatter);
         }
