@@ -688,11 +688,10 @@ static int ser_markdown_keeps_whitespace(const th_serialize_opts *opts, th_node 
 /* Preformatted text with each line feed and each space in a run written as a reference, which the collapse leaves be */
 static void ser_put_markdown_preformatted(sbuf *out, const Py_UCS4 *text, Py_ssize_t len, int formatter) {
     for (Py_ssize_t index = 0; index < len; index++) {
-        if (text[index] == '\n') {
-            sbuf_puts(out, "&#10;");
-        } else if (text[index] == ' ' &&
-                   ((index > 0 && text[index - 1] == ' ') || (index + 1 < len && text[index + 1] == ' '))) {
-            sbuf_puts(out, "&#32;");
+        int space_run = text[index] == ' ' &&
+                        ((index > 0 && text[index - 1] == ' ') || (index + 1 < len && text[index + 1] == ' '));
+        if (space_run || text[index] == '\n') {
+            sbuf_puts(out, space_run ? "&#32;" : "&#10;");
         } else {
             sbuf_put_text(out, text + index, 1, 0, formatter);
         }
