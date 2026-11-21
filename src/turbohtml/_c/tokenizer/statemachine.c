@@ -362,10 +362,12 @@ th_tokenizer *th_tok_new(void) {
     self->capture_attributes = 1;
     th_tok_reset(self);
     /* buf_copy memcpys a start tag's name, and memcpy may not read NULL storage even for zero bytes; with room
-       reserved up front the first name character never fails, so every copied name is non-empty */
-    if (buf_ensure(&self->tok.name, 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        PyMem_Free(self);                     /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;                          /* GCOVR_EXCL_LINE: allocation-failure path */
+       reserved up front the first name character never fails, so every copied name is non-empty. th_tag_key reads a
+       whole word of the name, so the reservation is that word, not whatever the growth policy starts at: the fuzz
+       build starts every buffer at two bytes */
+    if (buf_ensure(&self->tok.name, (Py_ssize_t)sizeof(uint64_t)) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyMem_Free(self);                                                /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;                                                     /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     return self;
 }
