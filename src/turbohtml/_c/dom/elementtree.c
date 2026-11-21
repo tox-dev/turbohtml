@@ -25,6 +25,7 @@ static PyObject *view_strip_elements(PyObject *module, PyObject *args, PyObject 
 static PyObject *view_tostring(PyObject *module, PyObject *args, PyObject *kwargs);
 static PyObject *view_from_lxml(PyObject *module, PyObject *source);
 static PyObject *view_to_lxml(PyObject *module, PyObject *source);
+static PyObject *view_iter(PyObject *self, PyObject *args);
 static PyObject *view_to_lxml_html(PyObject *module, PyObject *source);
 static PyObject *view_document_fromstring(PyObject *module, PyObject *source);
 static PyObject *view_fromstring(PyObject *module, PyObject *source);
@@ -686,8 +687,13 @@ static PyObject *view_getroottree(PyObject *self, PyObject *Py_UNUSED(ignored)) 
     return (PyObject *)result;
 }
 
+static PyObject *view_root_iter(PyObject *self, PyObject *args) {
+    return view_iter(((ViewRoot *)self)->root, args);
+}
+
 static PyMethodDef view_root_methods[] = {
     {"getroot", view_root_getroot, METH_NOARGS, "getroot()\n--\n\n"},
+    {"iter", view_root_iter, METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL},
 };
 
@@ -2210,6 +2216,39 @@ static PyObject *view_tostring(PyObject *module, PyObject *args, PyObject *kwarg
     return encoded;
 }
 
+/* lxml rejects any str holding a character XML 1.0 cannot carry, where its own parser drops such characters from the
+   source; stripping them gives the copy the text lxml would have parsed. */
+static int view_xml_illegal(Py_UCS4 character) {
+    return (character < 0x20 && character != '\t' && character != '\n' && character != '\r') ||
+           (character >= 0xD800 && character <= 0xDFFF) || character == 0xFFFE || character == 0xFFFF;
+}
+
+static PyObject *view_xml_text(PyObject *value) {
+    int kind = PyUnicode_KIND(value);
+    const void *data = PyUnicode_DATA(value);
+    Py_ssize_t length = PyUnicode_GET_LENGTH(value);
+    Py_ssize_t index = 0;
+    while (index < length && !view_xml_illegal(PyUnicode_READ(kind, data, index))) {
+        index++;
+    }
+    if (index == length) {
+        return Py_NewRef(value);
+    }
+    Py_UCS4 *text = PyUnicode_AsUCS4Copy(value);
+    if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    Py_ssize_t kept = index;
+    for (; index < length; index++) {
+        if (!view_xml_illegal(text[index])) {
+            text[kept++] = text[index];
+        }
+    }
+    PyObject *result = ucs4_to_str(text, kept);
+    PyMem_Free(text);
+    return result;
+}
+
 static PyObject *view_lxml_node(PyObject *factory, NodeObject *node) {
     PyObject *tag = element_get_tag((PyObject *)node, NULL);
     PyObject *attributes = element_get_attrs((PyObject *)node, NULL);
@@ -2225,6 +2264,21 @@ static PyObject *view_lxml_node(PyObject *factory, NodeObject *node) {
         Py_DECREF(tag);  /* GCOVR_EXCL_LINE: allocation failure */
         return NULL;     /* GCOVR_EXCL_LINE: allocation failure */
     }
+    PyObject *key;
+    PyObject *value;
+    Py_ssize_t position = 0;
+    while (PyDict_Next(attrs, &position, &key, &value)) {
+        PyObject *clean = view_xml_text(value);
+        /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
+        if (clean == NULL || (clean != value && PyDict_SetItem(attrs, key, clean) < 0)) {
+            /* GCOVR_EXCL_BR_STOP */
+            Py_XDECREF(clean); /* GCOVR_EXCL_LINE: allocation failure */
+            Py_DECREF(tag);    /* GCOVR_EXCL_LINE: allocation failure */
+            Py_DECREF(attrs);  /* GCOVR_EXCL_LINE: allocation failure */
+            return NULL;       /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        Py_DECREF(clean);
+    }
     PyObject *result = PyObject_CallFunctionObjArgs(factory, tag, attrs, NULL);
     /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
     if (result == NULL && PyErr_ExceptionMatches(PyExc_ValueError)) {
@@ -2236,9 +2290,7 @@ static PyObject *view_lxml_node(PyObject *factory, NodeObject *node) {
         /* GCOVR_EXCL_BR_STOP */
         Py_XDECREF(normalized);
         if (result != NULL) {
-            PyObject *key;
-            PyObject *value;
-            Py_ssize_t position = 0;
+            position = 0;
             while (PyDict_Next(attrs, &position, &key, &value)) {
                 if (view_discard(PyObject_CallMethod(result, "set", "OO", key, value)) < 0) {
                     /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
@@ -2291,6 +2343,9 @@ TH_NODE_API(static, PyObject *, view_lxml_text, (PyObject * self, int tail), (se
         }
     }
     Py_END_CRITICAL_SECTION();
+    if (result != NULL) {
+        Py_SETREF(result, view_xml_text(result));
+    }
     /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
     return result == NULL && !PyErr_Occurred() ? Py_NewRef(Py_None) : result;
     /* GCOVR_EXCL_BR_STOP */
@@ -2908,10 +2963,20 @@ static PyType_Spec view_iter_spec = {
     .slots = view_iter_slots,
 };
 
+/* HTML elements carry no namespace declarations: lxml.html gives every element an empty mapping, and a view keeps the
+   local name of foreign elements as their tag, as lxml.html does. */
+static PyObject *view_nsmap(PyObject *Py_UNUSED(self), void *Py_UNUSED(closure)) {
+    return PyDict_New();
+}
+
 static PyGetSetDef view_getset[] = {
-    {"node", view_node, NULL, NULL, NULL},          {"tag", view_tag, view_set_tag, NULL, NULL},
-    {"text", view_text, view_set_text, NULL, NULL}, {"tail", view_text, view_set_text, NULL, (void *)1},
-    {"attrib", view_attrib, NULL, NULL, NULL},      {NULL, NULL, NULL, NULL, NULL},
+    {"node", view_node, NULL, NULL, NULL},
+    {"tag", view_tag, view_set_tag, NULL, NULL},
+    {"text", view_text, view_set_text, NULL, NULL},
+    {"tail", view_text, view_set_text, NULL, (void *)1},
+    {"attrib", view_attrib, NULL, NULL, NULL},
+    {"nsmap", view_nsmap, NULL, NULL, NULL},
+    {NULL, NULL, NULL, NULL, NULL},
 };
 
 static PyMethodDef view_methods[] = {

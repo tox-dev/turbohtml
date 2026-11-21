@@ -13,7 +13,9 @@ from turbohtml.etree import (
     SubElement,
     XPath,
     document_context,
+    document_fromstring,
     from_lxml,
+    fromstring,
     strip_elements,
     strip_tags,
     to_lxml,
@@ -101,6 +103,26 @@ def test_element_view_copy_keeps_tail(tree: ElementView) -> None:
 )
 def test_element_view_iter_tags(tree: ElementView, tags: tuple[str | list[str], ...], expected: list[str]) -> None:
     assert [node.tag for node in tree.iter(*tags)] == expected
+
+
+@pytest.mark.parametrize(
+    ("tags", "expected"),
+    [
+        pytest.param((), ["html", "body", "p", "div", "p", "svg"], id="all"),
+        pytest.param(("p",), ["p", "p"], id="tag"),
+        pytest.param(("div", "svg"), ["div", "svg"], id="several"),
+    ],
+)
+def test_element_tree_iter_starts_at_root(tags: tuple[str, ...], expected: list[str]) -> None:
+    child: Final[ElementView | None] = document_fromstring("<p>a</p><div><p>b</p><svg></svg></div>").find(".//svg")
+    assert child is not None
+    assert [node.tag for node in child.getroottree().iter(*tags)] == expected
+
+
+def test_element_view_nsmap_is_empty_for_html_and_foreign_elements() -> None:
+    tree: Final[ElementView] = fromstring("<div><svg><circle/></svg><math><mi>x</mi></math></div>")
+    maps: Final[list[dict[str, str]]] = [node.nsmap for node in tree.iter()]
+    assert (maps, maps[0] is maps[1]) == ([{}] * 5, False)
 
 
 def test_element_view_iteration_survives_removed_current(tree: ElementView) -> None:
@@ -338,14 +360,39 @@ def test_element_tree_lxml_copy_rejects_unrepresentable_child_name() -> None:
 
 
 @pytest.mark.oracle
-@pytest.mark.parametrize("placement", [pytest.param("text", id="text"), pytest.param("tail", id="tail")])
-def test_element_tree_lxml_copy_rejects_xml_control_characters(placement: str) -> None:
-    pytest.importorskip("lxml.etree")
-    tree: Final[ElementView] = etree.Element("p")
-    child: Final[ElementView] = SubElement(tree, "b")
-    setattr(child, placement, "\x01")
-    with pytest.raises(ValueError, match="XML compatible"):
-        to_lxml(tree)
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("a\x01b\x0bc", "abc", id="control"),
+        pytest.param("\t\n\r kept", "\t\n\r kept", id="whitespace-control"),
+        pytest.param("a\ud800b\udfffc", "abc", id="surrogate"),
+        pytest.param("a\ufffeb\uffffc\uffefd", "abc\uffefd", id="noncharacter"),
+        pytest.param("caf\xe9", "caf\xe9", id="clean"),
+    ],
+)
+def test_element_tree_lxml_copy_strips_xml_illegal_characters(value: str, expected: str) -> None:
+    lxml: Final[ModuleType] = pytest.importorskip("lxml.etree")
+    tree: Final[ElementView] = etree.Element("p", title=value)
+    tree.text = value
+    child: Final[ElementView] = SubElement(tree, "b", alt=value)
+    child.tail = value
+    copied = to_lxml(tree)
+    assert (copied.get("title"), copied.text, copied[0].get("alt"), copied[0].tail) == (expected,) * 4
+    assert lxml.tostring(copied, encoding="unicode").count("<b") == 1
+
+
+@pytest.mark.oracle
+def test_element_tree_lxml_copy_keeps_attributes_with_control_characters() -> None:
+    html: Final[ModuleType] = pytest.importorskip("lxml.html")
+    source: Final[str] = "<div><p title='a\x01b'>x\x01y<b>z</b>\x0bt</p><a href='/z\x01'><img alt='p\x0bq'></a></div>"
+    copied = to_lxml(from_lxml(html.fromstring(source)))
+    assert [(node.tag, dict(node.attrib), node.text, node.tail) for node in copied.iter()] == [
+        ("div", {}, None, None),
+        ("p", {"title": "ab"}, "xy", None),
+        ("b", {}, "z", "t"),
+        ("a", {"href": "/z"}, None, None),
+        ("img", {"alt": "pq"}, None, None),
+    ]
 
 
 @pytest.fixture
