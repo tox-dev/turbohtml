@@ -2024,8 +2024,9 @@ static void mark_walked(F *folder, int32_t idx, int32_t depth) {
     if (marks == NULL || marks->count * 2 >= marks->cap) {
         int32_t cap = marks == NULL ? 8 : marks->cap * 2;
         jm_fold_marks *grown = jm_malloc(sizeof(jm_fold_marks) + (size_t)cap * sizeof(jm_fold_mark));
-        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
-            return;          /* GCOVR_EXCL_LINE: the function is walked again, as without the mark */
+        if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+            prog->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+            return;           /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         grown->cap = cap;
         grown->count = 0;
