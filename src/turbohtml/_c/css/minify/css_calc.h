@@ -611,6 +611,10 @@ CSS_NOINLINE static void css_refold_color(css_buf *pool, Py_ssize_t *out_off, Py
    number is spaced by its own rendering, so NUM is left to the caller). */
 static void css_put_folded(css_buf *out, const css_char *text, Py_ssize_t len, token_vec *vec, Py_ssize_t next,
                            Py_ssize_t end) {
+    /* a failed growth leaves text naming a run the pool never stored */
+    if (*out->oom) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
     if (out->len > 0 && out->data[out->len - 1] != '(' && out->data[out->len - 1] != ',' &&
         css_would_merge_after(vec->escapes, out->data, out->len, 0, text, len)) {
         cbuf_putc(out, ' ');
