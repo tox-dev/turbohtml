@@ -1,3 +1,0 @@
-``to_markdown()`` writes breaks inside emphasis as Markdown hard breaks again when visible text separates them, as in
-``<em>[Image OCR]<br>text<br>[End OCR]</em>``, instead of raw ``<br>`` tags. Only breaks with nothing visible between
-them, which would end the paragraph, stay tags.

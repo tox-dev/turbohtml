@@ -6,6 +6,21 @@
 
 .. towncrier release notes start
 
+.. _release-1-16-2:
+
+**********************
+ v1.16.2 (2026-11-21)
+**********************
+
+.. _release-1-16-2-fixed:
+
+Fixed
+=====
+
+- ``to_markdown()`` writes breaks inside emphasis as Markdown hard breaks again when visible text separates them, as in
+  ``<em>[Image OCR]<br>text<br>[End OCR]</em>``, instead of raw ``<br>`` tags. Only breaks with nothing visible between
+  them, which would end the paragraph, stay tags (:pr:`2551`) by :user:`gaborbernat`.
+
 .. _release-1-16-1:
 
 **********************
