@@ -165,3 +165,21 @@ def test_templates_count_toward_the_depth_cap(depth: int) -> None:
             deepest = max(deepest, level)
         stack.extend((child, level + 1) for child in getattr(node, "children", []) or [])
     assert deepest <= _DEPTH_CAP
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param(
+            f"{'<x>' * 506}<select><ruby><selectedcontent><table><col><option>t<thead><tr><td>u", id="table-section"
+        ),
+        pytest.param(f"<a>{'<x>' * 504}<ruby><select><mi><selectedcontent><mi><option>t<optgroup>u", id="foreign"),
+        pytest.param(
+            f"<b><a>{'<x>' * 500}<object><u><button><div><pre><select><selectedcontent><object><option>t</option><a>u",
+            id="reconstructed",
+        ),
+    ],
+)
+def test_capped_element_the_option_copy_detaches_takes_appends(markup: str) -> None:
+    # the option copy empties the selectedcontent, detaching the capped element still open below it
+    assert not parse(markup).text

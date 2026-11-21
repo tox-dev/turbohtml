@@ -997,10 +997,13 @@ static int has_ancestors_at_least(const th_node *node, Py_ssize_t limit) {
    the run. Foster parenting inserts before a table, which is shallower than the cap, so only appends can need the move.
    A template's content fragment counts as its template. A parent the cap refused once keeps refusing: the adoption
    agency can lift a refused element back under the cap, and an append into it would then land before the nodes already
-   sent after it. deep says whether the stack can reach the cap; when it cannot, only a refused parent moves. */
+   sent after it. A refused element the option copy into a selectedcontent detached from the tree takes appends again,
+   since nothing above it is left to send them to. deep says whether the stack can reach the cap; when it cannot, only a
+   refused parent moves. */
 static TH_NOINLINE void cap_insertion_walk(th_tree *tree, th_node **parent, th_node **before, int deep) {
     th_node *anchor = (*parent)->type == TH_NODE_CONTENT ? (*parent)->parent : *parent;
-    if (!anchor->cap_refused && !(deep && has_ancestors_at_least(*parent, TH_MAX_TREE_DEPTH))) {
+    if (anchor->parent == NULL ||
+        (!anchor->cap_refused && !(deep && has_ancestors_at_least(*parent, TH_MAX_TREE_DEPTH)))) {
         return;
     }
     tree->depth_capped = 1;
