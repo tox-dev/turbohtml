@@ -238,6 +238,7 @@ typedef struct {
     int deep_block_span;
     Py_UCS4 list_end_marker;
     Py_ssize_t table_end;
+    int converting;
 } md_converting;
 
 /* One element whose children are being rendered: the child it reached and what it
@@ -344,6 +345,7 @@ typedef struct {
     Py_ssize_t list_over;       /* output length where a reader is out of that list; behind list_end until then */
     int g_bold;                 /* google_doc: a CSS font-weight bold is in force from an ancestor */
     int g_italic;               /* google_doc: a CSS font-style italic is in force from an ancestor */
+    int converting;             /* rendering a converted element's children, which its converter extends */
     int failed;                 /* a reference buffer allocation failed */
     int escape_prose;           /* escape what a reader would parse in prose; off under Escaping(mode="none") */
     int amp_open;               /* the last text node ended in an `&` and name, which the next can finish */
@@ -1549,24 +1551,42 @@ static Py_UCS4 md_quote_edge(const char *mark) {
     return first != '\0' && first < 0x80 ? first : 'a';
 }
 
+/* Whether a converter is registered for the element's tag; an allocation failure answers yes, the uncertain side. */
+static int md_has_converter(md_ctx *ctx, th_node *node) {
+    PyObject *tag = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, node->text, node->text_len);
+    if (tag == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        ctx->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+        return 1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int found = PyDict_Contains(ctx->opt->converters, tag);
+    Py_DECREF(tag);
+    if (found < 0) {     /* GCOVR_EXCL_BR_LINE: a str key never raises on lookup */
+        ctx->failed = 1; /* GCOVR_EXCL_LINE: unreachable hash-error path */
+        return 1;        /* GCOVR_EXCL_LINE: unreachable hash-error path */
+    }
+    return found;
+}
+
 /* The character the output holds right after an inline element, read off the tree for
    the flanking test of its closing run: the next text's first character, a line end at
    a block or cell boundary or a break, the punctuation an enclosing run, link or quote
    closes with, or the punctuation that a following link, quote, run or code span opens
    with. An image, preserved white space, or anything a converter writes, reads as
    ordinary: an ordinary character is where a run after punctuation cannot close, so an
-   uncertain answer only ever trades a delimiter for the raw-HTML tag. Every element that
-   writes without holding a text node has to end the scan, or a line of them is scanned to
-   its end from the run around each; for one this function does not know, the scan gives
-   the uncertain answer past MD_AFTER_REACH nodes. The climb ends at the block around the
+   uncertain answer only ever trades a delimiter for the raw-HTML tag. A converter writes
+   only for the elements registered with it, so the scan gives up where it meets one: an
+   element it would step into, or an enclosing one whose converter adds to what its
+   children wrote. Inside a converted element a block's line can end the converted text,
+   which the converter then extends, so there a block boundary reads as ordinary too.
+   Every element that writes without holding a text node has to end the scan, or a line
+   of them is scanned to its end from the run around each; for one this function does not
+   know, the scan gives the uncertain answer past MD_AFTER_REACH nodes. The climb ends at the block around the
    element, or past the top of a tree that has none above it (a fragment, a shadow root, a
    detached inline element, an XML document, whose elements carry no HTML atom), where the
    output ends like a line. */
 static Py_UCS4 md_char_after(md_ctx *ctx, th_node *node) {
     const md_opts *opt = ctx->opt;
-    if (opt->converters != NULL) {
-        return 'a';
-    }
+    int converters = opt->converters != NULL;
     th_node *cursor = node;
     th_node *next = node->next_sibling;
     int depth = 0;       /* how far the scan has descended into the elements after node */
@@ -1587,9 +1607,12 @@ static Py_UCS4 md_char_after(md_ctx *ctx, th_node *node) {
                 next = cursor->next_sibling;
                 continue;
             }
+            if (converters && md_has_converter(ctx, cursor)) {
+                return 'a';
+            }
             uint16_t atom = cursor->ns == TH_NS_HTML ? cursor->atom : TH_TAG_UNKNOWN;
             if (is_md_block(atom) || atom == TH_TAG_TD || atom == TH_TAG_TH) {
-                return '\n';
+                return ctx->converting ? 'a' : '\n';
             }
             if (md_is_emphasis(atom)) {
                 return '*';
@@ -1611,7 +1634,13 @@ static Py_UCS4 md_char_after(md_ctx *ctx, th_node *node) {
             }
             continue;
         }
-        if (cursor->type != TH_NODE_ELEMENT || is_md_skipped(cursor)) {
+        if (cursor->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        if (converters && md_has_converter(ctx, cursor)) {
+            return punct_depth > 0 ? '*' : 'a'; /* a converter runs before an element is skipped */
+        }
+        if (is_md_skipped(cursor)) {
             continue;
         }
         uint16_t atom = cursor->ns == TH_NS_HTML ? cursor->atom : TH_TAG_UNKNOWN;
@@ -1861,17 +1890,19 @@ static void md_render_block(md_ctx *ctx, th_node *node);
    `_` run needs to pair (commonmark.js 0.31.2 inlines.js L295-L297) and is enough for a
    `*` run too. It is known in O(1) when a text sibling follows, or when the element ends
    a block laid out in the normal flow, whose line then ends. Link text, a text-mode
-   table cell and a converter can each put text right after a block, so there it is not. */
+   table cell and the converter of an enclosing element can each put text right after a
+   block, so there it is not. */
 static int md_followed_by_break(md_ctx *ctx, th_node *node) {
     th_node *sibling = node->next_sibling;
     if (sibling == NULL) {
         /* a node that is not an element carries TH_TAG_UNKNOWN, never a block atom */
         th_node *parent = node->parent;
         if (parent->ns == TH_NS_HTML && md_is_emphasis(parent->atom)) {
-            return ctx->opt->converters == NULL; /* the enclosing run's closing delimiter or tag is punctuation */
+            /* the enclosing run's closing delimiter or tag is punctuation, unless a converter writes it instead */
+            return ctx->opt->converters == NULL || !md_has_converter(ctx, parent);
         }
         return parent->ns == TH_NS_HTML && is_md_block(parent->atom) && ctx->inline_only == 0 && !ctx->in_cell &&
-               ctx->opt->converters == NULL;
+               !ctx->converting;
     }
     if (sibling->type != TH_NODE_TEXT || sibling->text_len == 0) {
         return 0;
@@ -3622,6 +3653,7 @@ static int md_enter_converter(md_ctx *ctx, th_node *node) {
         .deep_block_span = ctx->deep_block_span,
         .list_end_marker = ctx->list_end_marker,
         .table_end = ctx->table_end,
+        .converting = ctx->converting,
     };
     ctx->out = (sbuf){0};
     ctx->prefix = (sbuf){0};
@@ -3645,6 +3677,7 @@ static int md_enter_converter(md_ctx *ctx, th_node *node) {
     ctx->deep_block_span = 0; /* it counts the markers above marker_base, and a run closing in here must not clear it */
     ctx->list_end_marker = 0;
     ctx->table_end = -1;
+    ctx->converting = 1;
     return 1;
 }
 
@@ -3768,6 +3801,7 @@ static void md_leave_converter(md_ctx *ctx, md_frame *frame) {
     ctx->deep_block_span = saved->deep_block_span;
     ctx->list_end_marker = saved->list_end_marker;
     ctx->table_end = saved->table_end;
+    ctx->converting = saved->converting;
     PyObject *tag = saved->tag;
     PyObject *converter = saved->converter;
     PyMem_Free(saved);

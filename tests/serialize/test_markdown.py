@@ -550,6 +550,40 @@ def test_emphasis_breaks_around_converted_element_are_tags() -> None:
     assert parse("<p><em>a<br><span>s</span><br>b</em></p>").to_markdown(config) == "*a<br>s<br>b*"
 
 
+@pytest.mark.parametrize(
+    ("source", "tag", "expected"),
+    [
+        pytest.param(
+            "<div><p><em>[Image OCR]<br>MOCK<br>[End OCR]</em></p></div>",
+            "u",
+            "*\\[Image OCR\\]  \nMOCK  \n\\[End OCR\\]*",
+            id="no-converted-element-follows",
+        ),
+        pytest.param(
+            "<p><em>[x]</em></p><p><u>y</u></p>", "u", "*\\[x\\]*\n\ny", id="converted-element-past-the-block"
+        ),
+        pytest.param("<p><em>[x]</em><u> y</u></p>", "u", "<em>\\[x\\]</em> y", id="converted-next-sibling"),
+        pytest.param(
+            "<p><em>[x]</em><span><u> y</u></span></p>", "u", "<em>\\[x\\]</em> y", id="converted-first-descendant"
+        ),
+        pytest.param("<p><em>[x]</em><b><u>y</u></b></p>", "u", "*\\[x\\]*__y__", id="converted-inside-emphasis-after"),
+        pytest.param("<p><u><em>[x]</em></u> y</p>", "u", "<em>\\[x\\]</em> y", id="converted-enclosing-element"),
+        pytest.param(
+            "<div><u><p><em>[x]</em></p></u></div>", "u", "<em>\\[x\\]</em>", id="block-ends-converted-content"
+        ),
+        pytest.param(
+            "<p><b>x <em>a.</em><em>b</em></b>c</p>", "u", "<strong>x *a.*_b_</strong>c", id="enclosing-emphasis-closes"
+        ),
+        pytest.param(
+            "<p><b>x <em>a.</em><em>b</em></b>c</p>", "b", "x *a.*<em>b</em>c", id="converted-enclosing-emphasis"
+        ),
+    ],
+)
+def test_emphasis_close_reads_past_elements_without_converters(source: str, tag: str, expected: str) -> None:
+    config: Final[Markdown] = Markdown(converters={tag: lambda _element, content: content})
+    assert parse(source).to_markdown(config) == expected
+
+
 @pytest.mark.parametrize("source", ["<i>.<i>x</i></i>", "<em>.<i>x</i></em>"])
 def test_nested_emphasis_after_punctuation_keeps_separate_delimiters(source: str) -> None:
     assert md(source) == "*._x_*"
@@ -2270,7 +2304,7 @@ def test_break_inside_raw_emphasis_survives_round_trip() -> None:
         pytest.param(
             "<b><i><blockquote>.<br><sub></sub></blockquote></i></b>x",
             Markdown(converters={"u": lambda _element, content: content}),
-            "> **<em>.</em>**\n\n\\\nx",
+            "> **_._**\n\n\\\nx",
             id="break-moved-behind-a-close-is-forgotten",
         ),
     ],
