@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Final, cast
+
 import pytest
 
+from turbohtml import etree
 from turbohtml.etree import document_fromstring, fragment_fromstring, fromstring, tostring
+
+if TYPE_CHECKING:
+    from types import ModuleType
+
+    from turbohtml.etree import ElementView
 
 
 @pytest.mark.parametrize(
@@ -125,3 +133,35 @@ def test_element_tree_fragment_parsing(markup: str, expected: str, *, parent: st
 def test_element_tree_fragment_requires_one_element(markup: str, message: str) -> None:
     with pytest.raises(ValueError, match=message):
         fragment_fromstring(markup)
+
+
+@pytest.mark.oracle
+@pytest.mark.parametrize(
+    ("parser", "markup"),
+    [
+        pytest.param(
+            "document_fromstring",
+            '<div>A <template shadowrootmode="open"><p>B <template>C</template> D</p></template> E</div>',
+            id="declarative-shadow-root",
+        ),
+        pytest.param("document_fromstring", "<head><template><meta name=x>h</template></head>b", id="head"),
+        pytest.param("fromstring", "<table><template><tr><td>1</td></tr></template></table>", id="table-content"),
+        pytest.param("fromstring", "<div><template></template>t</div>", id="empty"),
+        pytest.param("fragment_fromstring", "<template><b>x</b>y</template>", id="fragment"),
+    ],
+)
+def test_element_tree_template_content_is_children_like_lxml(parser: str, markup: str) -> None:
+    html: Final[ModuleType] = pytest.importorskip("lxml.html")
+    tree: Final[ElementView] = getattr(etree, parser)(markup)
+    expected = getattr(html, parser)(markup)
+    assert (
+        tree.text_content(),
+        list(tree.itertext()),
+        [(element.tag, element.text, element.tail, len(element)) for element in tree.iter()],
+        len(cast("list[ElementView]", tree.xpath("descendant-or-self::template"))),
+    ) == (
+        expected.text_content(),
+        list(expected.itertext()),
+        [(element.tag, element.text, element.tail, len(element)) for element in expected.iter()],
+        len(expected.xpath("descendant-or-self::template")),
+    )

@@ -205,10 +205,10 @@ def test_element_tree_strip_elements_leaves_nested_match_in_removed_subtree() ->
     )
 
 
-def test_element_tree_strip_elements_leaves_template_content() -> None:
-    tree: Final[ElementView] = etree.fromstring("<div><template><b>kept</b></template><b>gone</b></div>")
+def test_element_tree_strip_elements_reaches_template_content() -> None:
+    tree: Final[ElementView] = etree.fromstring("<div><template><b>gone</b></template><b>gone</b></div>")
     etree.strip_elements(tree, "b")
-    assert etree.tostring(tree, encoding="unicode") == "<div><template><b>kept</b></template></div>"
+    assert etree.tostring(tree, encoding="unicode") == "<div><template/></div>"
 
 
 def test_element_tree_strip_elements_stops_at_tail_holder() -> None:
