@@ -615,7 +615,7 @@ static void css_put_folded(css_buf *out, const css_char *text, Py_ssize_t len, t
     if (*out->oom) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    if (out->len > 0 && out->data[out->len - 1] != '('&& out->data[out->len - 1] != ',' &&
+    if (out->len > 0 && out->data[out->len - 1] != '(' && out->data[out->len - 1] != ',' &&
         css_would_merge_after(vec->escapes, out->data, out->len, 0, text, len)) {
         cbuf_putc(out, ' ');
     }
