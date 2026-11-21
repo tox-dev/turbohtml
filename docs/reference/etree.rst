@@ -22,7 +22,8 @@ runs in C and keeps one live view per node.
 
 ``ElementView(node)`` wraps an existing ``turbohtml.Element``. Its ``node`` property gives access to DOM operations.
 ``attrib`` exposes string values, including ``class``; the native DOM's attribute mapping can expose a class list. Child
-indices and slices count elements, excluding text and comments.
+indices and slices count elements, excluding text and comments. ``nsmap`` is an empty mapping, as on ``lxml.html``
+elements: a view names foreign elements such as ``svg`` by their local name.
 
 *********
  Parsing
@@ -52,9 +53,10 @@ element and retains its tail; ``drop_tree`` leaves that tail in the former paren
 that run and removes the others, so a held ``Text`` sees the new value and a mutation observer records a
 ``characterData`` change; assigning ``None`` removes the run.
 
-``iter`` and ``iterdescendants`` traverse elements in document order. ``iterchildren``, ``iterancestors`` and
-``itersiblings`` select the corresponding axis. Tag filters accept strings, iterables of strings and ``*``. ``itertext``
-returns a snapshot of text runs; ``with_tail=False`` omits descendant tails.
+``iter`` and ``iterdescendants`` traverse elements in document order; ``getroottree().iter`` starts at the root element.
+``iterchildren``, ``iterancestors`` and ``itersiblings`` select the corresponding axis. Tag filters accept strings,
+iterables of strings and ``*``. ``itertext`` returns a snapshot of text runs; ``with_tail=False`` omits descendant
+tails.
 
 ``xpath`` and ``XPath`` support turbohtml's XPath expressions and variable bindings. ``find``, ``findall`` and
 ``iterfind`` use XPath expressions, rather than ElementPath expressions. They return element views and discard scalar or
@@ -70,7 +72,9 @@ decorated calls share that context.
 
 Views do not satisfy lxml's C extension type checks. Keep lxml objects at public boundaries that promise lxml methods,
 and use ``from_lxml``, ``to_lxml`` or ``to_lxml_html`` to copy across that boundary. The HTML variant supports methods
-such as ``iterlinks`` and ``make_links_absolute``. These copies require the optional ``lxml`` package.
+such as ``iterlinks`` and ``make_links_absolute``. These copies require the optional ``lxml`` package. ``to_lxml`` and
+``to_lxml_html`` strip the characters XML cannot carry, which lxml rejects, from text, tails and attribute values: C0
+controls other than tab, line feed and carriage return, surrogates, U+FFFE and U+FFFF.
 
 The adapter covers extraction operations; it does not implement lxml's complete API. Parsing repairs, namespace handling
 and invalid-name normalization can differ. ``tostring`` defaults to XML-style serialization and ASCII bytes; pass
