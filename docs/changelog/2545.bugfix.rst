@@ -1,0 +1,2 @@
+Text nested past the 512-level depth cap keeps its source order when the adoption agency moves its parent back under the
+cap: ``<a>``, 500 open elements and eight ``<div>``\s followed by ``<p>y<a>x`` used to read ``xy``.

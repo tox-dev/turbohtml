@@ -97,6 +97,7 @@ def _correct_in_body_and_template(parser: _Untyped) -> None:
     )
     in_body = type(parser.phases["inBody"])
     end_handlers = _with_method(in_body, "endTagHandler", in_body.endTagFormatting, _adoption_agency)
+    end_handlers.default = _end_tag_other
     end_handlers["br"] = _end_tag_br
     end_handlers["select"] = _end_tag_select
     end_handlers["template"] = _end_to_in_head
@@ -111,6 +112,7 @@ def _correct_in_body_and_template(parser: _Untyped) -> None:
         (in_body,),
         {
             "endTagFormatting": _adoption_agency,
+            "endTagOther": _end_tag_other,
             "endTagHandler": end_handlers,
             "startTagHandler": start_handlers,
             "processStartTag": _any_token_ends_newline_drop(in_body.processStartTag),
@@ -224,6 +226,20 @@ def _reinsert(
     self.tree.activeFormattingElements.insert(bookmark, clone)
     self.tree.openElements.remove(formatting)
     self.tree.openElements.insert(self.tree.openElements.index(furthest_block) + 1, clone)
+
+
+def _end_tag_other(self: _Untyped, token: _Token) -> None:
+    # WHATWG "in body", any other end tag, matches only an HTML element of that name; html5lib compares bare names, so
+    # `<math><mi><x></mi>` pops back to the math element instead of stopping at the special MathML mi.
+    def matches(node: _Untyped) -> bool:
+        return node.name == token["name"] and node.namespace == self.tree.defaultNamespace
+
+    # the html root is special, so the walk always stops
+    stop = next(node for node in reversed(self.tree.openElements) if matches(node) or node.nameTuple in _SPECIAL)
+    if matches(stop):
+        self.tree.generateImpliedEndTags(exclude=token["name"])
+        while self.tree.openElements.pop() is not stop:
+            pass
 
 
 def _end_tag_br(self: _Untyped, token: _Token) -> None:

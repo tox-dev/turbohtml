@@ -995,14 +995,19 @@ static int has_ancestors_at_least(const th_node *node, Py_ssize_t limit) {
    after itself were created after it, so they stay in front of the new node: the insertion point is after them. A
    sibling created before the parent, such as a table a reconstructed element was foster-parented before, still bounds
    the run. Foster parenting inserts before a table, which is shallower than the cap, so only appends can need the move.
-   A template's content fragment counts as its template. A stack whose depth bound stays below the cap cannot reach it,
-   which skips the walk. */
-static TH_NOINLINE void cap_insertion_walk(th_tree *tree, th_node **parent, th_node **before) {
-    if (!has_ancestors_at_least(*parent, TH_MAX_TREE_DEPTH)) {
+   A template's content fragment counts as its template. A parent the cap refused once keeps refusing: the adoption
+   agency can lift a refused element back under the cap, and an append into it would then land before the nodes already
+   sent after it. A refused element the option copy into a selectedcontent detached from the tree takes appends again,
+   since nothing above it is left to send them to. deep says whether the stack can reach the cap; when it cannot, only a
+   refused parent moves. */
+static TH_NOINLINE void cap_insertion_walk(th_tree *tree, th_node **parent, th_node **before, int deep) {
+    th_node *anchor = (*parent)->type == TH_NODE_CONTENT ? (*parent)->parent : *parent;
+    if (anchor->parent == NULL ||
+        (!anchor->cap_refused && !(deep && has_ancestors_at_least(*parent, TH_MAX_TREE_DEPTH)))) {
         return;
     }
     tree->depth_capped = 1;
-    th_node *anchor = (*parent)->type == TH_NODE_CONTENT ? (*parent)->parent : *parent;
+    anchor->cap_refused = 1;
     *parent = anchor->parent;
     *before = anchor->next_sibling;
     while (*before != NULL && (*before)->seq > anchor->seq) {
@@ -1012,8 +1017,11 @@ static TH_NOINLINE void cap_insertion_walk(th_tree *tree, th_node **parent, th_n
 
 static void insertion_location_target(th_tree *tree, th_node *target, th_node **parent, th_node **before) {
     insertion_location_place(tree, target, parent, before);
-    if (tree->depth_near_cap && *before == NULL && stack_depth_bound(tree) + 1 >= TH_MAX_TREE_DEPTH) {
-        cap_insertion_walk(tree, parent, before);
+    if (tree->depth_near_cap && *before == NULL) {
+        int deep = stack_depth_bound(tree) + 1 >= TH_MAX_TREE_DEPTH;
+        if (deep || tree->depth_capped) {
+            cap_insertion_walk(tree, parent, before, deep);
+        }
     }
 }
 
