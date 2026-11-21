@@ -13,6 +13,10 @@ from fuzz.generation_targets import encoding_observation
         pytest.param("<table>\n<p><li > ", " \n", id="list-item-after-foster-paragraph"),
         pytest.param("<table><button><button > <!>x", " x", id="table-start-tag-reprocessed"),
         pytest.param("<pre></e>\n", "\n", id="pre-newline-after-other-token"),
+        pytest.param("<math><mi><x></mi>\x00", "", id="end-tag-stops-at-special-mathml"),
+        pytest.param("<svg><desc><b></desc>\x00", "", id="end-tag-stops-at-special-svg"),
+        pytest.param("<math><mi><x></x></mi>\x00", "�", id="foreign-end-tag-pops-to-math"),
+        pytest.param("<div><span></div>x", "x", id="end-tag-pops-html-element"),
     ],
 )
 def test_encoding_oracle_accepts_whatwg_tree_construction(markup: str, expected: str) -> None:
