@@ -1,0 +1,2 @@
+``rewrite()`` now raises ``MemoryError`` when running out of memory after its first edit, instead of calling the next
+handler with the error pending, which raised ``SystemError``.
