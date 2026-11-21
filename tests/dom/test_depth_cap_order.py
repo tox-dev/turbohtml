@@ -92,6 +92,12 @@ def _deepest(document: Node) -> int:
         pytest.param(f"<a>{'<x>' * 508}<h1><b><h1><li><div><div><button><li><div><p><a>t", "t", id="dropped-entries"),
         # a second anchor takes the first off the stack while it stays an ancestor
         pytest.param(f"<a>{'<x>' * 505}<h1><table><a></table><select><nobr><a>t", "t", id="removed-anchor"),
+        # the selected option's copy nests deeper under a selectedcontent than the option does under its select
+        pytest.param(
+            f"{'<x>' * 506}<select><option>t<b>u<i>v</i></b>w</option><div><div><selectedcontent></select>",
+            "tuvwtuvw",
+            id="selectedcontent-copy",
+        ),
         # each closed form leaves the stack from under its open div, one DOM level the stack no longer counts
         pytest.param(f"{'<form><div></form>' * 600}t", "t", id="removed-forms-shallow-stack"),
         pytest.param(f"{'<form><b></form>' * 600}<p>t", "t", id="removed-forms-formatting"),

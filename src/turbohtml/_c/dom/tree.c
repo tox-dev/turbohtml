@@ -1007,10 +1007,11 @@ static Py_ssize_t ancestor_count(const th_node *node) {
     return count;
 }
 
-/* The adoption agency moves a subtree with plain appends, and nesting it under a formatting clone can push nodes the
-   cap kept at its last level one deeper. Walking root's subtree in document order, a node with TH_MAX_TREE_DEPTH
-   ancestors hands its children to its own parent, right after itself, as an append the cap refused would have placed
-   them; the moved nodes keep their order, so the text does too. A refused node stays refused for later appends. */
+/* The adoption agency's move and the option copy into a selectedcontent build with plain appends, so they can nest
+   nodes past the cap: under a formatting clone, or under a selectedcontent deeper than the option. Walking root's
+   subtree in document order, a node with TH_MAX_TREE_DEPTH ancestors hands its children to its own parent, right after
+   itself, as an append the cap refused would have placed them; the moved nodes keep their order, so the text does too.
+   A refused node stays refused for later appends. */
 static TH_NOINLINE void cap_moved_subtree(th_tree *tree, th_node *root) {
     Py_ssize_t base = ancestor_count(root);
     Py_ssize_t depth = base;
@@ -2412,6 +2413,9 @@ static void replace_target_children(th_tree *tree, th_select_cache *cache, th_no
             node_remove(target->first_child);
         }
         deep_copy_children(tree, option, target);
+        if (tree->depth_near_cap) {
+            cap_moved_subtree(tree, target);
+        }
     }
     cache->filled = (uint8_t)cache->target_count;
 }
