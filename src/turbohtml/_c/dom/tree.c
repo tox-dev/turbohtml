@@ -2931,6 +2931,7 @@ static Py_ssize_t afe_index_of(th_tree *tree, th_node *node) {
 
 static Py_ssize_t stack_index_of(th_tree *tree, th_node *node) {
     for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) {
+        TH_WORK_STEP();
         if (tree->open[index] == node) {
             return index;
         }
@@ -2965,13 +2966,10 @@ static th_node *afe_find_atom(th_tree *tree, uint16_t atom) {
     return NULL;
 }
 
-static int afe_on_stack(th_tree *tree, th_node *node) {
-    if (tree->afe_stack_hint >= 0 && tree->afe_stack_hint < tree->open_len &&
-        tree->open[tree->afe_stack_hint] == node) {
-        return 1;
-    }
-    tree->afe_stack_hint = stack_index_of(tree, node);
-    return tree->afe_stack_hint >= 0;
+/* An element enters the stack once, when it is created, and every removal marks it as gone, so the mark answers
+   without a scan down a stack that has no depth limit. */
+static int afe_on_stack(const th_node *node) {
+    return !node->left_stack;
 }
 
 /* The most active formatting elements one reconstruction reopens: the entries nearest the end of the list, the ones
@@ -2988,12 +2986,12 @@ static void reconstruct_afe(th_tree *tree) {
         return;
     }
     Py_ssize_t index = tree->afe_len - 1;
-    if (tree->afe[index] == NULL || afe_on_stack(tree, tree->afe[index])) {
+    if (tree->afe[index] == NULL || afe_on_stack(tree->afe[index])) {
         return;
     }
     while (index > 0) {
         index--;
-        if (tree->afe[index] == NULL || afe_on_stack(tree, tree->afe[index])) {
+        if (tree->afe[index] == NULL || afe_on_stack(tree->afe[index])) {
             index++;
             break;
         }
@@ -4478,9 +4476,8 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
                 if (ai >= 0) {
                     afe_remove_at(tree, ai);
                 }
-                Py_ssize_t si = stack_index_of(tree, existing);
-                if (si >= 0) {
-                    stack_remove_at(tree, si);
+                if (afe_on_stack(existing)) {
+                    stack_remove_at(tree, stack_index_of(tree, existing));
                 }
             }
         }
@@ -6285,7 +6282,6 @@ static int shadow_compact(th_shadow *shadow, th_node **refs, Py_ssize_t count, s
     dest->stack_version = src->stack_version;
     dest->scope_version = src->stack_version - 1;
     dest->open_p_count = src->open_p_count;
-    dest->afe_stack_hint = -1;
     dest->frameset_ok = src->frameset_ok;
     dest->drop_newline = src->drop_newline;
     dest->foster = src->foster;

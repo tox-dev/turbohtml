@@ -748,6 +748,18 @@ def test_formatting_entries_leave_the_list_in_linear_steps(source: Callable[[int
     work_steps.assert_linear(lambda count: partial(parse, source(count)), (500, 2000))
 
 
+@pytest.mark.parametrize(
+    "unit",
+    [
+        pytest.param("<i><h1><b><a><s><font><div>", id="reopened-anchor"),
+        pytest.param("<a><h1><a><div>", id="second-anchor"),
+    ],
+)
+def test_formatting_entries_below_a_deep_stack_reopen_in_linear_steps(unit: str, work_steps: WorkSteps) -> None:
+    # each repeat leaves its formatting elements open far down the growing stack of open elements
+    work_steps.assert_linear(lambda count: partial(parse, unit * count), (500, 2000))
+
+
 def test_colgroup_fragment_keeps_whitespace_after_ignored_characters() -> None:
     # with no colgroup to pop, each non-whitespace character is ignored in "in column group" and the
     # whitespace between them is still inserted

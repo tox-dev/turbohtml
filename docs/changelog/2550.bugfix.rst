@@ -1,0 +1,3 @@
+Parsing markup that leaves formatting elements open far down the stack of open elements, such as
+``<i><h1><b><a><s><font><div>`` repeated, now takes linear time: each formatting tag used to scan the whole stack, so
+50,000 repeats took 3.1 seconds instead of 0.25.
