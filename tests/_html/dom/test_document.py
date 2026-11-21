@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, NoReturn
 import pytest
 
 from turbohtml import Document, DocumentFragment, Element, Text, parse
-from turbohtml._html import _reconstruct
+from turbohtml._html import _reconstruct, _reconstruct_tree
 
 if TYPE_CHECKING:
     from work_steps import WorkSteps
@@ -16,12 +16,16 @@ if TYPE_CHECKING:
 
 @pytest.mark.parametrize("ns", [pytest.param(-1, id="below"), pytest.param(99, id="above")])
 def test_reconstruct_rejects_out_of_range_namespace(ns: int) -> None:
-    reduced = Element("div").__reduce__()
-    assert isinstance(reduced, tuple)
-    kind = reduced[1][0]  # the element kind from the (kind, data, children) payload
+    kind = _kind(Element("div"))
     # a crafted payload must not index the namespaces table out of bounds
     with pytest.raises(ValueError, match="namespace out of range"):
         _reconstruct(kind, ("div", {}, ns), [])
+
+
+def _kind(node: Node) -> int:
+    reduced = node.__reduce__()
+    assert isinstance(reduced, tuple)
+    return reduced[1][0][0][0]  # the kind of the first (kind, data, child count) record
 
 
 def test_reconstruct_rejects_malformed_arguments() -> None:
@@ -30,9 +34,7 @@ def test_reconstruct_rejects_malformed_arguments() -> None:
 
 
 def test_reconstruct_accepts_names_the_constructor_rejects() -> None:
-    reduced = Element("div").__reduce__()
-    assert isinstance(reduced, tuple)
-    kind = reduced[1][0]  # the (kind, data, children) payload pickle would store
+    kind = _kind(Element("div"))
     # _reconstruct is the trusted pickle hook, so it rebuilds whatever the parser stored,
     # including a tag name like "a<b" that the validating public Element() rejects (issue #83)
     node = _reconstruct(kind, ("a<b", {}), [])
@@ -41,23 +43,60 @@ def test_reconstruct_accepts_names_the_constructor_rejects() -> None:
 
 
 def test_reconstruct_propagates_a_construction_failure() -> None:
-    kind = Element("div").__reduce__()[1][0]  # the (kind, data, children) payload pickle would store
+    kind = _kind(Element("div"))
     # a genuinely broken payload still fails: a non-mapping attrs value cannot build an element,
     # and reconstruction surfaces that TypeError instead of returning a half-built node
     with pytest.raises(TypeError):
-        _reconstruct(kind, ("div", 123), [])  # ty: ignore[invalid-argument-type]  # malformed attrs payload
+        _reconstruct(kind, ("div", 123), [])
+
+
+@pytest.mark.parametrize(
+    ("records", "error", "message"),
+    [
+        pytest.param([], ValueError, "one tree", id="empty"),
+        pytest.param([("element", ("div", {}), 1)], ValueError, "one tree", id="truncated"),
+        pytest.param(
+            [("element", ("div", {}), 0), ("element", ("p", {}), 0)], ValueError, "one tree", id="trailing-record"
+        ),
+        pytest.param([("element", ("div", {}), -1)], ValueError, "negative child count", id="negative-count"),
+        pytest.param(
+            [("element", ("div", {}), 1), ("element", ("p", 123), 0)],
+            TypeError,
+            "attrs must be a mapping",
+            id="child-construction-fails",
+        ),
+        pytest.param(
+            [("element", ("div", {}), 1), ("document", 0, 0)],
+            TypeError,
+            "Document cannot be inserted",
+            id="unlinkable-child",
+        ),
+    ],
+)
+def test_reconstruct_tree_rejects_malformed_records(
+    records: list[tuple[str, tuple[str, dict[str, str] | int] | int, int]], error: type[Exception], message: str
+) -> None:
+    kinds = {"element": _kind(Element("div")), "document": _kind(parse(""))}
+    with pytest.raises(error, match=message):
+        _reconstruct_tree([(kinds[name], data, count) for name, data, count in records], 0)
+
+
+@pytest.mark.parametrize(
+    ("records", "message"),
+    [
+        pytest.param("x", "list", id="records-not-a-list"),
+        pytest.param(["x"], "argument must be", id="record-not-a-triple"),
+    ],
+)
+def test_reconstruct_tree_rejects_a_malformed_payload_shape(records: str | list[str], message: str) -> None:
+    with pytest.raises(TypeError, match=message):
+        _reconstruct_tree(records, 0)  # ty: ignore[invalid-argument-type]  # crafted payloads on purpose
 
 
 def test_reconstruct_accepts_a_legacy_markup_document() -> None:
     node = _reconstruct(_kind(parse("")), "<p>x</p>", [])
     assert isinstance(node, Document)
     assert node.html == "<html><head></head><body><p>x</p></body></html>"
-
-
-def _kind(node: Node) -> int:
-    reduced = node.__reduce__()
-    assert isinstance(reduced, tuple)
-    return reduced[1][0]
 
 
 def test_reconstruct_accepts_a_legacy_markup_xml_document() -> None:

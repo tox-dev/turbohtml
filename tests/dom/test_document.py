@@ -7,10 +7,11 @@ import pickle  # ruff:ignore[suspicious-pickle-import]  # round-tripping our own
 import random
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # fixed argv, generated child script
 import sys
+import sysconfig
 import textwrap
 import threading
 from functools import partial
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, TypeVar
 
 import pytest
 
@@ -384,8 +385,11 @@ def test_default_encoding_is_utf8() -> None:
     assert parser.close().encoding == "UTF-8"
 
 
-def _roundtrip(node: Node) -> Node:
-    return pickle.loads(pickle.dumps(node))  # ruff:ignore[suspicious-pickle-usage]  # our own trusted payload
+_T = TypeVar("_T")
+
+
+def _roundtrip(value: _T) -> _T:
+    return pickle.loads(pickle.dumps(value))  # ruff:ignore[suspicious-pickle-usage]  # our own trusted payload
 
 
 @pytest.mark.parametrize(
@@ -1219,6 +1223,41 @@ def test_pickled_fragment_is_the_root_of_its_tree() -> None:
 def test_pickled_xml_document_round_trips() -> None:
     document = parse_xml('<R a="1"><Q/>t</R>')
     assert _roundtrip(document).equals(document)
+
+
+_SHARES_WRAPPERS: Final[bool] = not sysconfig.get_config_var("Py_GIL_DISABLED")
+
+
+@pytest.mark.parametrize("order", [pytest.param((0, 1), id="document-first"), pytest.param((1, 0), id="node-first")])
+def test_pickling_a_document_with_a_node_inside_keeps_the_node_inside(order: tuple[int, int]) -> None:
+    document = parse("<p>x</p>")
+    pair = (document, _element(document.select_one("p")))
+    clone = dict(zip(order, _roundtrip([pair[index] for index in order]), strict=True))
+    assert isinstance(clone[0], Document)
+    # a free-threaded build gives each lookup its own wrapper, so the pickle has no shared one to link
+    assert (clone[1] is clone[0].select_one("p")) is _SHARES_WRAPPERS
+
+
+def test_pickled_wide_subtree_keeps_its_children_in_order() -> None:
+    element = Element("ol", children=[Element("li", children=[Text(str(index))]) for index in range(40)])
+    clone = _roundtrip(element)
+    assert clone.equals(element)
+    assert clone.html == element.html
+
+
+def test_pickled_tree_at_the_depth_cap_round_trips_on_a_small_thread_stack() -> None:
+    document = parse(f"{'<div>' * 510}t")
+    clones: list[Node] = []
+    # a pickle that nests per tree level overflowed a 512 KiB stack at about 300 levels on Python 3.11 to 3.13
+    previous = threading.stack_size(512 * 1024)
+    try:
+        worker = threading.Thread(target=lambda: clones.append(_roundtrip(document)))
+        worker.start()
+    finally:
+        threading.stack_size(previous)
+    worker.join()
+    assert len(clones) == 1
+    assert clones[0].equals(document)
 
 
 @pytest.mark.parametrize(

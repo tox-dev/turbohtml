@@ -3307,27 +3307,6 @@ static PyType_Spec stream_spec = {
     .slots = stream_slots,
 };
 
-/* This node's children as a fresh list of wrappers, so pickling an element
-   recurses into each child. */
-static PyObject *node_children_list(PyObject *self) {
-    NodeObject *node = (NodeObject *)self;
-    module_state *state = state_of(self);
-    PyObject *list = PyList_New(0);
-    if (list == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    for (th_node *child = node->node->first_child; child != NULL; child = child->next_sibling) {
-        PyObject *wrapped = node_wrap(state, node->handle, child);
-        if (wrapped == NULL || PyList_Append(list, wrapped) < 0) { /* GCOVR_EXCL_BR_LINE: alloc cannot be forced */
-            Py_XDECREF(wrapped);                                   /* GCOVR_EXCL_LINE: allocation-failure path */
-            Py_DECREF(list);                                       /* GCOVR_EXCL_LINE: allocation-failure path */
-            return NULL;                                           /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        Py_DECREF(wrapped);
-    }
-    return list;
-}
-
 /* The pickle payload for this node: the leaf data, the element tag and attribute
    dict, the doctype identifiers, the document's quirks mode, None for a fragment, or
    (host, mode) for a shadow root. A document or fragment carries its children like an
@@ -3373,25 +3352,94 @@ static PyObject *node_pickle_data(PyObject *self, th_node *node) {
     Py_RETURN_NONE; /* GCOVR_EXCL_LINE: unreachable, the switch is exhaustive */
 }
 
+/* The live wrapper of a node below the one being pickled, or NULL. The pickler memoizes wrappers, so writing a live one
+   in place of its record keeps it the same object as the node inside its unpickled parent when one pickle holds both,
+   as pickling each child through its own wrapper did. A free-threaded build gives each lookup its own wrapper, so no
+   wrapper is shared there. */
+static PyObject *node_pickle_shared(PyObject *handle, th_node *node) {
+#ifdef Py_GIL_DISABLED
+    (void)handle;
+    (void)node;
+    return NULL;
+#else
+    return (PyObject *)node_binding((HandleObject *)handle, node);
+#endif
+}
+
+/* Append the record of one node to records: its live wrapper if it has one, else its (kind, data, child count) triple
+   with its children pushed onto pending last first, so popping pending walks the subtree in preorder. Returns 0, or -1
+   with an exception on allocation failure. */
+static int node_pickle_record(PyObject *self, th_node *node, PyObject *records, th_node ***pending, Py_ssize_t *size,
+                              Py_ssize_t *capacity) {
+    PyObject *handle = ((NodeObject *)self)->handle;
+    PyObject *shared = node == ((NodeObject *)self)->node ? NULL : node_pickle_shared(handle, node);
+    if (shared != NULL) {
+        return PyList_Append(records, shared);
+    }
+    PyObject *wrapper = node_wrap(state_of(self), handle, node);
+    if (wrapper == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_ssize_t count = 0;
+    if (node->type == TH_NODE_ELEMENT || node->type == TH_NODE_DOCUMENT || node->type == TH_NODE_CONTENT) {
+        for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+            count++;
+        }
+    }
+    PyObject *record = Py_BuildValue("(iNn)", (int)node->type, node_pickle_data(wrapper, node), count);
+    Py_DECREF(wrapper);
+    int failed = record == NULL || PyList_Append(records, record) < 0; /* GCOVR_EXCL_BR_LINE: OOM only */
+    Py_XDECREF(record);
+    if (failed) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (*size + count > *capacity) {
+        Py_ssize_t grown = (*size + count) * 2;
+        th_node **larger = PyMem_Realloc(*pending, (size_t)grown * sizeof(th_node *));
+        if (larger == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        *pending = larger;
+        *capacity = grown;
+    }
+    Py_ssize_t slot = *size + count;
+    for (th_node *child = count > 0 ? node->first_child : NULL; child != NULL; child = child->next_sibling) {
+        (*pending)[--slot] = child;
+    }
+    *size += count;
+    return 0;
+}
+
+/* Pickle a node as one flat preorder list of records, rebuilt by _reconstruct_tree. Nesting each child's reduce inside
+   its parent's made the pickler recurse three times per tree level, which overflowed a small thread stack at a few
+   hundred levels and raised RecursionError on Python 3.11 below the depth cap. */
 TH_NODE_API(, PyObject *, node_reduce, (PyObject * self, PyObject *ignored), (self, ignored),
             (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
-    th_node *node = ((NodeObject *)self)->node;
-    PyObject *reconstruct = PyObject_GetAttrString(PyType_GetModule(Py_TYPE(self)), "_reconstruct");
-    if (reconstruct == NULL) { /* GCOVR_EXCL_BR_LINE: the module always carries _reconstruct */
+    PyObject *reconstruct = PyObject_GetAttrString(PyType_GetModule(Py_TYPE(self)), "_reconstruct_tree");
+    if (reconstruct == NULL) { /* GCOVR_EXCL_BR_LINE: the module always carries _reconstruct_tree */
         return NULL;           /* GCOVR_EXCL_LINE: unreachable */
     }
-    PyObject *data = node_pickle_data(self, node);
-    int has_children = node->type == TH_NODE_ELEMENT || node->type == TH_NODE_DOCUMENT || node->type == TH_NODE_CONTENT;
-    PyObject *children = has_children ? node_children_list(self) : PyList_New(0);
-    if (data == NULL || children == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        Py_XDECREF(data);                   /* GCOVR_EXCL_LINE: allocation-failure path */
-        Py_XDECREF(children);               /* GCOVR_EXCL_LINE: allocation-failure path */
-        Py_DECREF(reconstruct);             /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;                        /* GCOVR_EXCL_LINE: allocation-failure path */
+    PyObject *records = PyList_New(0);
+    Py_ssize_t size = 1;
+    Py_ssize_t capacity = 16;
+    th_node **pending = PyMem_Malloc((size_t)capacity * sizeof(th_node *));
+    int failed = records == NULL || pending == NULL; /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+    if (!failed) {                                   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+        pending[0] = ((NodeObject *)self)->node;
+    }
+    while (!failed && size > 0) { /* GCOVR_EXCL_BR_LINE: it fails only on OOM */
+        th_node *node = pending[--size];
+        failed = node_pickle_record(self, node, records, &pending, &size, &capacity) < 0;
+    }
+    PyMem_Free(pending);
+    if (failed) {               /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_XDECREF(records);    /* GCOVR_EXCL_LINE: allocation-failure path */
+        Py_DECREF(reconstruct); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;            /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     /* the xml flag rebuilds a document, fragment, or element under XML naming rules */
-    PyObject *result =
-        Py_BuildValue("(O(iNNi))", reconstruct, (int)node->type, data, children, th_tree_is_xml(tree_of(self)));
+    PyObject *result = Py_BuildValue("(O(Ni))", reconstruct, records, th_tree_is_xml(tree_of(self)));
     Py_DECREF(reconstruct);
     return result;
 }
@@ -3534,15 +3582,8 @@ static int join_largest_child(module_state *state, PyObject *children, PyObject 
     return 0;
 }
 
-PyObject *turbohtml_reconstruct(PyObject *module, PyObject *args) {
-    int kind;
-    PyObject *data;
-    PyObject *children;
-    int xml = 0; /* set for a node pickled from a parse_xml tree */
-    if (!PyArg_ParseTuple(args, "iOO|i", &kind, &data, &children, &xml)) {
-        return NULL;
-    }
-    module_state *state = PyModule_GetState(module);
+/* One node rebuilt from its pickled (kind, data), still without its children. */
+static PyObject *reconstruct_node(PyObject *module, module_state *state, int kind, PyObject *data, int xml) {
     PyObject *node;
     switch (kind) {
     case TH_NODE_TEXT:
@@ -3585,9 +3626,11 @@ PyObject *turbohtml_reconstruct(PyObject *module, PyObject *args) {
         node = reconstruct_root(module, state, kind, data, xml);
         break;
     }
-    if (node == NULL) {
-        return NULL;
-    }
+    return node;
+}
+
+/* Link the rebuilt children into node, stealing the reference to node. Returns node, or NULL with an exception. */
+static PyObject *reconstruct_attach(module_state *state, PyObject *node, PyObject *children) {
     if (join_largest_child(state, children, &node) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
         Py_DECREF(node);                                  /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;                                      /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -3605,6 +3648,105 @@ PyObject *turbohtml_reconstruct(PyObject *module, PyObject *args) {
         th_node_append_child(parent, child);
     }
     return node;
+}
+
+PyObject *turbohtml_reconstruct(PyObject *module, PyObject *args) {
+    int kind;
+    PyObject *data;
+    PyObject *children;
+    int xml = 0; /* set for a node pickled from a parse_xml tree */
+    if (!PyArg_ParseTuple(args, "iOO!|i", &kind, &data, &PyList_Type, &children, &xml)) {
+        return NULL;
+    }
+    module_state *state = PyModule_GetState(module);
+    PyObject *node = reconstruct_node(module, state, kind, data, xml);
+    return node == NULL ? NULL : reconstruct_attach(state, node, children);
+}
+
+typedef struct {
+    PyObject *node;
+    PyObject *children;
+    Py_ssize_t missing; /* children still to rebuild */
+} reconstruct_frame;
+
+/* Rebuild a subtree from node_reduce's preorder (kind, data, child count) records with an explicit stack of the open
+   ancestors, so a deep tree costs heap rather than C stack. A node is linked to its children once the last of them is
+   rebuilt, bottom-up, as nested _reconstruct calls did. */
+PyObject *turbohtml_reconstruct_tree(PyObject *module, PyObject *args) {
+    PyObject *records;
+    int xml;
+    if (!PyArg_ParseTuple(args, "O!i", &PyList_Type, &records, &xml)) {
+        return NULL;
+    }
+    module_state *state = PyModule_GetState(module);
+    Py_ssize_t total = PyList_GET_SIZE(records);
+    reconstruct_frame *frames = PyMem_Malloc((size_t)(total > 0 ? total : 1) * sizeof(reconstruct_frame));
+    PyObject *leaf_children = PyList_New(0);
+    if (frames == NULL || leaf_children == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+        PyMem_Free(frames);                        /* GCOVR_EXCL_LINE: allocation-failure path */
+        Py_XDECREF(leaf_children);                 /* GCOVR_EXCL_LINE: allocation-failure path */
+        return PyErr_NoMemory();                   /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_ssize_t open = 0;
+    PyObject *root = NULL;
+    Py_ssize_t index = 0;
+    for (; index < total && root == NULL; index++) {
+        int kind;
+        PyObject *data;
+        Py_ssize_t count = 0;
+        PyObject *record = PyList_GET_ITEM(records, index);
+        PyObject *node = NULL;
+        if (PyObject_TypeCheck(record, (PyTypeObject *)state->node_type)) {
+            node =
+                Py_NewRef(record); /* a node the pickle shares with another object, already rebuilt with its subtree */
+        } else if (!PyArg_Parse(record, "(iOn)", &kind, &data, &count)) {
+            break;
+        } else if (count < 0) {
+            PyErr_SetString(PyExc_ValueError, "negative child count");
+            break;
+        } else {
+            node = reconstruct_node(module, state, kind, data, xml);
+        }
+        if (node == NULL) {
+            break;
+        }
+        if (count > 0) {
+            PyObject *children = PyList_New(0);
+            if (children == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                Py_DECREF(node);    /* GCOVR_EXCL_LINE: allocation-failure path */
+                break;              /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            frames[open++] = (reconstruct_frame){node, children, count};
+            continue;
+        }
+        PyObject *done = reconstruct_attach(state, node, leaf_children);
+        while (done != NULL && open > 0) {
+            reconstruct_frame *top = &frames[open - 1];
+            int appended = PyList_Append(top->children, done) == 0;
+            Py_SETREF(done, NULL);
+            if (!appended || --top->missing > 0) { /* GCOVR_EXCL_BR_LINE: the append fails only on OOM */
+                break;
+            }
+            open--;
+            done = reconstruct_attach(state, top->node, top->children);
+            Py_DECREF(top->children);
+        }
+        if (done == NULL && PyErr_Occurred()) {
+            break;
+        }
+        root = open == 0 ? done : NULL;
+    }
+    if (!PyErr_Occurred() && (root == NULL || index != total)) {
+        PyErr_SetString(PyExc_ValueError, "pickled records do not form one tree");
+        Py_CLEAR(root);
+    }
+    for (Py_ssize_t level = 0; level < open; level++) {
+        Py_DECREF(frames[level].node);
+        Py_DECREF(frames[level].children);
+    }
+    PyMem_Free(frames);
+    Py_DECREF(leaf_children);
+    return root;
 }
 
 /* Build one public enum named qualname with count members, register it on the

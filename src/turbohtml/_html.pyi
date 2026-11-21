@@ -87,6 +87,9 @@ from ._stubs.dom import (
     _reconstruct as _reconstruct,
 )
 from ._stubs.dom import (
+    _reconstruct_tree as _reconstruct_tree,
+)
+from ._stubs.dom import (
     _tree_verify as _tree_verify,
 )
 from ._stubs.dom import (
