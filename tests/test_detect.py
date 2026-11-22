@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import random
 import string
+from importlib.util import find_spec
 from itertools import islice, product
 from typing import TYPE_CHECKING, Final, cast
 
@@ -1161,6 +1163,11 @@ _ENCODING_RESULTS: Final[tuple[tuple[int, str, str], ...]] = (
 _MISDECODED_XFAIL: Final[pytest.MarkDecorator] = pytest.mark.xfail(
     strict=True, reason="Detector misdecodes the CP1252 fixture instead of preserving its accented text"
 )
+# UnicodeDammit guesses with the first detector it finds, cchardet before chardet and charset_normalizer, so it
+# misdecodes the legacy fixture exactly when it hands it to one of those two
+_BS4_DETECTOR: Final[str | None] = (
+    getattr(importlib.import_module("bs4.dammit").chardet_module, "__name__", None) if find_spec("bs4") else None
+)
 
 
 @pytest.mark.oracle
@@ -1253,7 +1260,15 @@ def test_encoding_result_charset_normalizer_preserves_decoded_text(case: int, ex
 @pytest.mark.oracle
 @pytest.mark.parametrize(
     ("case", "expected"),
-    [pytest.param(case, expected, id=f"bs4-{label}") for case, expected, label in _ENCODING_RESULTS],
+    [
+        pytest.param(
+            case,
+            expected,
+            id=f"bs4-{label}",
+            marks=_MISDECODED_XFAIL if case == 0 and _BS4_DETECTOR in {"chardet", "charset_normalizer"} else (),
+        )
+        for case, expected, label in _ENCODING_RESULTS
+    ],
 )
 def test_encoding_result_bs4_preserves_decoded_text(case: int, expected: str) -> None:
     library: Final[ModuleType] = pytest.importorskip("bs4")
