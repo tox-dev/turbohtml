@@ -262,12 +262,10 @@ release-prepare = [
   "release-creator>=4.4",
   "towncrier>=26.9",
 ]
-# encoding-detection oracles for tests/test_detect.py, installed only where the release ships a wheel, so no CI job
-# builds them from source: faust-cchardet has none for 3.15, PyPy or Windows ARM64, resiliparse none for PyPy or
-# Windows ARM64
+# an encoding-detection oracle for tests/test_detect.py, installed only where it ships a wheel (none for 3.15, PyPy or
+# Windows ARM64), so no CI job builds it from source
 test-native = [
   "faust-cchardet>=3.2; implementation_name=='cpython' and python_version<'3.15' and platform_machine!='ARM64'",
-  "resiliparse>=2.0.1; implementation_name=='cpython' and platform_machine!='ARM64'",
 ]
 
 [tool.uv]

@@ -297,7 +297,7 @@ sha256 = "fbfba91745606965400204d26852283ddf90235ab30afe9904de20051556a523"
 [[packages]]
 name = "brotli"
 version = "1.2.1"
-marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"test-native\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"type\" in dependency_groups"
 index = "https://pypi.org/simple/"
 
 [packages.sdist]
@@ -654,7 +654,7 @@ sha256 = "5ae39c8c434b972f0740d04610759168590713175aab584b012b1b84f6771874"
 [[packages]]
 name = "click"
 version = "8.5.1"
-marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"docs\" in dependency_groups or \"pkg-meta\" in dependency_groups or \"release\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups or \"test-native\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"docs\" in dependency_groups or \"pkg-meta\" in dependency_groups or \"release\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.10"
 index = "https://pypi.org/simple/"
 
@@ -704,7 +704,7 @@ sha256 = "9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a"
 [[packages]]
 name = "colorama"
 version = "0.4.6"
-marker = "(\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"docs\" in dependency_groups or \"test\" in dependency_groups or \"test-native\" in dependency_groups or \"type\" in dependency_groups) and sys_platform == \"win32\""
+marker = "(\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"docs\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups) and sys_platform == \"win32\""
 requires-python = "!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*,!=3.5.*,!=3.6.*,>=2.7"
 index = "https://pypi.org/simple/"
 
@@ -1424,7 +1424,7 @@ sha256 = "b93a6f5326484a7930ebb872ac8c4aa0afb7b8c6e85611064f39d360651fefe5"
 [[packages]]
 name = "fastwarc"
 version = "2.0.1"
-marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"test-native\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.10"
 dependencies = [
     { name = "brotli" },
@@ -4864,7 +4864,7 @@ sha256 = "cccfdd665f0a24fcf4726e690f65639d272bb0637b9b92dfd91a5568ccf6bd06"
 [[packages]]
 name = "resiliparse"
 version = "2.0.1"
-marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"test-native\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.8"
 dependencies = [
     { name = "fastwarc" },
@@ -6054,7 +6054,7 @@ sha256 = "ae4d223e6aadaff98d29b7f09e58d9c9ccf4cd3b455a2d2e0486d432cd8bf660"
 [[packages]]
 name = "tqdm"
 version = "4.70.1"
-marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"test-native\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.8"
 dependencies = [
     { name = "colorama" },
@@ -6790,6 +6790,6 @@ platforms = [
 
 [tool.nab.validation]
 version = 1
-all-inputs-sha256 = "5245cd974030932c995cbbedab4edc3735e74d41da75d17294da2aa9d10a7018"
-selection-inputs-sha256 = "f4976410ad867ceb616fbf18ed0ad28ac9194936a908618ce2506faad6d41f74"
-contents-sha256 = "7331ee20b8a4aa30b8648757afb8abab5b850a0d85f57d109acef7434e26e370"
+all-inputs-sha256 = "6e52b117d5b3e4924ec6668bb7c71867062623f6aa5be63f2f830858ec717ab3"
+selection-inputs-sha256 = "cba7bc0f5ac5bf3bab8ca27b341a821cce420c8292b5911797d9eb5d1a250838"
+contents-sha256 = "8755a4d8f0a274644b5aa4a3327a594e34956785a72ca5c54158f27dc903ca61"
