@@ -583,6 +583,8 @@ _SELECTORS: Final[tuple[str, ...]] = (
     ":lang(de)",
     ":lang(es)",
     ":lang(,)",
+    ":lang('')",
+    ':lang(fr, "")',
     ":dir(sideways)",
     "a:hover",
     ":link",

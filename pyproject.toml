@@ -87,6 +87,7 @@ dev = [
   { include-group = "type" },
 ]
 test = [
+  "beautifulsoup4>=4.15",      # parses the documents the soupsieve selector oracle and the bs4 encoding check read
   "covdefaults>=2.3",
   "docutils>=0.22.4",          # render the docs bench-table directive in tests/test_bench_table_directive.py
   "elementpath>=5.1.4",        # the XPath 2.0 oracle the string-function differential test cross-checks against
@@ -105,6 +106,7 @@ test = [
   "pytest-run-parallel>=0.10", # runs each test in many threads to surface free-threaded data races
   "pytest-xdist>=3.8",
   "python-sbom>=0.2",
+  "soupsieve>=3",              # the selector oracle passes NOSTRICT, new in 3.0, to accept combinators inside :has()
   "tenacity>=9.1.4",           # the retry policy wrapping every tools/ HTTP fetch (httpfetch.py)
   "tinycss2>=1.5.1",           # preserve nested CSS contexts during structural reduction
   "typing-extensions>=4.16",
@@ -533,6 +535,9 @@ uploaded-prior-to = "P7D"
 decision-order = "stable"
 matrix.python = ">=3.15,<3.16"
 matrix.platforms = [ "linux_x86_64", "linux_aarch64", "macos_arm64", "windows_amd64" ]
+# soupsieve 4.1.3 needs a seven-day cutoff exception.
+# expires 2026-11-27
+packages.soupsieve.uploaded-prior-to = 2026-11-20T12:59:00Z
 
 [[tool.nab.package-rules]]
 match = [ "csscompressor" ]

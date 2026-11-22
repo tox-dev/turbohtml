@@ -576,7 +576,9 @@ static void sel_parse_dir(sel_parser *parser, sel_simple *simple) {
 
 /* Parse the :lang() argument (pos just after '('): a non-empty comma-separated
    list of language ranges. Escapes are decoded in place (so an escaped wildcard
-   like \2a or \* becomes '*'); the decoded slice is the value, split at match time. */
+   like \2a or \* becomes '*'); the decoded slice is the value, split at match time.
+   nth_a is 1 when a range is a quoted empty string, which matches an element whose
+   language is not tagged (Selectors 4 §11.1), so the matcher need not split for it. */
 static void sel_parse_lang(sel_parser *parser, sel_simple *simple) {
     sel_skip_ws(parser);
     Py_ssize_t start = parser->pos;
@@ -598,6 +600,24 @@ static void sel_parse_lang(sel_parser *parser, sel_simple *simple) {
     }
     simple->value = parser->src + start;
     simple->value_len = end - start;
+    Py_ssize_t cursor = start;
+    while (cursor < end) {
+        Py_ssize_t from = cursor;
+        while (cursor < end && parser->src[cursor] != ',') {
+            cursor++;
+        }
+        Py_ssize_t to = cursor++;
+        while (from < to && is_space(parser->src[from])) {
+            from++;
+        }
+        while (to > from && is_space(parser->src[to - 1])) {
+            to--;
+        }
+        if (to - from == 2 && (parser->src[from] == '"' || parser->src[from] == '\'') &&
+            parser->src[from + 1] == parser->src[from]) {
+            simple->nth_a = 1;
+        }
+    }
 }
 
 /* Parse a pseudo-class selector (the leading ':' already consumed). */
@@ -2597,7 +2617,7 @@ static int sel_lang_range_matches(const Py_UCS4 *tag, Py_ssize_t tag_len, const 
    attributes"), or NULL: xml:lang in the XML namespace wins, and only an XML tree or a
    foreign element carries one (the HTML parser leaves xml:lang on an HTML element in
    no namespace); then lang, which counts on an HTML or SVG element of an HTML tree. An
-   empty value is stored as NULL and skipped. */
+   empty value declares the language unknown, so it stops the walk like any other. */
 #if defined(__GNUC__)
 #define SEL_LANG_ATTR_INLINE inline __attribute__((always_inline))
 #else
@@ -2609,19 +2629,19 @@ static SEL_LANG_ATTR_INLINE const th_node_attr *sel_lang_attr(th_tree *tree, th_
     int xml = th_tree_is_xml(tree);
     if (xml || node->ns != TH_NS_HTML) {
         const th_node_attr *attr = sel_find_attr(node, xml_lang_atom);
-        if (attr != NULL && attr->value != NULL) {
+        if (attr != NULL) {
             return attr;
         }
     }
     if (xml || node->ns == TH_NS_MATHML) {
         return NULL;
     }
-    const th_node_attr *attr = sel_find_attr(node, TH_ATTR_LANG);
-    return attr != NULL && attr->value != NULL ? attr : NULL;
+    return sel_find_attr(node, TH_ATTR_LANG);
 }
 
 /* :lang(): the element's language is the one the nearest self-or-ancestor element
-   declares; it matches when any comma-separated range in the argument matches. */
+   declares; it matches when any comma-separated range in the argument matches. With
+   none, or an empty one, the language is not tagged and only a quoted empty range matches. */
 static int sel_matches_lang(th_tree *tree, th_node *node, const sel_simple *simple) {
     const Py_UCS4 *tag = NULL;
     Py_ssize_t tag_len = 0;
@@ -2634,8 +2654,8 @@ static int sel_matches_lang(th_tree *tree, th_node *node, const sel_simple *simp
             break;
         }
     }
-    if (tag == NULL) {
-        return 0;
+    if (tag_len == 0) {
+        return simple->nth_a;
     }
     Py_ssize_t cursor = 0;
     while (cursor < simple->value_len) {
@@ -4252,15 +4272,15 @@ static int sel_deep_declares(th_node *node, const sel_simple *simple, th_tree *t
 }
 
 /* :lang() or :dir() at node: the nearest self-or-ancestor element that declares one answers, or, with none, the
-   document default (no language, ltr). An element between them answers as node does, so past the first
-   SEL_ANCESTOR_MEMO_MIN_RUN levels the walk stops at the first one whose answer the memo holds and stores its
-   answer under each one it passed. A telephone input never inherits its direction. */
+   document default (an untagged language, ltr), which nth_a holds for both. An element between them answers as node
+   does, so past the first SEL_ANCESTOR_MEMO_MIN_RUN levels the walk stops at the first one whose answer the memo holds
+   and stores its answer under each one it passed. A telephone input never inherits its direction. */
 static int sel_deep_inherited(th_node *node, const sel_simple *simple, const sel_ctx *ctx, sel_deep_memo *memo) {
     if (simple->pseudo == PSEUDO_DIR && node->ns == TH_NS_HTML && node->atom == TH_TAG_INPUT &&
         sel_input_type_is(node, "tel")) {
         return sel_match_simple(node, simple, ctx);
     }
-    int found = simple->pseudo == PSEUDO_DIR && simple->nth_a == 1;
+    int found = simple->nth_a == 1;
     th_node *memo_from = NULL;
     th_node *ancestor = node;
     for (int walked = 0; ancestor != NULL && ancestor->type == TH_NODE_ELEMENT; ancestor = ancestor->parent, walked++) {

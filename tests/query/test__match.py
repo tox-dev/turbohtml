@@ -502,7 +502,9 @@ def _oracle_hits(document_html: str, selector: str) -> tuple[list[int], list[int
     }
     soup_index = {id(element): position for position, element in enumerate(soup.find_all(name=True))}
     ours = sorted(turbo_index[element] for element in select(selector, turbo_doc))
-    return ours, sorted(soup_index[id(element)] for element in soupsieve.select(selector, soup))
+    # soupsieve's default strict mode rejects combinators and nested :has() inside :has(), which turbohtml accepts
+    theirs = soupsieve.select(selector, soup, flags=soupsieve.NOSTRICT)
+    return ours, sorted(soup_index[id(element)] for element in theirs)
 
 
 @pytest.mark.oracle

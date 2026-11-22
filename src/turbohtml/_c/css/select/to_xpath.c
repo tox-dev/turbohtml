@@ -521,16 +521,25 @@ static void xt_lang_ranges(xt_ctx *ctx, const sel_simple *simple, const char *at
 }
 
 /* The condition for :lang(): the nearest element on the ancestor-or-self axis that
-   declares a non-empty language matches one of the ranges. xml:lang in the XML
-   namespace wins (XPath's @xml:lang selects only that one), then lang, which a MathML
-   element does not honor (HTML "the lang and xml:lang attributes"). */
+   declares a language matches one of the ranges. xml:lang in the XML namespace wins
+   (XPath's @xml:lang selects only that one), then lang, which a MathML element does not
+   honor (HTML "the lang and xml:lang attributes"). An empty value declares the language
+   unknown, which with no declaration at all only a quoted empty range matches. */
 static void xt_lang_cond(xt_ctx *ctx, const sel_simple *simple) {
-    xt_text(&ctx->out, "ancestor-or-self::*[@xml:lang != '' or @lang != '' and namespace-uri() != "
-                       "'http://www.w3.org/1998/Math/MathML'][1][(@xml:lang != '' and (");
+    static const char declares[] =
+        "ancestor-or-self::*[@xml:lang or @lang and namespace-uri() != 'http://www.w3.org/1998/Math/MathML'][1]";
+    xt_char(&ctx->out, '(');
+    if (simple->nth_a) {
+        xt_text(&ctx->out, "not(");
+        xt_text(&ctx->out, declares);
+        xt_text(&ctx->out, ") or ");
+    }
+    xt_text(&ctx->out, declares);
+    xt_text(&ctx->out, simple->nth_a ? "[(@xml:lang and (@xml:lang = '' or " : "[(@xml:lang and (");
     xt_lang_ranges(ctx, simple, "xml:lang");
-    xt_text(&ctx->out, ")) or (not(@xml:lang != '') and (");
+    xt_text(&ctx->out, simple->nth_a ? ")) or (not(@xml:lang) and (@lang = '' or " : ")) or (not(@xml:lang) and (");
     xt_lang_ranges(ctx, simple, "lang");
-    xt_text(&ctx->out, "))]");
+    xt_text(&ctx->out, "))])");
 }
 
 /* Emit the condition for one pseudo-class simple; the compound provides the type

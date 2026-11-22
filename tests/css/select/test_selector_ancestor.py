@@ -93,6 +93,9 @@ def _ids(nodes: Iterable[Element | None]) -> list[str | None]:
         pytest.param("div:lang(fr)", "<section lang=fr>", " lang=en", _expected(range(40)), id="lang-redeclared"),
         pytest.param("div:lang(en)", "<section lang=fr>", " lang=en", _expected(range(40, 80)), id="lang-nearest"),
         pytest.param(":lang(fr) div", "<section lang=fr>", "", _expected(range(80)), id="lang-ancestor"),
+        pytest.param("div:lang('')", "<section>", "", _expected(range(80)), id="lang-untagged"),
+        pytest.param("div:lang('')", "<section lang=fr>", ' lang=""', _expected(range(40, 80)), id="lang-unknown"),
+        pytest.param("div:lang(fr)", "<section lang=fr>", ' lang=""', _expected(range(40)), id="lang-unknown-stops"),
         pytest.param(
             ":lang(en) div", "<section lang=fr>", " lang=en", _expected(range(41, 80)), id="lang-ancestor-nearest"
         ),
@@ -577,14 +580,14 @@ def test_computed_style_deep_tree_picks_most_specific_alternative(selectors: str
             "<section lang=fr><svg xml:lang=de><g id=a></g></svg><svg xml:lang='' lang=it><g id=b></g></svg>"
             "<svg><g id=c></g></svg><math lang=es><mi id=d></mi></math><div lang=''><p id=e></p></div>"
             "<div lang=en><p id=f></p></div></section>",
-            [["a"], ["b"], ["c", "d", "e"], [], ["f"]],
+            [["a"], [], ["c", "d"], [], ["f"], ["b", "e"]],
             id="html",
         ),
         pytest.param(
             parse_xml,
             "<r xml:lang='fr'><a xml:lang=''><b id='g'/></a><c lang='en'><d id='h'/></c>"
             "<e xml:lang='de'><f id='i'/></e></r>",
-            [["i"], [], ["h"], [], []],
+            [["i"], [], ["h"], [], [], ["g"]],
             id="xml",
         ),
     ],
@@ -592,10 +595,10 @@ def test_computed_style_deep_tree_picks_most_specific_alternative(selectors: str
 def test_select_lang_declarations_deep_tree(
     parser: Callable[[str], Document], markup: str, expected: list[list[str]]
 ) -> None:
-    # xml:lang counts on a foreign or XML element and lang on an HTML or SVG element of an HTML page; an empty lang, or
-    # an empty xml:lang on a page the HTML parser built, declares nothing
+    # xml:lang counts on a foreign or XML element and lang on an HTML or SVG element of an HTML page; an empty one
+    # declares the language unknown, which only the empty range matches
     found: Final[list[list[list[str | None]]]] = [
-        [_ids(document.select(f"[id]:lang({lang})")) for lang in ("de", "it", "fr", "es", "en")]
+        [_ids(document.select(f"[id]:lang({lang})")) for lang in ("de", "it", "fr", "es", "en", "''")]
         for document in (parser(markup), _deep(markup, parser))
     ]
     assert found == [expected, expected]

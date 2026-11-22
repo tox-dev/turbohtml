@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Final
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, Comment
+from bs4.builder import builder_registry
 from bs4.element import AttributeValueList, CData, NavigableString, Script, Stylesheet, TemplateString
 
 from bench._beautifulsoup import (  # simplint: ignore[private-import-path]  # shared competitor helpers
@@ -26,6 +27,11 @@ from bench.timing import Mutating
 
 if TYPE_CHECKING:
     from bench.operations import Timed
+
+# bs4 imports without lxml and fails only at the first parse; fail the import instead, so a caller gating on it skips
+if builder_registry.lookup("lxml") is None:
+    msg = "BeautifulSoup's lxml tree builder needs lxml"
+    raise ImportError(msg)
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("beautifulsoup4>=4.15", "lxml>=5.2", "soupsieve>=2.5")
 
