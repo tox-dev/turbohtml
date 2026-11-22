@@ -1,4 +1,0 @@
-An empty ``lang`` or ``xml:lang`` now marks an element's language as unknown, as HTML specifies, so ``:lang()`` no
-longer inherits an ancestor's language through it: ``<div lang=en><p lang="">`` stopped matching ``:lang(en)``. A quoted
-empty range, ``:lang("")``, matches elements whose language is unknown or never declared, where it matched nothing
-before. ``css_to_xpath`` translates both the same way.

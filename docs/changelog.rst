@@ -6,6 +6,25 @@
 
 .. towncrier release notes start
 
+.. _release-1-16-4:
+
+**********************
+ v1.16.4 (2026-11-22)
+**********************
+
+.. _release-1-16-4-fixed:
+
+Fixed
+=====
+
+- An empty ``lang`` or ``xml:lang`` now marks an element's language as unknown, as HTML specifies, so ``:lang()`` no
+  longer inherits an ancestor's language through it: ``<div lang=en><p lang="">`` stopped matching ``:lang(en)``. A
+  quoted empty range, ``:lang("")``, matches elements whose language is unknown or never declared, where it matched
+  nothing before. ``css_to_xpath`` translates both the same way (:pr:`2556`) by :user:`gaborbernat`.
+- ``to_markdown`` with ``converters`` keeps ``*``/``**`` delimiters on emphasis that ends in punctuation unless a
+  converted element writes right after it. Before, passing any converters made such runs fall back to raw ``<em>`` and
+  ``<strong>`` tags, even when no converted element was near them (:pr:`2557`) by :user:`gaborbernat`.
+
 .. _release-1-16-3:
 
 **********************

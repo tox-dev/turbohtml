@@ -1,3 +1,0 @@
-``to_markdown`` with ``converters`` keeps ``*``/``**`` delimiters on emphasis that ends in punctuation unless a
-converted element writes right after it. Before, passing any converters made such runs fall back to raw ``<em>`` and
-``<strong>`` tags, even when no converted element was near them.
