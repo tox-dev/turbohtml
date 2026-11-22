@@ -23,6 +23,7 @@ dependency-groups = [
     "release-notes",
     "release-prepare",
     "test",
+    "test-native",
     "type",
 ]
 default-groups = [
@@ -296,7 +297,7 @@ sha256 = "fbfba91745606965400204d26852283ddf90235ab30afe9904de20051556a523"
 [[packages]]
 name = "brotli"
 version = "1.2.1"
-marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"test\" in dependency_groups or \"test-native\" in dependency_groups or \"type\" in dependency_groups"
 index = "https://pypi.org/simple/"
 
 [packages.sdist]
@@ -463,7 +464,7 @@ sha256 = "a8dc6b26ad22ff227d2634a65cb388215ce6cc96bbcc5cfde7641ae87e8dacc0"
 [[packages]]
 name = "chardet"
 version = "7.7.0"
-marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.10"
 index = "https://pypi.org/simple/"
 
@@ -524,7 +525,7 @@ sha256 = "11cf9b719ea3675a2a7d8a3071bbe4d7ea24b26bfe39a51588d515ddd05cacad"
 [[packages]]
 name = "charset-normalizer"
 version = "3.5.2"
-marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"docs\" in dependency_groups or \"pkg-meta\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"docs\" in dependency_groups or \"pkg-meta\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.7"
 index = "https://pypi.org/simple/"
 
@@ -653,7 +654,7 @@ sha256 = "5ae39c8c434b972f0740d04610759168590713175aab584b012b1b84f6771874"
 [[packages]]
 name = "click"
 version = "8.5.1"
-marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"docs\" in dependency_groups or \"pkg-meta\" in dependency_groups or \"release\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"docs\" in dependency_groups or \"pkg-meta\" in dependency_groups or \"release\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups or \"test\" in dependency_groups or \"test-native\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.10"
 index = "https://pypi.org/simple/"
 
@@ -703,7 +704,7 @@ sha256 = "9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a"
 [[packages]]
 name = "colorama"
 version = "0.4.6"
-marker = "(\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"docs\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups) and sys_platform == \"win32\""
+marker = "(\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"docs\" in dependency_groups or \"test\" in dependency_groups or \"test-native\" in dependency_groups or \"type\" in dependency_groups) and sys_platform == \"win32\""
 requires-python = "!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*,!=3.5.*,!=3.6.*,>=2.7"
 index = "https://pypi.org/simple/"
 
@@ -1073,7 +1074,7 @@ sha256 = "e012f0cc8401efcf2620332339011564738ae32be8c84b2e43ce8beaec1067b6"
 [[packages]]
 name = "cssselect"
 version = "1.6.0"
-marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.11"
 index = "https://pypi.org/simple/"
 
@@ -1423,7 +1424,7 @@ sha256 = "b93a6f5326484a7930ebb872ac8c4aa0afb7b8c6e85611064f39d360651fefe5"
 [[packages]]
 name = "fastwarc"
 version = "2.0.1"
-marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"test\" in dependency_groups or \"test-native\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.10"
 dependencies = [
     { name = "brotli" },
@@ -4863,7 +4864,7 @@ sha256 = "cccfdd665f0a24fcf4726e690f65639d272bb0637b9b92dfd91a5568ccf6bd06"
 [[packages]]
 name = "resiliparse"
 version = "2.0.1"
-marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"test\" in dependency_groups or \"test-native\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.8"
 dependencies = [
     { name = "fastwarc" },
@@ -6053,7 +6054,7 @@ sha256 = "ae4d223e6aadaff98d29b7f09e58d9c9ccf4cd3b455a2d2e0486d432cd8bf660"
 [[packages]]
 name = "tqdm"
 version = "4.70.1"
-marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"test\" in dependency_groups or \"test-native\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.8"
 dependencies = [
     { name = "colorama" },
@@ -6789,6 +6790,6 @@ platforms = [
 
 [tool.nab.validation]
 version = 1
-all-inputs-sha256 = "e9d6307e90740decd1a2f00a153be707d81cf742ba360345e48fc92351bc1ff8"
-selection-inputs-sha256 = "5b22dcf7be614d3db904147da877b4d78d2dd5a84de626f2464a81ac7a8b3e4b"
-contents-sha256 = "e1da4136d07b3d4e95e1d66b59ea952a31e85a5aaed41aa8ae589668475470a5"
+all-inputs-sha256 = "f0bed72471136c42e9d57e1b1f438b0a29566539cfd272e4b2194ad8dd92a524"
+selection-inputs-sha256 = "4a4967806d15b82150feb9a23dfda0a88ac1bbaa0575955c93ee74905ea85852"
+contents-sha256 = "690cf3cc1450a7c0b240ed3db7c1cd5901fe7ed79726051efc78bf82991d6412"
