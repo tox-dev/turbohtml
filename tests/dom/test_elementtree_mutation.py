@@ -132,9 +132,16 @@ def test_element_tree_tag_setter_changes_serialized_name(tree: ElementView) -> N
     assert tostring(tree, encoding="unicode") == "<div>start<strong>A</strong>one<b>B</b>two</div>"
 
 
-def test_element_tree_unwrap_requires_parent() -> None:
+@pytest.mark.parametrize(
+    "create",
+    [
+        pytest.param(etree.Element, id="constructed"),
+        pytest.param(lambda tag: etree.ElementView(Element(tag)), id="wrapped"),
+    ],
+)
+def test_element_tree_unwrap_requires_parent(create: Callable[[str], ElementView]) -> None:
     with pytest.raises(ValueError, match="parent"):
-        etree.Element("div").drop_tag()
+        create("div").drop_tag()
 
 
 def test_element_tree_itertext_joins_adjacent_text_nodes() -> None:

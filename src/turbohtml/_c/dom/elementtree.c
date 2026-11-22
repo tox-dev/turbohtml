@@ -12,6 +12,10 @@ typedef struct {
     PyObject *key;
 } view_cache_key;
 
+/* A fragment can hold the root's tail, which a DOM Document cannot. */
+#define TH_ETREE_DOCUMENT 0x10u
+#define TH_ETREE_CONSTRUCTED 0x20u
+
 static PyObject *view_wrap(module_state *state, PyObject *node);
 static int view_clear_refs(PyObject *self);
 static int view_root_clear(PyObject *self);
@@ -321,6 +325,23 @@ static int view_discard(PyObject *result) {
     return 0;
 }
 
+static int view_is_implicit_document(const th_node *node) {
+    return node->type == TH_NODE_CONTENT && (node->tag_flags & TH_ETREE_DOCUMENT) != 0;
+}
+
+TH_NODE_API(static, int, view_check_sibling_parent, (NodeObject * owner), (owner), (NodeObject * owner), owner, NULL) {
+    int parentless;
+    Py_BEGIN_CRITICAL_SECTION(owner->handle);
+    th_node *parent = owner->node->parent;
+    parentless = parent != NULL && view_is_implicit_document(parent) && (parent->tag_flags & TH_ETREE_CONSTRUCTED) != 0;
+    Py_END_CRITICAL_SECTION();
+    if (parentless) {
+        PyErr_SetString(PyExc_ValueError, "node has no parent");
+        return -1;
+    }
+    return 0;
+}
+
 TH_NODE_API(static, int, view_mark_holder, (NodeObject * holder), (holder), (NodeObject * holder), holder, NULL) {
     Py_BEGIN_CRITICAL_SECTION(holder->handle);
     holder->node->tag_flags |= TH_ELEM_TAIL_HOLDER;
@@ -559,7 +580,8 @@ static PyObject *view_replace(PyObject *self, PyObject *args) {
 }
 
 static PyObject *view_drop_tag(PyObject *self, PyObject *Py_UNUSED(ignored)) {
-    if (view_discard(node_unwrap((PyObject *)((ElementView *)self)->node, NULL)) < 0) {
+    NodeObject *owner = ((ElementView *)self)->node;
+    if (view_check_sibling_parent(owner) < 0 || view_discard(node_unwrap((PyObject *)owner, NULL)) < 0) {
         return NULL;
     }
     Py_RETURN_NONE;
@@ -604,7 +626,7 @@ TH_NODE_API(static, PyObject *, view_top, (NodeObject * owner, int element), (ow
     return result;
 }
 
-static PyObject *view_origin(NodeObject *node) {
+static PyObject *view_origin(NodeObject *node, int *remembered) {
     PyObject *top = view_top(node, 0);
     if (top == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return NULL;   /* GCOVR_EXCL_LINE: allocation failure */
@@ -619,11 +641,26 @@ static PyObject *view_origin(NodeObject *node) {
     if (origins != Py_None) {
         PyObject *origin = PyDict_GetItem(origins, top);
         if (origin != NULL) {
+            if (remembered != NULL) {
+                *remembered = 1;
+            }
             Py_SETREF(top, Py_NewRef(origin));
         }
     }
     Py_DECREF(origins);
     return top;
+}
+
+TH_NODE_API(static, PyObject *, view_first_element, (NodeObject * owner), (owner), (NodeObject * owner), owner, NULL) {
+    PyObject *result;
+    Py_BEGIN_CRITICAL_SECTION(owner->handle);
+    th_node *node = owner->node->first_child;
+    while (node != NULL && node->type != TH_NODE_ELEMENT) {
+        node = node->next_sibling;
+    }
+    result = node_wrap_locked(state_of((PyObject *)owner), owner->handle, node);
+    Py_END_CRITICAL_SECTION();
+    return result;
 }
 
 typedef struct {
@@ -656,12 +693,16 @@ static PyObject *view_root_getroot(PyObject *self, PyObject *Py_UNUSED(ignored))
 static PyObject *view_getroottree(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     NodeObject *node = ((ElementView *)self)->node;
     module_state *state = state_of((PyObject *)node);
-    PyObject *origin = view_origin(node);
+    PyObject *origin = view_origin(node, NULL);
     if (origin == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return NULL;      /* GCOVR_EXCL_LINE: allocation failure */
     }
     if (Py_IS_TYPE(origin, (PyTypeObject *)state->document_type)) {
         PyObject *root = PyObject_GetAttrString(origin, "root");
+        Py_DECREF(origin);
+        origin = root;
+    } else if (view_is_implicit_document(((NodeObject *)origin)->node)) {
+        PyObject *root = view_first_element((NodeObject *)origin);
         Py_DECREF(origin);
         origin = root;
     } else if (!Py_IS_TYPE(origin, (PyTypeObject *)state->element_type)) {
@@ -860,13 +901,20 @@ static PyObject *view_wrap_result(module_state *state, PyObject *result) {
 
 static PyObject *view_xpath_eval(ViewXPath *expression, ElementView *element, PyObject *variables) {
     module_state *state = state_of((PyObject *)element->node);
-    PyObject *node = expression->relative == NULL ? Py_NewRef((PyObject *)element->node) : view_origin(element->node);
+    int remembered = 0;
+    PyObject *node =
+        expression->relative == NULL ? Py_NewRef((PyObject *)element->node) : view_origin(element->node, &remembered);
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return NULL;    /* GCOVR_EXCL_LINE: allocation failure */
     }
-    PyObject *compiled = expression->relative != NULL && !Py_IS_TYPE(node, (PyTypeObject *)state->document_type)
-                             ? expression->relative
-                             : expression->compiled;
+    PyObject *compiled = expression->compiled;
+    if (expression->relative != NULL && !Py_IS_TYPE(node, (PyTypeObject *)state->document_type)) {
+        if (!view_is_implicit_document(((NodeObject *)node)->node)) {
+            compiled = expression->relative;
+        } else if (!remembered) {
+            Py_SETREF(node, Py_NewRef((PyObject *)element->node));
+        }
+    }
     PyObject *args = PyTuple_Pack(1, node);
     Py_DECREF(node);
     if (args == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
@@ -1021,7 +1069,7 @@ static int view_remember_origin(NodeObject *node) {
     }
     int status = 0;
     if (origins != Py_None) {
-        PyObject *origin = view_origin(node);
+        PyObject *origin = view_origin(node, NULL);
         /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
         status = origin == NULL ? -1 : PyDict_SetItem(origins, (PyObject *)node, origin);
         /* GCOVR_EXCL_BR_STOP */
@@ -1785,11 +1833,15 @@ static PyObject *view_addprevious(PyObject *self, PyObject *child) {
     if (node == NULL) {
         return NULL;
     }
+    NodeObject *owner = ((ElementView *)self)->node;
+    if (view_check_sibling_parent(owner) < 0) {
+        return NULL;
+    }
     PyObject *moving = view_moving_nodes(node);
     if (moving == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return NULL;      /* GCOVR_EXCL_LINE: allocation failure */
     }
-    int status = view_discard(node_insert_before((PyObject *)((ElementView *)self)->node, moving));
+    int status = view_discard(node_insert_before((PyObject *)owner, moving));
     Py_DECREF(moving);
     if (status < 0) {
         return NULL;
@@ -1803,6 +1855,9 @@ static PyObject *view_addnext(PyObject *self, PyObject *child) {
         return NULL;
     }
     NodeObject *owner = ((ElementView *)self)->node;
+    if (view_check_sibling_parent(owner) < 0) {
+        return NULL;
+    }
     PyObject *parent = PyObject_GetAttrString((PyObject *)owner, "parent");
     if (parent == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return NULL;      /* GCOVR_EXCL_LINE: allocation failure */
@@ -1898,6 +1953,23 @@ static PyObject *view_create(module_state *state, PyObject *tag, PyObject *attrs
     return node;
 }
 
+static int view_root_standalone(NodeObject *owner, uint8_t flags) {
+    th_node *document = th_tree_make_fragment(tree_of((PyObject *)owner));
+    if (document == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyErr_NoMemory();   /* GCOVR_EXCL_LINE: allocation failure */
+        return -1;          /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    document->tag_flags = (uint8_t)(TH_ETREE_DOCUMENT | flags);
+    th_node *node = owner->node;
+    do {
+        th_node *next = node->next_sibling;
+        th_node_remove(node);
+        th_node_append_child(document, node);
+        node = next;
+    } while (node != NULL);
+    return 0;
+}
+
 static PyObject *view_construct(module_state *state, PyObject *args, PyObject *kwargs) {
     PyObject *options = PyDict_New();
     PyObject *extra = kwargs == NULL ? PyDict_New() : PyDict_Copy(kwargs);
@@ -1943,7 +2015,14 @@ static PyObject *view_construct(module_state *state, PyObject *args, PyObject *k
 }
 
 static PyObject *view_element(PyObject *module, PyObject *args, PyObject *kwargs) {
-    return view_construct(PyModule_GetState(module), args, kwargs);
+    PyObject *result = view_construct(PyModule_GetState(module), args, kwargs);
+    if (result == NULL) {
+        return NULL;
+    }
+    if (view_root_standalone(((ElementView *)result)->node, TH_ETREE_CONSTRUCTED) < 0) { /* GCOVR_EXCL_BR_LINE: OOM */
+        Py_CLEAR(result); /* GCOVR_EXCL_LINE: allocation failure */
+    } /* GCOVR_EXCL_LINE: allocation failure */
+    return result;
 }
 
 static PyObject *view_makeelement(PyObject *self, PyObject *args, PyObject *kwargs) {
@@ -2972,7 +3051,7 @@ static PyObject *view_fragment_fromstring(PyObject *module, PyObject *args, PyOb
         } else {
             target = node_wrap(PyModule_GetState(module), owner->handle, only);
             /* GCOVR_EXCL_BR_START: the untested arms require allocation failure */
-            if (target != NULL && view_detach((NodeObject *)target, 1, 0) < 0) {
+            if (target != NULL && view_root_standalone((NodeObject *)target, 0) < 0) {
                 /* GCOVR_EXCL_BR_STOP */
                 Py_CLEAR(target); /* GCOVR_EXCL_LINE: allocation failure */
             } /* GCOVR_EXCL_LINE: allocation failure */

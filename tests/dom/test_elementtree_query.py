@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import operator
 import re
 from typing import TYPE_CHECKING, Final, cast
 
@@ -7,7 +8,16 @@ import pytest
 
 from turbohtml import Document, etree, parse
 from turbohtml.clean import Linkify, linkify_node
-from turbohtml.etree import Element, SubElement, XPath, document_fromstring, fragment_fromstring, fromstring, tostring
+from turbohtml.etree import (
+    Element,
+    SubElement,
+    XPath,
+    document_context,
+    document_fromstring,
+    fragment_fromstring,
+    fromstring,
+    tostring,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
@@ -61,6 +71,74 @@ def test_element_tree_absolute_root_xpath_returns_document() -> None:
 def test_element_tree_absolute_child_xpath_selects_root() -> None:
     tree: Final[ElementView] = document_fromstring("<p>text</p>")
     assert tree.find("/html") is tree
+
+
+@pytest.fixture(params=[pytest.param(False, id="constructed"), pytest.param(True, id="fragment")])
+def standalone_tree(request: pytest.FixtureRequest) -> ElementView:
+    if request.param:
+        return fragment_fromstring("<div><h1></h1><p><b></b></p></div>")
+    tree = Element("div")
+    SubElement(tree, "h1")
+    SubElement(SubElement(tree, "p"), "b")
+    return tree
+
+
+@pytest.mark.parametrize(
+    ("path", "select"),
+    [
+        pytest.param("/div", lambda tree: tree, id="root"),
+        pytest.param("//div", lambda tree: tree, id="root-descendant"),
+        pytest.param("//h1", operator.itemgetter(0), id="sibling"),
+        pytest.param("./b[//h1 and /div]", lambda tree: tree[1][0], id="absolute-in-predicate"),
+    ],
+)
+def test_element_tree_standalone_xpath(
+    standalone_tree: ElementView, path: str, select: Callable[[ElementView], ElementView]
+) -> None:
+    assert standalone_tree[1].xpath(path) == [select(standalone_tree)]
+
+
+def test_element_tree_standalone_xpath_preserves_relative_context(standalone_tree: ElementView) -> None:
+    assert XPath(".//h1 | //b")(standalone_tree[1]) == [standalone_tree[1][0]]
+
+
+def test_element_tree_standalone_root_keeps_tail(standalone_tree: ElementView) -> None:
+    standalone_tree.tail = "tail"
+    assert (standalone_tree.getparent(), tostring(standalone_tree, encoding="unicode")) == (
+        None,
+        "<div><h1/><p><b/></p></div>tail",
+    )
+
+
+def test_element_tree_standalone_xpath_tracks_reparenting(standalone_tree: ElementView) -> None:
+    Element("main").append(standalone_tree)
+    assert standalone_tree[1].xpath("/main/div") == [standalone_tree]
+
+
+def test_element_tree_standalone_xpath_remembers_document(standalone_tree: ElementView) -> None:
+    child = standalone_tree[1]
+
+    @document_context
+    def detach() -> tuple[ElementView, ElementView | None]:
+        standalone_tree.remove(child)
+        return child.getroottree().getroot(), child.find("//h1")
+
+    assert detach() == (standalone_tree, standalone_tree[0])
+
+
+@pytest.mark.parametrize("markup", [pytest.param("<b></b>", id="element"), pytest.param("", id="text-only")])
+def test_element_tree_remembered_fragment_root_tracks_unwrap(markup: str) -> None:
+    tree = fragment_fromstring(f"<div>text<p></p>{markup}</div>")
+    expected = tree.find("b")
+    child = tree[0]
+
+    @document_context
+    def unwrap() -> ElementView | None:
+        tree.remove(child)
+        tree.drop_tag()
+        return child.getroottree().getroot()
+
+    assert unwrap() is expected
 
 
 def test_element_tree_xpath_selects_unicode_name() -> None:
