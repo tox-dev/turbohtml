@@ -144,7 +144,7 @@ def test_element_tree_fragment_requires_one_element(markup: str, message: str) -
             '<div>A <template shadowrootmode="open"><p>B <template>C</template> D</p></template> E</div>',
             id="declarative-shadow-root",
         ),
-        pytest.param("document_fromstring", "<head><template><meta name=x>h</template></head>b", id="head"),
+        pytest.param("document_fromstring", "<head><template><meta name=x>h</template></head><p>b</p>", id="head"),
         pytest.param("fromstring", "<table><template><tr><td>1</td></tr></template></table>", id="table-content"),
         pytest.param("fromstring", "<div><template></template>t</div>", id="empty"),
         pytest.param("fragment_fromstring", "<template><b>x</b>y</template>", id="fragment"),

@@ -88,7 +88,10 @@ dev = [
 ]
 test = [
   "beautifulsoup4>=4.15",      # parses the documents the soupsieve selector oracle and the bs4 encoding check read
+  "chardet>=7.7",              # an encoding-detection oracle in tests/test_detect.py
+  "charset-normalizer>=3.5",   # an encoding-detection oracle in tests/test_detect.py
   "covdefaults>=2.3",
+  "cssselect>=1.6",            # the CSS-to-XPath oracle in tests/css/select/test_to_xpath.py
   "docutils>=0.22.4",          # render the docs bench-table directive in tests/test_bench_table_directive.py
   "elementpath>=5.1.4",        # the XPath 2.0 oracle the string-function differential test cross-checks against
   "html5lib>=1.1",             # compare HTML meaning before the native Markdown conversion
@@ -258,6 +261,11 @@ release-prepare = [
   "prek>=0.5",
   "release-creator>=4.4",
   "towncrier>=26.9",
+]
+# an encoding-detection oracle for tests/test_detect.py, installed only where it ships a wheel (none for 3.15, PyPy or
+# Windows ARM64), so no CI job builds it from source
+test-native = [
+  "faust-cchardet>=3.2; implementation_name=='cpython' and python_version<'3.15' and platform_machine!='ARM64'",
 ]
 
 [tool.uv]
