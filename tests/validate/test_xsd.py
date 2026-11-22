@@ -5334,7 +5334,7 @@ def test_lxml_numeric_facet_benchmark_output(index: int) -> None:
     assert [
         schema.validate(etree.fromstring(text.encode()))
         for text in (document, document.replace("</root>", "<unexpected/></root>"))
-    ] == [True, False]
+    ] == [index == 3 or etree.LIBXML_VERSION >= (2, 13), False]  # libxml2 2.13 lifted its 24-digit xs:decimal limit
 
 
 @pytest.mark.parametrize(
