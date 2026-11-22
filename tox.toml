@@ -434,7 +434,9 @@ description = """\
   run the vendored-oracle conformance suites in tests/conformance (the '🔬 conformance' CI job, not a per-PR gate)\
   """
 package = "skip"  # commands_pre installs a plain release editable build; no coverage instrumentation
-deps = []  # no gcovr: this is a pass/fail correctness gate, not a coverage gate (the matrix owns the 100% gate)
+# no gcovr: this is a pass/fail correctness gate, not a coverage gate (the matrix owns the 100% gate); lxml backs the
+# BeautifulSoup-over-lxml competitor the tree-transform suite compares against
+deps = [ "lxml>=6.1.3" ]
 dependency_groups = [ "test" ]
 pass_env = [ "PYTEST_*" ]
 commands_pre = [
