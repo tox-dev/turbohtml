@@ -790,6 +790,34 @@ def test_markdown_source_keeps_deep_list_paragraph() -> None:
 
 
 @pytest.mark.parametrize(
+    ("source", "markdown", "expected"),
+    [
+        pytest.param("<a href=x><ul><li><b>y<p>1</p></b></li></ul></a>", "[**y 1**](x)", None, id="one-run-in-link"),
+        pytest.param("<h1><blockquote><s>y<p>1</p></s></blockquote></h1>", "# ~~y 1~~", None, id="one-run-in-heading"),
+        pytest.param(
+            "<a href=x><ul><li><b>y<pre>c</pre>1</b></li></ul></a>", "[**y `c` 1**](x)", None, id="one-run-over-code"
+        ),
+        pytest.param(
+            "<a href=x><ul><li><b>y<p>1</p></b></li></ul></a>",
+            "[**y** **1**](x)",
+            "Markdown conversion changes meaning",
+            id="one-run-split",
+        ),
+        pytest.param(
+            "<a href=x><ul><li><b>y</b></li><li><b>1</b></li></ul></a>",
+            "[**y 1**](x)",
+            "Markdown conversion changes meaning",
+            id="two-runs-joined",
+        ),
+    ],
+)
+def test_markdown_oracle_flattens_spread_emphasis_as_one_run(source: str, markdown: str, expected: str | None) -> None:
+    # emphasis split around the blocks of a list item or quote is still one element when a link or heading puts those
+    # blocks on one line
+    assert markdown_html_check(source, lambda _node: markdown) == expected
+
+
+@pytest.mark.parametrize(
     ("data", "encoding", "sniff", "expected"),
     [
         pytest.param(b"<p>\xe9</p>", "windows-1252", False, "é", id="fixed"),
