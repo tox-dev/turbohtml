@@ -28,6 +28,7 @@ if TYPE_CHECKING:
         pytest.param("fromstring", (42,), id="snippet-type"),
         pytest.param("fragment_fromstring", (42,), id="fragment-type"),
         pytest.param("tostring", (42,), id="serialize-type"),
+        pytest.param("Element", (42,), id="element-type"),
         pytest.param("SubElement", (), id="child-missing-parent"),
         pytest.param("SubElement", (42,), id="child-parent-type"),
         pytest.param("strip_tags", (), id="unwrap-missing-tree"),
