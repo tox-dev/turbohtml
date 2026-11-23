@@ -1240,5 +1240,11 @@
       "kind": "repeat",
       "left": "42<wbr>"
     }
-  }
+  },
+  {"name": "stack-any-other-end-tag", "source": "https://github.com/tox-dev/turbohtml/blob/b1a08a2f5fc4f50b05523230961e78eb140caacd/src/turbohtml/_c/dom/tree.c#L3378-L3397", "targets": ["parse"], "base": 131072, "shape": {"kind": "repeat", "left": "</x><i>"}},
+  {"name": "stack-unknown-end-tag", "source": "https://github.com/tox-dev/turbohtml/blob/b1a08a2f5fc4f50b05523230961e78eb140caacd/src/turbohtml/_c/dom/tree.c#L3378-L3397", "targets": ["parse"], "base": 131072, "shape": {"kind": "repeat", "left": "</x><y>"}},
+  {"name": "stack-heading-past-html-mi", "source": "https://github.com/tox-dev/turbohtml/blob/b1a08a2f5fc4f50b05523230961e78eb140caacd/src/turbohtml/_c/dom/tree.c#L4561-L4575", "targets": ["parse"], "base": 131072, "shape": {"kind": "repeat", "left": "</h4><mi>"}},
+  {"name": "stack-scope-past-html-mi", "source": "https://github.com/tox-dev/turbohtml/blob/b1a08a2f5fc4f50b05523230961e78eb140caacd/src/turbohtml/_c/dom/tree.c#L827-L839", "targets": ["parse"], "base": 131072, "shape": {"kind": "repeat", "left": "</div><mi>"}},
+  {"name": "stack-list-item-start", "source": "https://github.com/tox-dev/turbohtml/blob/b1a08a2f5fc4f50b05523230961e78eb140caacd/src/turbohtml/_c/dom/tree.c#L4304-L4320", "targets": ["parse"], "base": 131072, "shape": {"kind": "repeat", "left": "<i><li></li>"}},
+  {"name": "stack-foreign-end-tag", "source": "https://github.com/tox-dev/turbohtml/blob/b1a08a2f5fc4f50b05523230961e78eb140caacd/src/turbohtml/_c/dom/foreign.h#L371-L392", "targets": ["parse"], "base": 131072, "shape": {"kind": "repeat", "head": "<svg>", "left": "<g></x>"}}
 ]

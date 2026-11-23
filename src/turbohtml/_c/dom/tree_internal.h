@@ -109,19 +109,31 @@ typedef struct th_attr_names th_attr_names;
 struct xp_ns_index;
 void xp_ns_index_free(struct xp_ns_index *index);
 
-/* A set of TH_TAG_* atoms as a bitmask, for the scope searches that skip stack blocks holding none of their atoms. */
-#define TH_ATOM_WORDS ((TH_TAG_XMP + 64) / 64)
+/* What a search of the open-element stack reads about entry i and the entries below it. Each link is the nearest
+   such entry at or below i, or -1 when there is none, so a search answers from the links of the top entry. */
 typedef struct {
-    uint64_t bits[TH_ATOM_WORDS];
-} th_atom_set;
+    Py_ssize_t special; /* an element of the special category: any other end tag stops there */
+    Py_ssize_t scope;   /* a default scope boundary */
+    Py_ssize_t barrier; /* a special element other than address, div and p: the li, dd and dt walks stop there */
+    Py_ssize_t html;    /* an HTML element: a foreign end tag hands over to the insertion mode there */
+    Py_ssize_t same;    /* the next entry below with the same name, strictly below i */
+    uint32_t hash;      /* where the name table places an entry it holds */
+    uint8_t named;      /* held by the name table: an HTML element without an atom, or a foreign element */
+} th_stack_link;
 
-/* The open-element stack entries in one TH_MAX_TREE_DEPTH-sized block: how many of each atom they hold, and the atoms
-   held at all. A search skips a block whose atoms miss its set, so a deep stack costs a search about one block per
-   TH_MAX_TREE_DEPTH entries instead of one per entry. */
+/* The stack index, built once the stack passes STACK_LAZY_INDEX entries. Every push and pop keeps it, so the scope
+   checks and the end-tag walks read the topmost entry of a name and the nearest boundary in O(1) on a stack of any
+   depth. */
 typedef struct {
-    uint16_t count[TH_TAG_XMP + 1];
-    th_atom_set present;
-} th_stack_block;
+    th_stack_link *links; /* one per open entry */
+    Py_ssize_t link_cap;
+    Py_ssize_t tops[TH_TAG_XMP + 1]; /* per atom, the topmost HTML element with it */
+    /* An HTML element without an atom matches an end tag by its name, and a foreign element by its ASCII-lowercased
+       name: open addressing from that name to the topmost entry holding it. -1 marks an empty slot and -2 one whose
+       entries all left, which stays taken until the table grows. */
+    Py_ssize_t *names;
+    Py_ssize_t name_cap, name_used, name_live;
+} th_stack_index;
 
 struct th_tree {
     struct xp_ns_index *ns_index; /* the XPath namespace index of an XML tree, built on first namespaced query */
@@ -141,10 +153,9 @@ struct th_tree {
     Py_ssize_t stack_slack; /* entries removed from the middle of the stack: each can stay an ancestor of the elements
                                above it, one DOM level the stack no longer counts */
     Py_ssize_t open_cap;
-    th_stack_block *open_blocks; /* per-block summaries of open, built once the stack passes one block; NULL before */
-    Py_ssize_t open_block_cap;
-    Py_ssize_t push_check_at; /* a push to this many entries or more runs the depth and block checks (see stack_push) */
-    int stack_tracked;        /* a template or block summary is on the stack, so a pop checks them */
+    th_stack_index *open_index; /* built once the stack passes STACK_LAZY_INDEX entries; NULL before */
+    Py_ssize_t push_check_at; /* a push to this many entries or more runs the depth and index checks (see stack_push) */
+    int stack_tracked;        /* a template is open or the stack index is built, so a pop checks them */
     Py_ssize_t nest_bound;    /* see th_tree_nest_bound; under TH_HAS_MEMO_DEPTH while no bound is known */
     th_node **afe;            /* active formatting elements; NULL entry is a scope marker */
     Py_ssize_t afe_len;

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Final
 
 import pytest
 
-from turbohtml import Element, Node, parse
+from turbohtml import Element, Node, parse, parse_fragment
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -211,3 +211,102 @@ def test_templates_count_toward_the_depth_cap(depth: int) -> None:
 def test_capped_element_the_option_copy_detaches_takes_appends(markup: str) -> None:
     # the option copy empties the selectedcontent, detaching the capped element still open below it
     assert not parse(markup).text
+
+
+# past the 64 open elements where the tree builder starts indexing its stack instead of walking it
+_INDEXED: Final[str] = "<x-open>" * 100
+
+
+@pytest.mark.parametrize(
+    ("markup", "inner"),
+    [
+        pytest.param("<div>a</div>b", "<div>a</div>b", id="scope-found"),
+        pytest.param("a</div>b", "ab", id="scope-missing"),
+        pytest.param(
+            "<div><table><td>a</div>b",
+            "<div><table><tbody><tr><td>ab</td></tr></tbody></table></div>",
+            id="scope-boundary",
+        ),
+        pytest.param("<ul><li>a</li>b</ul>", "<ul><li>a</li>b</ul>", id="list-item-found"),
+        pytest.param("<li><ul>a</li>b", "<li><ul>ab</ul></li>", id="list-item-boundary"),
+        pytest.param("a</li>b", "ab", id="list-item-missing"),
+        pytest.param(
+            "<table><tr><td>a</td>b", "b<table><tbody><tr><td>a</td></tr></tbody></table>", id="table-scope-found"
+        ),
+        pytest.param(
+            "<table><template><td>a</table>b",
+            "<table><template><td>ab</td></template></table>",
+            id="table-scope-boundary",
+        ),
+        pytest.param(
+            "<table><tr><td>a</th>b", "<table><tbody><tr><td>ab</td></tr></tbody></table>", id="table-scope-missing"
+        ),
+        pytest.param("<p>a</p>b", "<p>a</p>b", id="button-scope-found"),
+        pytest.param("<p>a<button>b</p>c", "<p>a<button>b<p></p>c</button></p>", id="button-scope-boundary"),
+        pytest.param(
+            "<table><td>a<select>b</select>c",
+            "<table><tbody><tr><td>a<select>b</select>c</td></tr></tbody></table>",
+            id="reset-cell",
+        ),
+        pytest.param("<select>a</select>b", "<select>a</select>b", id="reset-body"),
+        pytest.param("<h1>a</h4>b", "<h1>a</h1>b", id="heading-found"),
+        pytest.param(
+            "<h1><table><td>a</h1>b",
+            "<h1><table><tbody><tr><td>ab</td></tr></tbody></table></h1>",
+            id="heading-boundary",
+        ),
+        pytest.param("a</h2>b", "ab", id="heading-missing"),
+        # an HTML mi shares its name with a MathML scope boundary, but is no boundary itself
+        pytest.param("<h1><mi>a</h1>b", "<h1><mi>a</mi></h1>b", id="heading-past-html-mi"),
+        pytest.param("<span>a</span>b", "<span>a</span>b", id="end-tag-found"),
+        pytest.param("<y>a</y>b", "<y>a</y>b", id="end-tag-unknown-found"),
+        pytest.param("a</y>b", "ab", id="end-tag-unknown-missing"),
+        pytest.param("<y><div>a</y>b", "<y><div>ab</div></y>", id="end-tag-past-special"),
+        pytest.param("<li>a<li>b", "<li>a</li><li>b</li>", id="list-item-start-closes"),
+        pytest.param("<li><div>a<li>b", "<li><div>a</div></li><li>b</li>", id="list-item-start-past-div"),
+        pytest.param(
+            "<li><address>a<li>b", "<li><address>a</address></li><li>b</li>", id="list-item-start-past-address"
+        ),
+        pytest.param(
+            "<li><table><td>a<li>b",
+            "<li><table><tbody><tr><td>a<li>b</li></td></tr></tbody></table></li>",
+            id="list-item-start-barrier",
+        ),
+        pytest.param("<dd>a<dt>b", "<dd>a</dd><dt>b</dt>", id="definition-start-closes"),
+        pytest.param("<dt><div>a<dd>b", "<dt><div>a</div></dt><dd>b</dd>", id="definition-start-past-div"),
+        pytest.param("<svg><g>a</g>b", "<svg><g>a</g>b</svg>", id="foreign-end-tag-found"),
+        pytest.param("<svg><g>a</x>b", "<svg><g>ab</g></svg>", id="foreign-end-tag-missing"),
+        pytest.param(
+            "<svg><foreignObject>a</FOREIGNOBJECT>b",
+            "<svg><foreignObject>a</foreignObject>b</svg>",
+            id="foreign-end-tag-folds-case",
+        ),
+        pytest.param("<math><mi><svg>a</mi>b", "<math><mi><svg>a</svg></mi>b</math>", id="foreign-end-tag-to-html"),
+    ],
+)
+def test_indexed_stack_answers_as_the_walk(markup: str, inner: str) -> None:
+    assert parse(f"{_INDEXED}{markup}").find_all("x-open")[-1].inner_html == inner
+
+
+@pytest.mark.parametrize(
+    ("context", "tail", "inner"),
+    [
+        pytest.param("td", "<select>a</select>b", "<select>a</select>b", id="reset-to-context"),
+        pytest.param("svg svg", "a</x>b", "ab", id="foreign-root-ends-walk"),
+        pytest.param("svg svg", "a</svg>b", "ab", id="foreign-root-stays-open"),
+        pytest.param("svg svg", "a</g>b", "a</g>b", id="foreign-end-tag-pops"),
+    ],
+)
+def test_indexed_fragment_stack_answers_as_the_walk(context: str, tail: str, inner: str) -> None:
+    fragment = parse_fragment(f"{'<g>' * 100}{tail}", context)
+    assert fragment.inner_html == f"{'<g>' * 100}{inner}{'</g>' * (100 - inner.count('</g>'))}"
+
+
+@pytest.mark.parametrize("wrap", [pytest.param(("", ""), id="html"), pytest.param(("<svg>", "</svg>"), id="foreign")])
+def test_indexed_stack_matches_many_names(wrap: tuple[str, str]) -> None:
+    # nested names fill the name table and siblings leave it, so the end tags probe past other names and gone ones
+    opened = "".join(f"<n{index}>a" for index in range(300))
+    closed = "".join(f"</n{index}>b" for index in reversed(range(300)))
+    siblings = "".join(f"<s{index}>c</s{index}>d" for index in range(300))
+    markup = f"{wrap[0]}{opened}{closed}{siblings}{wrap[1]}"
+    assert parse(f"{_INDEXED}{markup}").find_all("x-open")[-1].inner_html == markup
