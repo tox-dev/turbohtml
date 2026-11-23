@@ -852,6 +852,16 @@ def test_minify_css_same_selector_identical_bodies(source: str, expected: str) -
             "@media a{.b{c:d}@media b{.a{x:y}}}",
             id="inside-media",
         ),
+        pytest.param(
+            ".a{x:y}@media print{.c{z:1}}.a{w:v}@media print{.c{z:1}}",
+            ".a{x:y;w:v}@media print{.c{z:1}}",
+            id="declarations-around-dropped-block-merge",
+        ),
+        pytest.param(
+            ".a{x:y}@media print{.c{z:1}}.b{x:y}.d{x:y}@media print{.c{z:1}}",
+            ".a,.b,.d{x:y}@media print{.c{z:1}}",
+            id="selectors-around-dropped-block-merge",
+        ),
         pytest.param(".a{color:red}.b{color:blue}.a{color:red}", ".a{color:red}.b{color:blue}.a{color:red}", id="rule"),
         pytest.param(
             "@media print{.a{x:y}}.b{c:d}@media print{.a{x:z}}",
