@@ -1908,7 +1908,8 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
     for (Py_ssize_t index = 0; index < items->len; index++) {
         rule_item *it = &items->items[index];
         if (!it->is_rule) {
-            if (!it->bang) {
+            /* a dropped block shares prev_live's storage with its text, so no rule may link to it */
+            if (!it->bang && !it->dropped) {
                 last_live = index;
             }
             continue;
@@ -2403,10 +2404,12 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
         css_nesting_leave(cur->vec); /* GCOVR_EXCL_LINE: allocation-failure path */
         return;                      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    css_merge_adjacent_rules(pool, &items, cur->baseline, cur->vec->depth);
+    /* a block dropped for its later copy no longer stands between the rules around it, so they merge in this pass and
+       not only when the output is minified again */
     if (!keyframe && blocks > 1) {
         css_drop_repeated_items(pool, &items);
     }
+    css_merge_adjacent_rules(pool, &items, cur->baseline, cur->vec->depth);
     int prev_at_statement = 0;
     /* Top-level stray text reads on through the bang comments and at-statements after it when reparsed, and a block
        after it is dropped with it, so only those can follow it. The reparse consumes a `;` between them as stray text

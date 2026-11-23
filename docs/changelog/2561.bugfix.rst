@@ -1,0 +1,2 @@
+``minify_css`` merges two rules with the same selector when an ``@media`` or ``@supports`` block it dropped for a later
+identical copy was the only thing between them. Before, only minifying the output a second time merged them.
