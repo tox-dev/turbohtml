@@ -465,6 +465,12 @@ def test_function_declaration_shares_binding_preserves_behavior(snippet: str) ->
         pytest.param("var a;function f(x){[a]=x}", "var a;function f(b){[a]=b}", id="top-level-var-only-written"),
         # a top-level binding nothing reads or writes has no reference a local of its name could capture
         pytest.param("var a;function f(x){return x}", "var a;function f(a){return a}", id="top-level-var-unreferenced"),
+        # an unread var declared in a loop or block hoists out through it, where a lexical binding of its name is a
+        # redeclaration
+        pytest.param("for(const v of x){var a}", "for(const b of x)var a", id="top-level-var-unreferenced-in-loop"),
+        pytest.param("{let v;{var a}v()}", "{let b;var a;b()}", id="top-level-var-unreferenced-in-block"),
+        # declared beside the block rather than inside it, the var does not pass through it
+        pytest.param("var a;{let v;v()}", "var a;{let a;a()}", id="top-level-var-unreferenced-beside-block"),
         pytest.param(
             "function a(){}function f(x){return x}a()",
             "function a(){}function f(b){return b}a()",

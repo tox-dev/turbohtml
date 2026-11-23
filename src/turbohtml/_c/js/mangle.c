@@ -2707,6 +2707,14 @@ void jm_analysis_free(jm_analysis *analysis) {
     }
 }
 
+/* Keep a binding's name out of the new names. */
+static void reserve_name(M *mangler, const jm_sym *kept) {
+    hslot *slot = htab_slot(&mangler->frees, kept->name, kept->name_len, 1);
+    if (slot != NULL) { /* GCOVR_EXCL_BR_LINE: the false branch is an allocation failure */
+        slot->val = 1;
+    }
+}
+
 /* Assign the shortest legal names to the surviving local bindings. Run once after compression settles;
    it changes no tree shape, only names. Skipped entirely under with/eval, where resolution is unsafe. */
 void jm_mangle(jm_program *prog, jm_analysis *settled) {
@@ -2734,10 +2742,15 @@ void jm_mangle(jm_program *prog, jm_analysis *settled) {
                 const jm_sym *kept = &prog->syms[sym];
                 if (kept->decl != 8 &&
                     (kept->pinned || (kept->scope == global && (kept->refs != 0 || kept->writes != 0)))) {
-                    hslot *slot = htab_slot(&mangler.frees, prog->syms[sym].name, prog->syms[sym].name_len, 1);
-                    if (slot != NULL) { /* GCOVR_EXCL_BR_LINE: the false branch is an allocation failure */
-                        slot->val = 1;
-                    }
+                    reserve_name(&mangler, kept);
+                }
+            }
+            /* An unread top-level var declared inside a block or catch body still hoists out through that scope, where
+               a renamed let, const or class of its name would be a redeclaration (ECMA-262 14.2.1.1). Its declaration
+               there is a crossing like any reference. */
+            for (int32_t at = 0; at < mangler.crossing_count; at += 2) {
+                if (prog->syms[mangler.crossings[at]].scope == global) {
+                    reserve_name(&mangler, &prog->syms[mangler.crossings[at]]);
                 }
             }
             assign_slots(&mangler, global);
