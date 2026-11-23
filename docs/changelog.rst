@@ -6,6 +6,28 @@
 
 .. towncrier release notes start
 
+.. _release-1-16-5:
+
+**********************
+ v1.16.5 (2026-11-23)
+**********************
+
+.. _release-1-16-5-fixed:
+
+Fixed
+=====
+
+- ``minify_css`` merges two rules with the same selector when an ``@media`` or ``@supports`` block it dropped for a
+  later identical copy was the only thing between them. Before, only minifying the output a second time merged them
+  (:pr:`2561`) by :user:`gaborbernat`.
+- ``minify_js`` with ``mangle`` no longer renames a ``let``, ``const`` or ``class`` onto the name of an unread top-level
+  ``var`` declared in the same loop or block, which wrote a redeclaration and so invalid JavaScript, such as ``for(const
+  a of x)var a``. A regression in 1.16.0 (:pr:`2562`) by :user:`gaborbernat`.
+- Parsing documents with many unclosed elements and stray end tags no longer takes quadratic time (:pr:`2564`) by
+  :user:`gaborbernat`.
+- Resolve absolute XPath expressions from the root of trees built with ``etree.Element`` or parsed as single-element
+  fragments with ``etree.fragment_fromstring`` (:pr:`2560`) by :user:`gaborbernat`.
+
 .. _release-1-16-4:
 
 **********************

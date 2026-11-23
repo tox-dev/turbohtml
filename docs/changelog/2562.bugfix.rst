@@ -1,3 +1,0 @@
-``minify_js`` with ``mangle`` no longer renames a ``let``, ``const`` or ``class`` onto the name of an unread top-level
-``var`` declared in the same loop or block, which wrote a redeclaration and so invalid JavaScript, such as ``for(const a
-of x)var a``. A regression in 1.16.0.
