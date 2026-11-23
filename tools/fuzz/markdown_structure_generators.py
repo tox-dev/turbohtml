@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import itertools
 import random
 import re
 from dataclasses import dataclass, field, replace
@@ -158,7 +159,8 @@ def _outermost(records: tuple[_Meaning, ...], inside: frozenset[str]) -> tuple[_
             output.extend(_outermost(children, inside))
         else:
             nested: Final[frozenset[str]] = inside | {tag} if tag in _EMPHASIS else inside
-            output.append(_Meaning(tag, attributes, _outermost(children, nested)))
+            # a run's key only ties the pieces of one element together; the run means its tag alone
+            output.append(_Meaning(tag, () if tag in _EMPHASIS else attributes, _outermost(children, nested)))
     return _merge(output)
 
 
@@ -196,15 +198,17 @@ def _spread(records: tuple[_Meaning, ...]) -> tuple[_Meaning, ...]:
         if record[0] not in _EMPHASIS or not _holds_block(record):
             output.append(record)
             continue
+        # the pieces share a key, so a line that flattens the blocks between them joins them back into one run
+        key: tuple[tuple[str, str], ...] = (("run", str(next(_RUNS))),)
         run: list[_Meaning] = []
         for child in _spread(record[2]):
             if child[0] in _FLOW_INLINE:
                 run.append(child)
                 continue
-            output.extend(_emphasis(record[0], tuple(run)))
+            output.extend(_emphasis(record[0], tuple(run), key))
             run = []
-            output.append(_emphasize_block(record[0], child))
-        output.extend(_emphasis(record[0], tuple(run)))
+            output.append(_emphasize_block(record[0], child, key))
+        output.extend(_emphasis(record[0], tuple(run), key))
     return tuple(output)
 
 
@@ -212,11 +216,11 @@ def _holds_block(record: _Meaning) -> bool:
     return any(child[0] not in _FLOW_INLINE or _holds_block(child) for child in record[2])
 
 
-def _emphasis(tag: str, children: tuple[_Meaning, ...]) -> tuple[_Meaning, ...]:
+def _emphasis(tag: str, children: tuple[_Meaning, ...], key: tuple[tuple[str, str], ...] = ()) -> tuple[_Meaning, ...]:
     if all(record[0] == "#text" and not record[1][0][1].strip(" \t\n\f\r") for record in children):
         return children  # a delimiter run cannot wrap whitespace alone (CommonMark 6.2)
     before, inner, after = _edges(children)
-    return (*before, *((_Meaning(tag, (), inner),) if inner else ()), *after)
+    return (*before, *((_Meaning(tag, key, inner),) if inner else ()), *after)
 
 
 def _edges(children: tuple[_Meaning, ...]) -> _Edges:
@@ -257,11 +261,11 @@ class _Edges(NamedTuple):
     after: list[_Meaning]
 
 
-def _emphasize_block(tag: str, record: _Meaning) -> _Meaning:
+def _emphasize_block(tag: str, record: _Meaning, key: tuple[tuple[str, str], ...]) -> _Meaning:
     if record[0] in {"p", "td", *_HEADINGS}:
-        return _Meaning(record[0], record[1], _emphasis(tag, record[2]))
+        return _Meaning(record[0], record[1], _emphasis(tag, record[2], key))
     if record[0] in {"blockquote", "li", "ul", "ol", "table", "tr"}:
-        return _Meaning(record[0], record[1], tuple(_emphasize_block(tag, child) for child in record[2]))
+        return _Meaning(record[0], record[1], tuple(_emphasize_block(tag, child, key) for child in record[2]))
     return record  # code holds literal text (CommonMark 4.5), and a rule or a boundary holds none
 
 
@@ -385,14 +389,14 @@ def _record(tag: str, element: _TreeNode, children: tuple[_Meaning, ...]) -> tup
         return (_Meaning(tag, (), _flow(children)),)
     if tag == "a":
         # link text holds inline content only (CommonMark 6.3), so its blocks flatten onto its line
-        return _link(_attributes(tag, element.attrib), _line(children, inline=True, breaks=True))
+        return _link(_attributes(tag, element.attrib), _line(children, inline=True, breaks=True, join=True))
     if tag in _HEADINGS or (
         tag == "td" and any(child[0] not in _FLOW_INLINE or _holds_block(child) for child in children)
     ):
         # a heading is one line of inline content (CommonMark 4.2), so its blocks and breaks flatten onto it as spaces;
         # a table cell holds inline content too (GFM 4.10), but a raw <br> keeps its break there, unless only blocks
         # that draw nothing follow it, which leaves it ending the cell
-        children = _block_end(_line(children, inline=False, breaks=tag == "td"))
+        children = _block_end(_line(children, inline=False, breaks=tag == "td", join=tag != "td"))
     return (_Meaning(tag, _attributes(tag, element.attrib), children),)
 
 
@@ -454,7 +458,7 @@ def _attributes(tag: str, attributes: dict[str, str]) -> tuple[tuple[str, str], 
     return tuple(sorted((({"src": "", "alt": ""} if tag == "img" else {}) | semantic).items()))
 
 
-def _line(records: tuple[_Meaning, ...], *, inline: bool, breaks: bool) -> tuple[_Meaning, ...]:
+def _line(records: tuple[_Meaning, ...], *, inline: bool, breaks: bool, join: bool) -> tuple[_Meaning, ...]:
     # blocks flatten onto one line as spaces, and so do hard breaks where the line cannot hold one; emphasis and links
     # keep their place on the line with their own content flattened
     space: Final[_Meaning] = _Meaning("#text", (("value", " "),), ())
@@ -463,9 +467,9 @@ def _line(records: tuple[_Meaning, ...], *, inline: bool, breaks: bool) -> tuple
         if record == _BOUNDARY or (record[0] == "br" and not breaks):
             flat.append(space)
         elif record[0] in _EMPHASIS:
-            flat.extend(_emphasis(record[0], _line(record[2], inline=True, breaks=breaks)))
+            flat.extend(_emphasis(record[0], _line(record[2], inline=True, breaks=breaks, join=join), record[1]))
         elif record[0] == "a":
-            flat.extend(_link(record[1], _line(record[2], inline=True, breaks=breaks)))
+            flat.extend(_link(record[1], _line(record[2], inline=True, breaks=breaks, join=join)))
         elif record[0] in _FLOW_INLINE:
             flat.append(record)
         elif record[0] == "pre":
@@ -477,8 +481,31 @@ def _line(records: tuple[_Meaning, ...], *, inline: bool, breaks: bool) -> tuple
                 space,
             ))
         else:
-            flat.extend((space, *_line(record[2], inline=False, breaks=breaks), space))
-    return _spacing(_merge(flat), preserve=False, inline=inline)
+            flat.extend((space, *_line(record[2], inline=False, breaks=breaks, join=join), space))
+    return _spacing(_merge(_rejoin(flat) if join else flat), preserve=False, inline=inline)
+
+
+def _rejoin(flat: list[_Meaning]) -> list[_Meaning]:
+    # link text and a heading write one element's emphasis as one run once the blocks it spread over share their line,
+    # the same as when they flatten those blocks before any spreading; a table cell writes each block's piece on its
+    # own, and both keep the meaning, as only the space standing in for the block break differs. Everything between
+    # the pieces came from inside that element.
+    output: Final[list[_Meaning]] = []
+    last: Final[dict[tuple[str, tuple[tuple[str, str], ...]], int]] = {}
+    for record in flat:
+        if record[0] not in _EMPHASIS or not record[1]:
+            output.append(record)
+            continue
+        joined: _Meaning = record
+        if (start := last.get((record[0], record[1]))) is not None:
+            inner: tuple[_Meaning, ...] = (*output[start][2], *output[start + 1 :], *record[2])
+            del output[start:]
+            for identity in [identity for identity, index in last.items() if index > start]:
+                del last[identity]
+            joined = _Meaning(record[0], record[1], _spacing(_merge(inner), preserve=False, inline=True))
+        last[record[0], record[1]] = len(output)
+        output.append(joined)
+    return output
 
 
 def _tree(node: Element) -> _TreeNode:
@@ -806,6 +833,8 @@ _ALLOWED: Final[frozenset[str]] = _INLINE_HOSTS | {
 # paragraph a non-blank line (4.8), a list an item (5.3) and a table a header cell (GFM 4.10)
 _CONTENT_REQUIRED: Final[frozenset[str]] = frozenset({"p", "strong", "em", "s", "code", "ul", "ol", "table", "tr"})
 _EMPHASIS: Final[frozenset[str]] = frozenset({"strong", "em", "s"})
+# tells the pieces of one split emphasis element from those of another
+_RUNS: Final[itertools.count[int]] = itertools.count()
 _BOUNDARY: Final[_Meaning] = _Meaning("#block", (), ())
 _HEADINGS: Final[frozenset[str]] = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
 # WHATWG Rendering 15.3.1 draws none of these; script and style hold code in every namespace
