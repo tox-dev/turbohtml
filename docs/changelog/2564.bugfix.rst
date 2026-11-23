@@ -1,0 +1,1 @@
+Parsing documents with many unclosed elements and stray end tags no longer takes quadratic time.

@@ -19,6 +19,7 @@ static void insert_text(th_tree *tree, Py_UCS4 *text, Py_ssize_t len);
 static Py_UCS4 *token_text(th_tree *tree, const th_token *token, Py_ssize_t *out_len);
 static uint16_t tok_atom(const th_token *tok);
 static int name_matches(const th_node *node, const th_token *token, int fold);
+static int foreign_end_tag_indexed(th_tree *tree, const th_token *token);
 static int all_whitespace(const Py_UCS4 *text, Py_ssize_t len);
 
 /* SVG element names that take a specific mixed case (the spec's "SVG element
@@ -371,6 +372,9 @@ static int foreign_step(th_tree *tree, th_token *token) {
     /* "any other end tag": walk up the stack, stop at the first HTML element and
        run the HTML rules there, or match a foreign element by case-insensitive name
        and pop to it; never pop the fragment context root */
+    if (tree->open_index != NULL) {
+        return foreign_end_tag_indexed(tree, token);
+    }
     for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
         th_node *node = tree->open[index];
         if (node->ns == TH_NS_HTML) {
