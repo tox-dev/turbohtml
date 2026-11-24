@@ -94,6 +94,21 @@ def typed(type_name: str) -> str:
     return f'<xs:schema {_XS}><xs:element name="v" type="{type_name}"/></xs:schema>'
 
 
+def test_xsd_simple_type_reports_stack_limit(
+    schema_stack_guard: Callable[[int | str], None],
+) -> None:  # pragma: no cover  # C coverage builds only
+    schema_stack_guard(2)
+    with pytest.raises(RecursionError, match="schema validation needs more C stack"):
+        check(typed("xs:string"), "<v>hello</v>")
+
+
+def test_schema_stack_guard_rejects_non_integer(
+    schema_stack_guard: Callable[[int | str], None],
+) -> None:  # pragma: no cover  # C coverage builds only
+    with pytest.raises(TypeError):
+        schema_stack_guard("invalid")
+
+
 @pytest.mark.parametrize(
     ("type_name", "value"),
     [

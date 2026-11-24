@@ -429,6 +429,7 @@ PyObject *turbohtml_work_steps(PyObject *module, PyObject *ignored);
 #ifdef TH_COVERAGE_FLUSH
 /* Implemented in core/coverage_flush.c: write this process's gcov counters to the .gcda files now and zero them. */
 PyObject *turbohtml_coverage_flush(PyObject *module, PyObject *ignored);
+PyObject *turbohtml_coverage_schema_stack_guard(PyObject *module, PyObject *guard);
 #endif
 
 /* Implemented in validate/conformance.c, the HTML5 authoring-conformance checker behind

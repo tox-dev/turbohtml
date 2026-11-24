@@ -1981,7 +1981,7 @@ static RNG_FORCEINLINE pattern *rng_text_deriv(th_schema *schema, pattern *p, co
 }
 
 static RNG_NOINLINE pattern *rng_text_walk(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len) {
-    if (schema_stack_low(schema)) {
+    if (SCHEMA_STACK_LOW(schema, SCHEMA_STACK_RELAXNG_TEXT)) {
         return schema->p_notallowed;
     }
     TH_WORK_STEP();

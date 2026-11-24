@@ -358,6 +358,7 @@ static PyMethodDef html_methods[] = {
 #endif
 #ifdef TH_COVERAGE_FLUSH
     {"_coverage_flush", turbohtml_coverage_flush, METH_NOARGS, NULL},
+    {"_coverage_schema_stack_guard", turbohtml_coverage_schema_stack_guard, METH_O, NULL},
 #endif
     {NULL, NULL, 0, NULL},
 };

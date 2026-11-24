@@ -1007,13 +1007,36 @@ typedef struct th_schema {
    returns its failure value and sets stack_exhausted, and the validation raises RecursionError as it unwinds. The
    helpers a walk calls over the tree it has just built take no check: each level costs them less stack than it cost
    the walk. */
-static inline int schema_stack_low(th_schema *schema) {
-    if (TH_FRAME_ADDRESS() < schema->stack_floor) {
+static inline int schema_stack_below(th_schema *schema, uintptr_t floor) {
+    if (TH_FRAME_ADDRESS() < floor) {
         schema->stack_exhausted = 1;
         return 1;
     }
     return 0;
 }
+
+#define schema_stack_low(schema) schema_stack_below((schema), (schema)->stack_floor)
+
+#ifdef TH_COVERAGE_FLUSH
+static TH_STACK_THREAD_LOCAL long coverage_stack_guard;
+
+PyObject *turbohtml_coverage_schema_stack_guard(PyObject *Py_UNUSED(module), PyObject *guard) {
+    const long selected = PyLong_AsLong(guard);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    coverage_stack_guard = selected;
+    Py_RETURN_NONE;
+}
+
+/* A synthetic floor makes these exits testable independently of the compiler's frame sizes. */
+#define SCHEMA_STACK_LOW(schema, guard)                                                                                \
+    schema_stack_below((schema), (schema)->stack_floor | ((uintptr_t)(coverage_stack_guard == (guard)) * UINTPTR_MAX))
+#else
+#define SCHEMA_STACK_LOW(schema, guard) schema_stack_low(schema)
+#endif
+
+enum { SCHEMA_STACK_RELAXNG_TEXT = 1, SCHEMA_STACK_XSD_SIMPLE_TYPE = 2 };
 
 /* Look up a schema element node's precomputed qname. schema_build_qname_cache enters every
    element node of the schema tree before any classification runs, and is_schema_el only ever

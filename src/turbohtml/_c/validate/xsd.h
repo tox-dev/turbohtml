@@ -1949,7 +1949,7 @@ static int xsd_check_union(valctx *ctx, th_node *node, const xfacet_entry *choic
 static int xsd_check_simple(valctx *ctx, th_node *node, int builtin_id, th_node *simpletype, const Py_UCS4 *value,
                             Py_ssize_t len, int item) {
     th_schema *schema = ctx->schema;
-    if (schema_stack_low(schema)) {
+    if (SCHEMA_STACK_LOW(schema, SCHEMA_STACK_XSD_SIMPLE_TYPE)) {
         return -1;
     }
     facetset builtin;
