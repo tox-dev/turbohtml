@@ -31,6 +31,17 @@ def wpt_html_tree_corpus() -> WptHtmlTreeCorpus:
     return load_wpt_html_tree()
 
 
+@pytest.fixture
+def schema_stack_guard() -> Iterator[Callable[[int | str], None]]:  # pragma: no cover  # C coverage builds only
+    setter = getattr(_html, "_coverage_schema_stack_guard", None)
+    if setter is None:
+        pytest.skip("requires C coverage instrumentation")
+    try:
+        yield setter
+    finally:
+        setter(0)
+
+
 @pytest.hookimpl(trylast=True)  # after the session-scoped fixtures tear down, still before xdist's workerfinished
 def pytest_sessionfinish(session: pytest.Session) -> None:
     # Fail the run if a C extension silently re-enabled the GIL on a free-threaded build.

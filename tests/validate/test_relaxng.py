@@ -79,6 +79,14 @@ def check(schema: str, xml: str) -> ValidationResult:
     return RelaxNG(schema).validate(parse_xml(xml))
 
 
+def test_rng_text_walk_reports_stack_limit(
+    schema_stack_guard: Callable[[int | str], None],
+) -> None:  # pragma: no cover  # C coverage builds only
+    schema_stack_guard(1)
+    with pytest.raises(RecursionError, match="schema validation needs more C stack"):
+        check(f'<element xmlns="{_RELAXNG_NS}" name="doc"><text/></element>', "<doc>hello</doc>")
+
+
 def wrap(body: str, *, attrs: str = "") -> str:
     return f'<element name="doc" xmlns="{_RELAXNG_NS}" {attrs}>{body}</element>'
 
