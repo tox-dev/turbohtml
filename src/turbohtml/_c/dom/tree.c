@@ -1209,6 +1209,9 @@ static th_node *build_element(th_tree *tree, const th_token *token) {
     }
     if (node->atom == TH_TAG_UNKNOWN) {
         node->text = buf_to_ucs4(tree, &token->name, &node->text_len);
+        if (tree->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
     } else {
         node->text = (Py_UCS4 *)th_tag_wide_name(node->atom);
         node->text_len = th_tag_table[node->atom - 1].name_len;
