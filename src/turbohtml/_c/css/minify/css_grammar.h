@@ -1829,8 +1829,13 @@ static uint64_t css_block_hash(const css_char *text, Py_ssize_t len) {
    wins over every rule in between: the cascade comes out the same without it. A list holding stray recovery text is
    left alone, as its reparse reads the rules after it, and so are keyframe lists, whose blocks are steps. */
 CSS_NOINLINE static void css_drop_repeated_items(css_buf *pool, rule_vec *items) {
+    /* Trailing empty recovery delimiters cannot affect the reparse. At least two blocks carry text. */
+    Py_ssize_t end = items->len;
+    while (!items->items[end - 1].is_rule && items->items[end - 1].text_len == 0) {
+        end--;
+    }
     size_t candidates = 0;
-    for (Py_ssize_t index = 0; index < items->len; index++) {
+    for (Py_ssize_t index = 0; index < end; index++) {
         if (items->items[index].stray) {
             return;
         }

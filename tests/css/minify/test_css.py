@@ -907,6 +907,11 @@ def test_minify_css_same_selector_identical_bodies(source: str, expected: str) -
             "@media p{a{b:c}}x{y:z}@media p{a{b:c}}foo",
             id="stray-list-kept",
         ),
+        pytest.param(
+            "@media p{a{b:c}}x{y:z}@media p{a{b:c}};}",
+            "x{y:z}@media p{a{b:c}}",
+            id="trailing-empty-recovery-delimiters",
+        ),
     ],
 )
 def test_minify_css_drops_block_repeated_later(source: str, expected: str) -> None:
