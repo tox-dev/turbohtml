@@ -6,6 +6,7 @@ import argparse
 import itertools
 import random
 import re
+from collections import Counter
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
@@ -127,23 +128,24 @@ def markdown_controls(*, html: bool = False) -> dict[str, bool]:
 
 def markdown_html_check(markup: str, render: Callable[[Node], str] = Node.to_markdown) -> str | None:
     # Compare source meaning because a stable conversion can lose HTML semantics.
-    expected: Final[tuple[_Meaning, ...]] = markdown_html_meaning(markup)
-    converted = _READER.render(render(parse_fragment(markup)))
-    if markdown_html_meaning(converted) == expected:
+    source = parse_fragment(markup)
+    expected = markdown_html_meaning(source)
+    converted = parse_fragment(_READER.render(render(source)))
+    if (actual := markdown_html_meaning(converted)) == expected or _reopened_link_meaning(markup, converted) == actual:
         return None
     # Count decoded text: an HTML character reference can carry the control the reader drops.
-    source_text = parse_fragment(markup).text
-    converted_text = parse_fragment(converted).text
+    source_text = source.text
+    converted_text = converted.text
     if any(converted_text.count(char) < source_text.count(char) for char in "\x0b\x1c\x1d\x1e\x1f\x85"):
         msg = "Markdown reader discards control whitespace at paragraph edges"
         raise MarkdownProfileError(msg)
     return "Markdown conversion changes meaning"
 
 
-def markdown_html_meaning(markup: str) -> tuple[_Meaning, ...]:
+def markdown_html_meaning(markup: str | Element) -> tuple[_Meaning, ...]:
     # Collapse reader HTML to the structure and text the Markdown oracle compares.
     # read the tree to_markdown converts, so a parser that lags the WHATWG tree builder cannot pose as a lost meaning
-    root: Final[Element] = parse_fragment(markup)
+    root = parse_fragment(markup) if isinstance(markup, str) else markup
     if any(sum(1 for _ in element.ancestors) > 128 for element in root.iter_elements()):
         msg = "HTML nesting exceeds the meaning model"
         raise MarkdownProfileError(msg)
@@ -538,6 +540,27 @@ class _TreeNode:
 
     def __iter__(self) -> Iterator[_TreeNode]:
         return iter(self.children)
+
+
+def _reopened_link_meaning(markup: str, converted: Element) -> tuple[_Meaning, ...] | None:
+    # A reopened link can run out of space for another copy of its destination.
+    root = parse_fragment(markup, source_locations=True)
+    links = [node for node in root.iter_elements("a") if node.attr("href") is not None]
+    missing = Counter(map(_link_identity, links)) - Counter(
+        _link_identity(node) for node in converted.iter_elements("a") if node.attr("href") is not None
+    )
+    if not missing:
+        return None
+    for node in reversed(links):
+        identity = _link_identity(node)
+        if node.source_location is None and missing[identity]:
+            del node.attrs["href"]
+            missing[identity] -= 1
+    return None if +missing else markdown_html_meaning(root)
+
+
+def _link_identity(node: Element) -> tuple[str, str]:
+    return _ATTRIBUTES_PATTERN.sub("", node.attr("href") or ""), node.attr("title") or ""
 
 
 class MarkdownProfileError(ValueError):
