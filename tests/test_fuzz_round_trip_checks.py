@@ -818,6 +818,21 @@ def test_markdown_oracle_flattens_spread_emphasis_as_one_run(source: str, markdo
 
 
 @pytest.mark.parametrize(
+    ("old", "new", "expected"),
+    [
+        pytest.param("One", "One", None, id="reopened-destination"),
+        pytest.param("Three", "Different", "Markdown conversion changes meaning", id="changed-text"),
+        pytest.param("[One]({href})", "One", "Markdown conversion changes meaning", id="missing-authored-link"),
+    ],
+)
+def test_markdown_oracle_accounts_for_lost_reopened_links(old: str, new: str, expected: str | None) -> None:
+    href = f"/{'a' * 550}"
+    source = f'<p><a href="{href}">One</p><p>Two</p><p>Three</p>'
+
+    assert markdown_html_check(source, lambda node: node.to_markdown().replace(old.format(href=href), new)) == expected
+
+
+@pytest.mark.parametrize(
     ("data", "encoding", "sniff", "expected"),
     [
         pytest.param(b"<p>\xe9</p>", "windows-1252", False, "é", id="fixed"),
